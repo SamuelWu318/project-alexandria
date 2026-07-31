@@ -1,8 +1,10 @@
 from data import MetadataParser, SceneParser
-import os, json, re, time, math
+import os, json, re, time, math, threading, shutil
+from concurrent.futures import ThreadPoolExecutor
+import openai
 from openai import OpenAI, pydantic_function_tool
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import Literal
 from pathlib import Path
 load_dotenv()
@@ -12,6 +14,10 @@ load_dotenv()
 
 CATALOG_PATH = "pg_catalog.csv"
 DATA_PATH = "data"
+CHECKPOINT_DIR = "checkpoints"
+# two consecutive chunks share one LLM call when their combined payload
+# (chars) stays under this ceiling. tunable knob; raise for more batching.
+BATCH_CHAR_LIMIT = 60000
 
 # --- model constants --- #
 
@@ -23,12 +29,14 @@ SYSTEM_PROMPT = """
     You label paragraphs by their index only, never rewriting or outputting the text directly.
 
     # INPUT
-    You will receive one JSON object:
+    You will receive EITHER one JSON object (a single section), OR a JSON array of two such objects (two sections batched into one call). Each section object has:
     - "chapter_title": the chapter the current section belongs to. use it as context for determining scenes/noise.
     - "section_within_chunk": "SECTION/TOTAL". SECTION is the 1-based index of the section within the chapter. (EX: 1/5 is FIRST SECTION, 5/5 is LAST SECTION) Use this to determine if some scenes were cut off during chunking.
     - "read_only_context_paragraphs": paragraphs from the PREVIOUS SECTION. Use it for additional context. They are never included in the output.
     - "number_of_indexed_paragraphs": number of paragraphs that MUST be segmented.
     - "indexed_paragraphs": the paragraphs themselves that MUST be segmented. Each is in form {"index": int, "text": str}. Ignore inline HTML, reason only about the words.
+
+    When the input is an array of two sections, segment BOTH. Paragraph indices are globally unique across sections (they never repeat), so return ONE flat scenes_data list covering every indexed paragraph from every section, in ascending index order. Two adjacent sections may hold a single scene that spans the boundary between them: because their paragraphs are contiguous, emit it as ONE scene instead of splitting it with open flags. open_start_index / open_end_index still refer only to continuation BEYOND all paragraphs present in this call (the FIRST section's read_only_context on the start side, the LAST section's final paragraph on the end side).
 
     # TASK
     Return, via the output_scenes tool, an ordered list of segmented scenes covering every paragraph in "indexed_paragraphs".
@@ -47,10 +55,11 @@ SYSTEM_PROMPT = """
     - segments in sections that are not the first or last section will always have open_start_index and open_end_index set to False.
     - segments that are considered noise will always have open_start_index and open_end_index set to False.
     - tool-call output_scenes, and output nothing else.
-    - attempt to keep scenes between 3-5 paragraphs. But if there is dialogue, an extended scene, a shortened scenee, etc, do not feel restricted to only 3-5 paragraphs. 
+    - attempt to keep scenes between 200-600 words. Do not feel restricted if a scene goes on longer or ends shorter, use best judgement to determine scene cut-off points.
 
     # EXAMPLE 1
     -- input --
+    {
     "chapter_title": "A Mad Tea-Party",
     "section_within_chunk": "1/1",
     "read_only_context_paragraphs": [],
@@ -60,6 +69,7 @@ SYSTEM_PROMPT = """
     { "index": 2, "text": "They moved round the table, and Alice, quite exhausted, walked off into the wood."},
     { "index": 3, "text": "[7] 'Mad as a hatter' predates Carroll; hatters were poisoned by mercury."}
     ]
+    }
     -- output_scenes --
     {"scenes_data": [
         {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "Tea with the Hatter and Hare"},
@@ -70,6 +80,7 @@ SYSTEM_PROMPT = """
 
     # EXAMPLE 2
     -- input --
+    {
     "chapter_title": "BOOK IV",
     "section_within_chunk": "2/3",
     "read_only_context_paragraphs": [
@@ -81,6 +92,7 @@ SYSTEM_PROMPT = """
     { "index": 10, "text": "The tale done, Telemachus rose to take his leave."},
     { "index": 11, "text": "\"Brothers!\" Telemachus announced."}
     ]
+    }
     -- output_scenes --
     {"scenes_data":[
         {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "open_start_index": True, "open_end_index": False, "title": "Menelaus finishes his tale"},
@@ -89,6 +101,38 @@ SYSTEM_PROMPT = """
 
     Reasoning: section is 2/3, so both open_start_index and open_end_index can be True. Using the read_only_context_paragraphs, we can see the first scene extends backward, so we set open_start_index to be True.
     Looking at the last scene available, it is obvious that the scene continues past that point, so we set open_end_index to be True. We also only use indices 9-11, as 7-8 are read_only_context_paragraphs.
+
+    # EXAMPLE 3 (two sections batched in one call)
+    -- input --
+    [
+      {
+        "chapter_title": "Chapter 5",
+        "section_within_chunk": "1/2",
+        "read_only_context_paragraphs": [],
+        "indexed_paragraphs": [
+          { "index": 20, "text": "Rain hammered the inn roof as the traveler stamped in from the dark."},
+          { "index": 21, "text": "He took the corner seat and called for wine, watching the door."}
+        ]
+      },
+      {
+        "chapter_title": "Chapter 5",
+        "section_within_chunk": "2/2",
+        "read_only_context_paragraphs": [
+          { "index": 21, "text": "He took the corner seat and called for wine, watching the door."}
+        ],
+        "indexed_paragraphs": [
+          { "index": 22, "text": "When it opened, the woman he had followed for a year stepped through."},
+          { "index": 23, "text": "[3] The inn still stands today, rebuilt after the fire of 1812."}
+        ]
+      }
+    ]
+    -- output_scenes --
+    {"scenes_data":[
+        {"start_paragraph_index": 20, "end_paragraph_index": 22, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "The traveler waits at the inn"},
+        {"start_paragraph_index": 23, "end_paragraph_index": 23, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
+    ]}
+
+    Reasoning: two sections of the same chapter arrive together. Indices 20-23 are globally unique and contiguous, so they are covered exactly once, in ascending order, by ONE flat list. The scene that opens at 20 continues across the section boundary (21 into 22) into the second section, so it is emitted as ONE scene (20-22), NOT split with open flags. Index 23 is a footnote = noise. Although the sections are labeled 1/2 and 2/2, both are present in this call so nothing continues beyond the batch: every open flag is False.
     """
 
 class MultiSceneData(BaseModel):
@@ -116,13 +160,32 @@ with open("test/test.json", "r") as f:
     TEST_CHUNK = json.dumps(json.load(f), ensure_ascii=False)
 
 
+def _classify_error(e: Exception) -> str:
+    # "transient": network/429/5xx -> worth retrying with backoff.
+    # "validation": model returned bad/unparseable tool args -> retry a few times, bump temp.
+    # "fatal": 4xx (400/401/403 etc.) -> retrying won't help, raise now.
+    if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError)):
+        return "transient"
+    if isinstance(e, openai.APIStatusError):
+        return "transient" if (e.status_code == 429 or e.status_code >= 500) else "fatal"
+    if isinstance(e, (ValueError, ValidationError, json.JSONDecodeError)):
+        return "validation"
+    return "validation"  # unknown -> treat as limited-retry, not infinite
+
+
 class SceneBreaker:
-    def break_chunk(self, chunk: str, max_retries: int = 10):
+    def break_chunk(self, chunk: str, max_transient_retries: int = 6,
+                    max_validation_retries: int = 3):
+        transient_tries = 0
+        validation_tries = 0
         last_err = None
-        for attempt in range(max_retries):
+        attempt = 0  # drives temp bump across all retries
+
+        while True:
             # temp 0, increase if attempts fail
             temp = 0 if attempt == 0 else math.log(attempt ** 0.15) + 0.15
             try:
+                print("Sending chunk...")
                 response = CLIENT.chat.completions.create(
                     model=MODEL, temperature=temp, tools=[TOOL],
                     messages=[
@@ -131,7 +194,7 @@ class SceneBreaker:
                     ],
                     tool_choice={"type": "function", "function": {"name": "output_scenes"}},
                     extra_body={"provider":{"require_parameters":True},
-                                "reasoning": {"effort": "low"}}
+                                "reasoning": {"effort": "medium"}}
                 )
 
                 choices = response.choices
@@ -142,11 +205,78 @@ class SceneBreaker:
                 return MultiSceneData.model_validate_json(args)
 
             except Exception as e:
+                kind = _classify_error(e)
                 last_err = e
-                print(f"  break_chunk retry {attempt + 1}/{max_retries}: {e}")
-                time.sleep(min(2 ** attempt, 30))
 
-        raise RuntimeError(f"break_chunk failed after {max_retries} tries: {last_err}")
+                if kind == "fatal":
+                    raise RuntimeError(f"break_chunk fatal (no retry): {e}") from e
+
+                if kind == "transient":
+                    transient_tries += 1
+                    if transient_tries > max_transient_retries:
+                        raise RuntimeError(
+                            f"break_chunk transient failure after "
+                            f"{max_transient_retries} retries: {e}") from e
+                    sleep = min(2 ** transient_tries, 30)
+                    print(f"  transient retry {transient_tries}/{max_transient_retries} "
+                          f"(sleep {sleep}s): {e}")
+                    time.sleep(sleep)
+                else:  # validation
+                    validation_tries += 1
+                    if validation_tries > max_validation_retries:
+                        raise RuntimeError(
+                            f"break_chunk validation failure after "
+                            f"{max_validation_retries} retries: {e}") from e
+                    print(f"  validation retry {validation_tries}/"
+                          f"{max_validation_retries}: {e}")
+                    time.sleep(1)
+
+                attempt += 1
+
+def _load_checkpoint(path: Path):
+    # returns cached MultiSceneData, or None if missing/corrupt (recompute).
+    if not path.exists():
+        return None
+    try:
+        return MultiSceneData.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_checkpoint(path: Path, data: MultiSceneData):
+    # atomic: write temp then rename, so a crash mid-write can't leave partial json.
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(data.model_dump_json(), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def build_batches(chunks, char_limit: int = BATCH_CHAR_LIMIT):
+    # greedily pair CONSECUTIVE chunks into one LLM call when their combined
+    # payload stays under char_limit; otherwise a chunk goes alone. Deterministic
+    # for a given book, so checkpoint keys stay stable across runs.
+    batches = []
+    i = 0
+    while i < len(chunks):
+        a = chunks[i]
+        if i + 1 < len(chunks):
+            b = chunks[i + 1]
+            if len(a.scene_payload()) + len(b.scene_payload()) <= char_limit:
+                batches.append((a, b))
+                i += 2
+                continue
+        batches.append((a,))
+        i += 1
+    return batches
+
+
+def _batch_payload(batch) -> str:
+    # single chunk -> bare section object (matches EXAMPLES 1-2).
+    # two chunks   -> JSON array of two sections (EXAMPLE 3).
+    sections = [json.loads(c.scene_payload()) for c in batch]
+    if len(sections) == 1:
+        return json.dumps(sections[0], ensure_ascii=False)
+    return json.dumps(sections, ensure_ascii=False)
+
 
 def parsers():
     path = Path(DATA_PATH)
@@ -239,25 +369,64 @@ def main():
     sb = SceneBreaker()
 
     desired_book = []
-    desired = "11"
-    for code, book in books.items():
-        if code != desired: continue
-        for chunk in book.chunks:
-            data = sb.break_chunk(chunk.scene_payload())
-            print(f"**** CHUNK {chunk.chunk_index} VERIFIED ****")
+    desired = "10084"
+    book = books[desired]
+    print_lock = threading.Lock()
+
+    ckpt_dir = Path(CHECKPOINT_DIR) / f"pg{desired}"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    def work(batch):
+        # one batch = 1 or 2 consecutive chunks answered by one LLM call
+        key = "_".join(str(c.chunk_index) for c in batch)
+        label = f"CHUNK {key}" if len(batch) == 1 else f"CHUNKS {key}"
+        cpath = ckpt_dir / f"chunk-{key}.json"
+
+        # resume: skip batches already segmented in a prior run
+        cached = _load_checkpoint(cpath)
+        if cached is not None:
+            with print_lock:
+                print(f"**** {label} CACHED (skip LLM) ****")
+            return cached
+
+        data = sb.break_chunk(_batch_payload(batch))
+        _save_checkpoint(cpath, data)  # persist before printing, so it survives a crash
+
+        # print as each batch finishes, real-time
+        with print_lock:
+            print(f"**** {label} VERIFIED ****")
             for scene in data.scenes_data:
-                if scene.paragraph_type == "noise" or scene.title == "NOISE": 
-                    print(f"scene from chunk {chunk.chunk_index} marked as noise")
+                if scene.paragraph_type == "noise" or scene.title == "NOISE":
+                    print(f"scene from {label} marked as noise")
                     continue
-                print(f"scene from chunk {chunk.chunk_index} passed")
-                desired_book.append(scene)
+                print(f"scene from {label} passed")
+                print(f"scene open? {scene.open_end_index} on end, {scene.open_start_index} on start.")
+        return data
+
+    batches = build_batches(book.chunks)
+
+    # up to 6 concurrent LLM calls; results ordered by batch (book) position
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(work, batches))
+
+    # ordered scene collection (silent)
+    for data in results:
+        for scene in data.scenes_data:
+            if scene.paragraph_type == "noise" or scene.title == "NOISE":
+                continue
+            desired_book.append(scene)
 
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
-    out_path = Path("test/pg11-scenes.json")
+    out_path = Path(f"test/pg{desired}-s.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"wrote {len(records)} scenes to {out_path}")
+
+    # book fully saved: drop its checkpoints, no longer needed for resume
+    shutil.rmtree(ckpt_dir, ignore_errors=True)
+
+
 
 if __name__ == "__main__":
     main()

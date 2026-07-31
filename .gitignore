@@ -8,3 +8,5 @@ data
 .claude
 .venv
 __pycache__
+checkpoints
+scenes

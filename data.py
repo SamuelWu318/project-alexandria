@@ -18,8 +18,8 @@ BOILERPLATE_SELECTORS = ["#pg-header", "#pg-footer",
 CHAPTER_SELECTOR = "div.chapter"                        # chapter selectors to break into chunks
 HEADING_TAGS = ["h1", "h2", "h3", "h4"]                 # identify the start of segments/chapters 
 MIN_SEGMENT_CHARS = 200                                 # guaranteed to not be prose; at least 200 chars
-TARGET_CHARS = 24000                                    # about a maximum of 6k tokens for each chunk
-OVERLAP_PARAGRAPHS = 4                                  # number of paragraphs to look back to
+TARGET_CHARS = 40000                                    # about a maximum of 6k tokens for each chunk
+OVERLAP_PARAGRAPHS = 3                                  # number of paragraphs to look back to
 KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # keep for text rendering with html 
              "u", "small", "br"}          
 
