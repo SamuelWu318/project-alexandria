@@ -1,4 +1,5 @@
-import os, json, re, time
+from data import MetadataParser, SceneParser
+import os, json, re, time, math
 from openai import OpenAI, pydantic_function_tool
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -6,7 +7,6 @@ from typing import Literal
 from pathlib import Path
 load_dotenv()
 
-from data import MetadataParser, SceneParser, Book, Chunk, Paragraph
 
 # --- metadata parser constants --- #
 
@@ -120,9 +120,8 @@ class SceneBreaker:
     def break_chunk(self, chunk: str, max_retries: int = 10):
         last_err = None
         for attempt in range(max_retries):
-            # temp 0 first (deterministic best shot); if it fails to emit a
-            # valid tool call, bump temp so a retry actually differs.
-            temp = 0 if attempt == 0 else 0.25
+            # temp 0, increase if attempts fail
+            temp = 0 if attempt == 0 else math.log(attempt ** 0.15) + 0.15
             try:
                 response = CLIENT.chat.completions.create(
                     model=MODEL, temperature=temp, tools=[TOOL],
@@ -178,16 +177,14 @@ def parsers():
 
 
 def scenes_to_records(file_code, scenes, book, metadata):
-    # global paragraph lookup: every kept paragraph is owned by exactly one
-    # chunk, indices are book-wide and contiguous, so union covers all.
+    # get all text at all indices and their chapter title
     text_of, chapter_of = {}, {}
     for chunk in book.chunks:
         for p in chunk.paragraphs:
             text_of[p.index] = p.text
             chapter_of[p.index] = chunk.chapter_heading
 
-    # stitch scenes split across chunk boundaries. a chunk's first scene with
-    # open_start continues the previous chunk's last scene (open_end). merge.
+    # stitch scenes across chunks
     merged = []
     for s in scenes:
         if s.open_start_index and merged and merged[-1]["_open_end"]:
@@ -198,8 +195,7 @@ def scenes_to_records(file_code, scenes, book, metadata):
         else:
             start = s.start_paragraph_index
             status = "complete"
-            # open_start with no open_end tail to attach to: fall back to
-            # pulling one paragraph back (comment: "go back 1 paragraph").
+            # connect open_start_index with open_end_index, otherwise connect 1 paragraph
             if s.open_start_index:
                 start = max(0, start - 1)
                 status = "broken_stitch"       # head with no matching tail
@@ -211,13 +207,12 @@ def scenes_to_records(file_code, scenes, book, metadata):
                 "status": status,
             })
 
-    # leftover open_end = scene claims to continue but nothing merged onto it
-    # (next chunk's head missed the open_start). potential broken stitch.
+    # no open_start_index; mark as broken
     for m in merged:
         if m["_open_end"]:
             m["status"] = "broken_stitch"
 
-    PARA_BREAK = "\n\n"   # blank line between stitched paragraphs = real paragraph break
+    PARA_BREAK = "\n\n"
     records = []
     for i, m in enumerate(merged):
         start, end = m["start"], m["end_paragraph_index"]
@@ -233,8 +228,8 @@ def scenes_to_records(file_code, scenes, book, metadata):
             "end_paragraph_index": end,
             "text": text,
             "book_metadata": metadata,
-            "summary": None,   # LLM fills later; this string gets vector-embedded
-            "tags": [],        # LLM fills later
+            "summary": None,   # second phase LLM fills later
+            "tags": [],        # second phase LLM fills later
         })
 
     return records
@@ -257,9 +252,6 @@ def main():
                 print(f"scene from chunk {chunk.chunk_index} passed")
                 desired_book.append(scene)
 
-    # book11 = ordered SceneData, noise removed. SceneData indices are global,
-    # book-wide, so text is pulled by direct paragraph-index lookup. scenes_to_records
-    # stitches chunk-split scenes and attaches book metadata + empty summary/tags slots.
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
     out_path = Path("test/pg11-scenes.json")
