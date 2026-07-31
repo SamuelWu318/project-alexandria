@@ -1,5 +1,6 @@
 from data import MetadataParser, SceneParser
 import os, json, re, time, math, threading, shutil
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI, pydantic_function_tool
@@ -14,10 +15,11 @@ load_dotenv()
 
 CATALOG_PATH = "pg_catalog.csv"
 DATA_PATH = "data"
+SCENES_PATH = "scenes"
 CHECKPOINT_DIR = "checkpoints"
 # two consecutive chunks share one LLM call when their combined payload
 # (chars) stays under this ceiling. tunable knob; raise for more batching.
-BATCH_CHAR_LIMIT = 60000
+BATCH_CHAR_LIMIT = 45000
 
 # --- model constants --- #
 
@@ -25,7 +27,7 @@ MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 SYSTEM_PROMPT = """
     # ROLE
     You segment one chunk of a book chapter into either: 
-    scenes of prose, or: noise from leftover html/licenses/footnotes/chapter titles/non-prose/headers.
+    scenes of prose/dialogue, or: noise from leftover html/licenses/footnotes/chapter titles/non-prose/headers.
     You label paragraphs by their index only, never rewriting or outputting the text directly.
 
     # INPUT
@@ -162,23 +164,60 @@ with open("test/test.json", "r") as f:
 
 def _classify_error(e: Exception) -> str:
     # "transient": network/429/5xx -> worth retrying with backoff.
-    # "validation": model returned bad/unparseable tool args -> retry a few times, bump temp.
     # "fatal": 4xx (400/401/403 etc.) -> retrying won't help, raise now.
     if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError)):
         return "transient"
     if isinstance(e, openai.APIStatusError):
         return "transient" if (e.status_code == 429 or e.status_code >= 500) else "fatal"
-    if isinstance(e, (ValueError, ValidationError, json.JSONDecodeError)):
-        return "validation"
-    return "validation"  # unknown -> treat as limited-retry, not infinite
+    return "transient"  # unknown network-ish -> limited retry
+
+
+def _expected_indices(payload: str) -> set[int]:
+    # every index in indexed_paragraphs across all sections in the payload.
+    # (read_only_context_paragraphs are NOT expected in the output.)
+    obj = json.loads(payload)
+    sections = obj if isinstance(obj, list) else [obj]
+    return {p["index"] for s in sections for p in s.get("indexed_paragraphs", [])}
+
+
+def _validate_coverage(data: MultiSceneData, expected: set[int]):
+    # runs BEFORE noise extraction, so EVERY expected index must be covered
+    # exactly once. returns (ok, human-readable reason for the model).
+    covered = []
+    for s in data.scenes_data:
+        covered.extend(range(s.start_paragraph_index, s.end_paragraph_index + 1))
+    counts = Counter(covered)
+    cset = set(covered)
+
+    missing = sorted(expected - cset)
+    extra = sorted(cset - expected)
+    dupes = sorted(i for i, n in counts.items() if n > 1)
+
+    if not (missing or extra or dupes):
+        return True, ""
+
+    parts = []
+    if missing:
+        parts.append(f"MISSING indices never covered by any scene: {missing}")
+    if dupes:
+        parts.append(f"DUPLICATE/overlapping indices covered more than once: {dupes}")
+    if extra:
+        parts.append(f"indices NOT in the input: {extra}")
+    return False, "; ".join(parts)
 
 
 class SceneBreaker:
     def break_chunk(self, chunk: str, max_transient_retries: int = 6,
                     max_validation_retries: int = 3):
+        expected = _expected_indices(chunk)
+        # conversation is kept across retries so corrective feedback (below) is
+        # appended to real history instead of restarting cold each attempt.
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": chunk},
+        ]
         transient_tries = 0
         validation_tries = 0
-        last_err = None
         attempt = 0  # drives temp bump across all retries
 
         while True:
@@ -188,50 +227,63 @@ class SceneBreaker:
                 print("Sending chunk...")
                 response = CLIENT.chat.completions.create(
                     model=MODEL, temperature=temp, tools=[TOOL],
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": chunk},
-                    ],
+                    messages=messages,
                     tool_choice={"type": "function", "function": {"name": "output_scenes"}},
                     extra_body={"provider":{"require_parameters":True},
-                                "reasoning": {"effort": "medium"}}
+                                "reasoning": {"effort": "high"}}
                 )
-
-                choices = response.choices
-                if not choices or not choices[0].message.tool_calls:
-                    raise ValueError("no tool_call in response")
-
-                args = choices[0].message.tool_calls[0].function.arguments
-                return MultiSceneData.model_validate_json(args)
-
             except Exception as e:
-                kind = _classify_error(e)
-                last_err = e
-
-                if kind == "fatal":
+                # only API/network failures land here; parse/coverage handled below
+                if _classify_error(e) == "fatal":
                     raise RuntimeError(f"break_chunk fatal (no retry): {e}") from e
-
-                if kind == "transient":
-                    transient_tries += 1
-                    if transient_tries > max_transient_retries:
-                        raise RuntimeError(
-                            f"break_chunk transient failure after "
-                            f"{max_transient_retries} retries: {e}") from e
-                    sleep = min(2 ** transient_tries, 30)
-                    print(f"  transient retry {transient_tries}/{max_transient_retries} "
-                          f"(sleep {sleep}s): {e}")
-                    time.sleep(sleep)
-                else:  # validation
-                    validation_tries += 1
-                    if validation_tries > max_validation_retries:
-                        raise RuntimeError(
-                            f"break_chunk validation failure after "
-                            f"{max_validation_retries} retries: {e}") from e
-                    print(f"  validation retry {validation_tries}/"
-                          f"{max_validation_retries}: {e}")
-                    time.sleep(1)
-
+                transient_tries += 1
+                if transient_tries > max_transient_retries:
+                    raise RuntimeError(
+                        f"break_chunk transient failure after "
+                        f"{max_transient_retries} retries: {e}") from e
+                sleep = min(2 ** transient_tries, 30)
+                print(f"  transient retry {transient_tries}/{max_transient_retries} "
+                      f"(sleep {sleep}s): {e}")
+                time.sleep(sleep)
                 attempt += 1
+                continue
+
+            # inspect the response: no tool_call -> bad args -> incomplete coverage
+            choices = response.choices
+            msg = choices[0].message if choices else None
+            echo = None       # what the model produced, echoed back into history
+            correction = None  # what it did wrong, told to the model
+
+            if not msg or not msg.tool_calls:
+                echo = (msg.content if msg else "") or "(empty response, no tool call)"
+                correction = ("You did NOT call the output_scenes tool. You must respond "
+                              "ONLY with a call to output_scenes and nothing else.")
+            else:
+                args = msg.tool_calls[0].function.arguments
+                echo = args
+                try:
+                    data = MultiSceneData.model_validate_json(args)
+                except (ValidationError, json.JSONDecodeError, ValueError) as e:
+                    correction = (f"Your output_scenes arguments failed schema validation: {e}. "
+                                  f"Return arguments that exactly match the schema.")
+                else:
+                    ok, why = _validate_coverage(data, expected)
+                    if ok:
+                        return data
+                    correction = (f"Your segmentation did not cover the paragraphs correctly. {why}. "
+                                  f"Every index in indexed_paragraphs must be covered EXACTLY once, "
+                                  f"in ascending order, no gaps and no overlaps. Redo the full segmentation.")
+
+            # a correction is set: append to history and retry with the feedback
+            validation_tries += 1
+            if validation_tries > max_validation_retries:
+                raise RuntimeError(
+                    f"break_chunk validation failure after "
+                    f"{max_validation_retries} retries: {correction}")
+            print(f"  validation retry {validation_tries}/{max_validation_retries}: {correction[:140]}")
+            messages.append({"role": "assistant", "content": str(echo)})
+            messages.append({"role": "user", "content": correction})
+            attempt += 1
 
 def _load_checkpoint(path: Path):
     # returns cached MultiSceneData, or None if missing/corrupt (recompute).
@@ -369,7 +421,7 @@ def main():
     sb = SceneBreaker()
 
     desired_book = []
-    desired = "10084"
+    desired = "11"
     book = books[desired]
     print_lock = threading.Lock()
 
@@ -409,24 +461,29 @@ def main():
     with ThreadPoolExecutor(max_workers=6) as ex:
         results = list(ex.map(work, batches))
 
-    # ordered scene collection (silent)
+    # ordered scene collection (silent). count paragraphs dropped as noise.
+    kept_paras, noise_paras = 0, 0
     for data in results:
         for scene in data.scenes_data:
+            span = scene.end_paragraph_index - scene.start_paragraph_index + 1
             if scene.paragraph_type == "noise" or scene.title == "NOISE":
+                noise_paras += span
                 continue
+            kept_paras += span
             desired_book.append(scene)
+
+    print(f"NOISE: dropped {noise_paras} paragraphs as noise; kept {kept_paras} "
+          f"({noise_paras + kept_paras} total covered)")
 
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
-    out_path = Path(f"test/pg{desired}-s.json")
+    out_path = Path(f"{SCENES_PATH}/pg{desired}-s.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"wrote {len(records)} scenes to {out_path}")
 
     # book fully saved: drop its checkpoints, no longer needed for resume
     shutil.rmtree(ckpt_dir, ignore_errors=True)
-
-
 
 if __name__ == "__main__":
     main()
