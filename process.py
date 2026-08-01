@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI, pydantic_function_tool
 from dotenv import load_dotenv
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field, field_validator
 from typing import Literal
+from enum import Enum
 from pathlib import Path
 load_dotenv()
 
@@ -17,53 +18,92 @@ CATALOG_PATH = "pg_catalog.csv"
 DATA_PATH = "data"
 SCENES_PATH = "scenes"
 CHECKPOINT_DIR = "checkpoints"
-# two consecutive chunks share one LLM call when their combined payload
-# (chars) stays under this ceiling. tunable knob; raise for more batching.
-BATCH_CHAR_LIMIT = 32000
 
 # --- model constants --- #
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 SYSTEM_PROMPT = """
     # ROLE
-    You segment one section of a book chapter into either: 
-    scenes of prose/dialogue, or: noise from leftover html/licenses/footnotes/chapter titles/non-prose/headers.
-    You label paragraphs by their index only, never rewriting or outputting the text directly.
+    You split one book section into an ordered list of segments. Each segment is either:
+    - "scene": story prose or dialogue.
+    - "noise": non-story text — leftover HTML, licenses, footnotes, captions, table-of-contents, chapter titles, headers.
+    Label paragraphs by index ONLY. Never rewrite or output the paragraph text.
 
     # INPUT
-    You will receive EITHER one JSON object (a single section), OR a JSON array of two such objects (two sections batched into one call). Each section object has:
-    - "chapter_title": the chapter the current section belongs to. use it as context for determining scenes/noise.
-    - "section_within_chunk": "SECTION/TOTAL". SECTION is the 1-based index of the section within the chapter. (EX: 1/5 is FIRST SECTION, 5/5 is LAST SECTION) Use this to determine if some scenes were cut off during chunking.
-    - "read_only_context_paragraphs": paragraphs from the PREVIOUS SECTION. Use it for additional context. They are never included in the output.
-    - "number_of_indexed_paragraphs": number of paragraphs that MUST be segmented.
-    - "indexed_paragraphs": the paragraphs themselves that MUST be segmented. Each is in form {"index": int, "text": str}. Ignore inline HTML, reason only about the words.
+    You receive one JSON object (one section). It has:
+    - "chapter_title": the chapter this section belongs to. Context for judging scene vs noise.
+    - "section_within_chunk": "N/TOTAL" — this section's 1-based position in the chapter (1/5 = first, 5/5 = last). Use it to tell whether a scene was cut off at a section edge.
+    - "read_only_context_paragraphs": paragraphs from the PREVIOUS section, for context only. Never segment or output them.
+    - "number_of_indexed_paragraphs": how many paragraphs you must segment.
+    - "indexed_paragraphs": the paragraphs to segment, each {"index": int, "text": str}. Ignore inline HTML; reason only about the words.
 
-    When the input is two or more sections, segment ALL, treating it like one big section. Return only ONE scenes_data list, 
-    and instead of using open_start_index or open_end_index, just output each scene as if the sections are together; open_start_index and open_end_index are reserved for the edges of the first and last sections.
+    The open flags are ONLY for beyond this section — before the first index, after the last.
 
     # TASK
-    Return, via the output_scenes tool, an ordered list of segmented scenes covering every paragraph in "indexed_paragraphs".
+    Call output_scenes with an ordered list of segments that covers every paragraph in "indexed_paragraphs" exactly once — ascending, no gaps, no overlaps.
 
-    # OUTPUT 
-    - start_paragraph_index: inclusive start index range for a scene from "indexed_paragraphs".
-    - end_paragraph_index: inclusive end index range for a scene from "indexed_paragraphs".
-    - paragraph_type: "scene" is story prose unified by ONE emotional beat with ONE dominant tone/feeling. A scene builds and turns. A scene is one feeling or idea, start to finish. Reason if a scene 
-    - paragraph_type: "noise" contains anything not related to the story: footnotes, captions, table-of-contents, licenses, HEADERS, etc.
-    - open_start_index: True ONLY if segment is FIRST "SCENE" segment, ONLY when TOTAL SECTIONS > 1, and ONLY if part of the scene is contained within "read_only_context_paragraphs". Otherwise, False.
-    - open_end_index: True ONLY if segment is LAST "SCENE" segment, ONLY when TOTAL SECTIONS > 1, and ONLY if the scene obviously continues past the last paragraph. Otherwise, False.
-    - title: a short, 4-10 word title for the scene. if noise, label it as "NOISE". 
+    # OUTPUT (per segment)
+    - start_paragraph_index / end_paragraph_index: inclusive index range, drawn from "indexed_paragraphs".
+    - paragraph_type: "scene" or "noise".
+    - title: 4-10 words naming the scene; "NOISE" for noise.
+    - open_start_index: True only for the FIRST scene, and only when its opening lies in "read_only_context_paragraphs" (the scene began in an earlier section). Otherwise False.
+    - open_end_index: True only for the LAST scene, and only when it clearly continues past the final indexed paragraph (into a later section). Otherwise False.
+    - Noise segments and interior scenes (any scene that is neither first nor last) always have both flags False.
+
+    # HOW TO CUT A SCENE
+    A scene is ONE flavor: a single dominant tone/feeling, held from first line to last. TONAL PURITY IS THE HIGHEST PRIORITY — A scene never holds two feelings. The moment the dominant tone shifts, the scene ENDS and a new one begins.
+    - PRIMARY seam 1: cut the instant the tone/feeling shifts drastically. This outranks every other consideration. 
+    - PRIMARY seam 2: Treat size as equally important as tone; overly long scenes often hide two tones, overly short scenes cannot contain full tonal flavor. Aim for 300-600 words; ABSOLUTE floor ~250, ABSOLUTE ceiling ~800 words. 
+    - SECONDARY seam: only when the tone holds steady across a long size do you cut where pov, setting, time, or the active conversation changes.
 
     # RULES
-    - only segment "indexed_paragraphs".
-    - cover every index in "indexed_paragraphs" exactly once, in ascending order, no gaps, no overlaps. The first scene/noise segment begins at the smallest index; the last scene/noise segment the largest.
-    - segments in sections that are not the first or last section will always have open_start_index and open_end_index set to False.
-    - segments that are considered noise will always have open_start_index and open_end_index set to False.
-    - tool-call output_scenes, and output nothing else.
-    - Here is how to cut scenes:
-        - PRIMARY FOCUS: cut a scene when the emotional register / tone shifts. This outranks all others.
-        - SECONDARY FOCUS: cut when the tone is steady but a scene changes: pov, setting, time-jump, new conversation, etc.
-        - SIZE: Follow TONE over word count. Try to aim for 500-1000 words, hard cap at around 1600, but never split a scene preemptively. Unified tone > broken scenes.
+    - Segment only "indexed_paragraphs". The first segment starts at the smallest index; the last ends at the largest.
+    - Call output_scenes and output nothing else.
+    - ALWAYS first search for NOISE, as removing NOISE is the most important part.
 
+    # EXAMPLE 1 (text is replaced with basic overview for example only)
+        -- input --
+        {
+        "chapter_title": "A Dreadful Chapter",
+        "section_within_chunk": "1/1",
+        "read_only_context_paragraphs": [],
+        "indexed_paragraphs": [
+        { "index": 0, "text": "paragraph about building dread"},
+        { "index": 1, "text": "paragraph about dread tension"},
+        { "index": 2, "text": "paragraph about dread being realized"},
+        { "index": 3, "text": "****** TABLE OF CONTENTS ***** Footnote: blah blah blah"}
+        ]
+        }
+        -- output_scenes --
+        {"scenes_data": [
+            {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "title about dread"},
+            {"start_paragraph_index": 3, "end_paragraph_index": 3, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
+        ]}
+        Reasoning: section is 1/1 — one whole chapter, no cut-off scenes. Index 3 is a footnote = noise. Indices 0-3 are each covered once.
+    
+        # EXAMPLE 2 (text is replaced with basic overview for example only)
+        -- input --
+        {
+        "chapter_title": "BOOK IV",
+        "section_within_chunk": "2/3",
+        "read_only_context_paragraphs": [
+        { "index": 7, "text": "paragraph about the beginning of a story"},
+        { "index": 8, "text": "paragraph about the middle of a story"}
+        ],
+        "indexed_paragraphs": [
+        { "index": 9, "text": "paragraph about the end of a story"},
+        { "index": 10, "text": "paragraph about someone leaving the room."},
+        { "index": 11, "text": "paragraph about the beginning of a conversation."}
+        ]
+        }
+        -- output_scenes --
+        {"scenes_data":[
+            {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "open_start_index": True, "open_end_index": False, "title": "title about the story"},
+            {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "open_start_index": False, "open_end_index": True, "title": "title about the conversation"}
+        ]}
+        Reasoning: section is 2/3. The first scene's opening lies in read_only_context_paragraphs, so open_start_index is True. Lump in index 10 because it is transitional, doesn't hurt. The last scene clearly continues past index 11, so open_end_index is True. Only indices 9-11 are segmented; 7-8 are context.
+        """
+"""
     # EXAMPLE 1
     -- input --
     {
@@ -82,8 +122,7 @@ SYSTEM_PROMPT = """
         {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "Tea with the Hatter and Hare"},
         {"start_paragraph_index": 3, "end_paragraph_index": 3, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
     ]}
-
-    Reasoning: section is 1/1, so this is one whole chapter with no broken scenes. The paragraph at index 3 is noise. Looking at the indices, 0-3 indices are covered exactly once.
+    Reasoning: section is 1/1 — one whole chapter, no cut-off scenes. Index 3 is a footnote = noise. Indices 0-3 are each covered once.
 
     # EXAMPLE 2
     -- input --
@@ -103,43 +142,9 @@ SYSTEM_PROMPT = """
     -- output_scenes --
     {"scenes_data":[
         {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "open_start_index": True, "open_end_index": False, "title": "Menelaus finishes his tale"},
-        {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "open_start_index": False, "open_end_index": True, "title": "Telemachus speaks to his brothers"},
+        {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "open_start_index": False, "open_end_index": True, "title": "Telemachus speaks to his brothers"}
     ]}
-
-    Reasoning: section is 2/3, so both open_start_index and open_end_index can be True. Using the read_only_context_paragraphs, we can see the first scene extends backward, so we set open_start_index to be True.
-    Looking at the last scene available, it is obvious that the scene continues past that point, so we set open_end_index to be True. We also only use indices 9-11, as 7-8 are read_only_context_paragraphs.
-
-    # EXAMPLE 3 (two sections batched in one call)
-    -- input --
-    [
-      {
-        "chapter_title": "Chapter 5",
-        "section_within_chunk": "1/2",
-        "read_only_context_paragraphs": [],
-        "indexed_paragraphs": [
-          { "index": 20, "text": "Rain hammered the inn roof as the traveler stamped in from the dark."},
-          { "index": 21, "text": "He took the corner seat and called for wine, watching the door."}
-        ]
-      },
-      {
-        "chapter_title": "Chapter 5",
-        "section_within_chunk": "2/2",
-        "read_only_context_paragraphs": [
-          { "index": 21, "text": "He took the corner seat and called for wine, watching the door."}
-        ],
-        "indexed_paragraphs": [
-          { "index": 22, "text": "When it opened, the woman he had followed for a year stepped through."},
-          { "index": 23, "text": "[3] The inn still stands today, rebuilt after the fire of 1812."}
-        ]
-      }
-    ]
-    -- output_scenes --
-    {"scenes_data":[
-        {"start_paragraph_index": 20, "end_paragraph_index": 22, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "The traveler waits at the inn"},
-        {"start_paragraph_index": 23, "end_paragraph_index": 23, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
-    ]}
-
-    Reasoning: two sections of the same chapter arrive together. Indices 20-23 are globally unique and contiguous, so they are covered exactly once. The scene that opens at 20 continues across chunk, so it is emitted as ONE scene (20-22), NOT split with open flags. Index 23 is a footnote = noise.
+    Reasoning: section is 2/3. The first scene's opening lies in read_only_context (paras 7-8), so open_start_index is True. The last scene clearly continues past index 11, so open_end_index is True. Only indices 9-11 are segmented; 7-8 are context.
     """
 
 class MultiSceneData(BaseModel):
@@ -159,6 +164,90 @@ TOOL = pydantic_function_tool(
     name="output_scenes",
     description="Force return of scenes in structure."
 )
+
+
+# ---- (enrichment) tags -----------------------------------------
+# Rigid flavor tags for the goal: fetch scenes by emotional FLAVOR, then inject
+# that flavor into the user's own prose. A scene is ONE tone (see HOW TO CUT), so
+# these tags describe exactly ONE dominant feeling. The enrichment LLM call fills
+# a SceneTags on the fully-stitched scene text; a record holds None until then.
+
+class Tone(str, Enum):
+    # CONTROLLED VOCABULARY — the single dominant feeling of a scene. This is the
+    # rigid facet Mode-1 search filters on and the pair Mode-2 transitions are
+    # built from. Edit this palette to retune search; keep values lowercase.
+    DREAD = "dread"
+    TERROR = "terror"
+    MENACE = "menace"
+    SUSPENSE = "suspense"
+    UNEASE = "unease"
+    GRIEF = "grief"
+    MELANCHOLY = "melancholy"
+    DESPAIR = "despair"
+    LONELINESS = "loneliness"
+    TENDERNESS = "tenderness"
+    LOVE = "love"
+    LONGING = "longing"
+    NOSTALGIA = "nostalgia"
+    BITTERSWEET = "bittersweet"
+    JOY = "joy"
+    DELIGHT = "delight"
+    WONDER = "wonder"
+    AWE = "awe"
+    SERENITY = "serenity"
+    WHIMSY = "whimsy"
+    COMEDY = "comedy"
+    SATIRE = "satire"
+    IRONY = "irony"
+    RAGE = "rage"
+    DEFIANCE = "defiance"
+    TRIUMPH = "triumph"
+    SHAME = "shame"
+    DISGUST = "disgust"
+
+
+class Intensity(str, Enum):
+    LOW = "low"            # a faint wash of the feeling, mostly beneath the surface
+    MODERATE = "moderate"  # clearly present, colours the scene
+    HIGH = "high"          # the feeling dominates every line
+
+
+class Valence(str, Enum):
+    DARK = "dark"          # negative / oppressive
+    MIXED = "mixed"        # ambivalent (e.g. bittersweet, ironic)
+    LIGHT = "light"        # positive / uplifting
+
+
+class SceneTags(BaseModel):
+    # STANDARD: exactly ONE dominant_tone (a scene is one flavor), ONE intensity,
+    # ONE valence, and 1-3 lowercase modern descriptor adjectives. The enums are
+    # the rigid search facets; `descriptors` carries modern vocabulary so a vibe
+    # query ("claustrophobic dread") still matches 1865 prose that never says it.
+    dominant_tone: Tone
+    intensity: Intensity
+    valence: Valence
+    descriptors: list[str] = Field(
+        min_length=1, max_length=3,
+        description="1-3 lowercase modern adjectives for the flavor, e.g. "
+                    "['creeping', 'claustrophobic', 'suffocating'].",
+    )
+
+    @field_validator("descriptors")
+    @classmethod
+    def _normalize(cls, v: list[str]) -> list[str]:
+        cleaned = [d.strip().lower() for d in v if d and d.strip()]
+        if not (1 <= len(cleaned) <= 3):
+            raise ValueError("descriptors must have 1-3 non-empty items")
+        return cleaned
+
+
+TAGS_TOOL = pydantic_function_tool(
+    SceneTags,
+    name="output_tags",
+    description="Return the rigid single-tone flavor tags for ONE scene.",
+)
+# -----------------------------------------------------------------------------
+
 CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_KEY"],
@@ -178,11 +267,10 @@ def _classify_error(e: Exception) -> str:
 
 
 def _expected_indices(payload: str) -> set[int]:
-    # every index in indexed_paragraphs across all sections in the payload.
+    # every index in indexed_paragraphs for the section.
     # (read_only_context_paragraphs are NOT expected in the output.)
     obj = json.loads(payload)
-    sections = obj if isinstance(obj, list) else [obj]
-    return {p["index"] for s in sections for p in s.get("indexed_paragraphs", [])}
+    return {p["index"] for p in obj.get("indexed_paragraphs", [])}
 
 
 def _validate_coverage(data: MultiSceneData, expected: set[int]):
@@ -235,7 +323,7 @@ class SceneBreaker:
                     messages=messages,
                     tool_choice={"type": "function", "function": {"name": "output_scenes"}},
                     extra_body={"provider":{"require_parameters":True},
-                                "reasoning": {"effort": "medium"}}
+                                "reasoning": {"effort": "high"}}
                 )
             except Exception as e:
                 # only API/network failures land here; parse/coverage handled below
@@ -307,34 +395,6 @@ def _save_checkpoint(path: Path, data: MultiSceneData):
     os.replace(tmp, path)
 
 
-def build_batches(chunks, char_limit: int = BATCH_CHAR_LIMIT):
-    # greedily pair CONSECUTIVE chunks into one LLM call when their combined
-    # payload stays under char_limit; otherwise a chunk goes alone. Deterministic
-    # for a given book, so checkpoint keys stay stable across runs.
-    batches = []
-    i = 0
-    while i < len(chunks):
-        a = chunks[i]
-        if i + 1 < len(chunks):
-            b = chunks[i + 1]
-            if len(a.scene_payload()) + len(b.scene_payload()) <= char_limit:
-                batches.append((a, b))
-                i += 2
-                continue
-        batches.append((a,))
-        i += 1
-    return batches
-
-
-def _batch_payload(batch) -> str:
-    # single chunk -> bare section object (matches EXAMPLES 1-2).
-    # two chunks   -> JSON array of two sections (EXAMPLE 3).
-    sections = [json.loads(c.scene_payload()) for c in batch]
-    if len(sections) == 1:
-        return json.dumps(sections[0], ensure_ascii=False)
-    return json.dumps(sections, ensure_ascii=False)
-
-
 def parsers():
     path = Path(DATA_PATH)
     
@@ -399,15 +459,19 @@ def scenes_to_records(file_code, scenes, book, metadata):
         if m["_open_end"]:
             m["status"] = "broken_stitch"
 
-    PARA_BREAK = "\n\n"
+    PARA_BREAK = "</p><p>"
+    last = len(merged) - 1
     records = []
     for i, m in enumerate(merged):
         start, end = m["start"], m["end_paragraph_index"]
-        text = PARA_BREAK.join(
-            text_of[j].strip() for j in range(start, end + 1) if j in text_of
-        )
+        text = "<p>" + PARA_BREAK.join(text_of[j].strip() for j in range(start, end + 1) if j in text_of) + "</p>"
+        # neighbor pointers: scenes are contiguous + book-ordered, so prev/next by
+        # index power the small-to-big fetch (grab surrounding scenes after a hit)
+        # and let Mode-2 transitions be built as a join over adjacent pairs.
         records.append({
             "scene_id": f"{file_code}-{i}",
+            "prev_scene_id": f"{file_code}-{i-1}" if i > 0 else None,
+            "next_scene_id": f"{file_code}-{i+1}" if i < last else None,
             "chapter_title": chapter_of.get(start),
             "scene_title": m["title"],
             "stitch_status": m["status"],   # complete | stitched | broken_stitch
@@ -415,8 +479,8 @@ def scenes_to_records(file_code, scenes, book, metadata):
             "end_paragraph_index": end,
             "text": text,
             "book_metadata": metadata,
-            "summary": None,   # second phase LLM fills later
-            "tags": [],        # second phase LLM fills later
+            "summary": None,   # one-line flavor summary, enrichment LLM fills later
+            "tags": None,      # SceneTags, enrichment (second-phase) LLM fills later
         })
 
     return records
@@ -433,23 +497,23 @@ def main():
     ckpt_dir = Path(CHECKPOINT_DIR) / f"pg{desired}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    def work(batch):
-        # one batch = 1 or 2 consecutive chunks answered by one LLM call
-        key = "_".join(str(c.chunk_index) for c in batch)
-        label = f"CHUNK {key}" if len(batch) == 1 else f"CHUNKS {key}"
+    def work(chunk):
+        # one chunk answered by one LLM call
+        key = str(chunk.chunk_index)
+        label = f"CHUNK {key}"
         cpath = ckpt_dir / f"chunk-{key}.json"
 
-        # resume: skip batches already segmented in a prior run
+        # resume: skip chunks already segmented in a prior run
         cached = _load_checkpoint(cpath)
         if cached is not None:
             with print_lock:
                 print(f"**** {label} CACHED (skip LLM) ****")
             return cached
 
-        data = sb.break_chunk(_batch_payload(batch))
+        data = sb.break_chunk(chunk.scene_payload())
         _save_checkpoint(cpath, data)  # persist before printing, so it survives a crash
 
-        # print as each batch finishes, real-time
+        # print as each chunk finishes, real-time
         with print_lock:
             print(f"**** {label} VERIFIED ****")
             for scene in data.scenes_data:
@@ -460,11 +524,9 @@ def main():
                 print(f"scene open? {scene.open_end_index} on end, {scene.open_start_index} on start.")
         return data
 
-    batches = build_batches(book.chunks)
-
-    # up to 6 concurrent LLM calls; results ordered by batch (book) position
+    # up to 6 concurrent LLM calls; results ordered by chunk (book) position
     with ThreadPoolExecutor(max_workers=6) as ex:
-        results = list(ex.map(work, batches))
+        results = list(ex.map(work, book.chunks))
 
     # ordered scene collection (silent). count paragraphs dropped as noise.
     kept_paras, noise_paras = 0, 0
