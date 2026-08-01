@@ -19,14 +19,14 @@ SCENES_PATH = "scenes"
 CHECKPOINT_DIR = "checkpoints"
 # two consecutive chunks share one LLM call when their combined payload
 # (chars) stays under this ceiling. tunable knob; raise for more batching.
-BATCH_CHAR_LIMIT = 45000
+BATCH_CHAR_LIMIT = 32000
 
 # --- model constants --- #
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 SYSTEM_PROMPT = """
     # ROLE
-    You segment one chunk of a book chapter into either: 
+    You segment one section of a book chapter into either: 
     scenes of prose/dialogue, or: noise from leftover html/licenses/footnotes/chapter titles/non-prose/headers.
     You label paragraphs by their index only, never rewriting or outputting the text directly.
 
@@ -38,7 +38,8 @@ SYSTEM_PROMPT = """
     - "number_of_indexed_paragraphs": number of paragraphs that MUST be segmented.
     - "indexed_paragraphs": the paragraphs themselves that MUST be segmented. Each is in form {"index": int, "text": str}. Ignore inline HTML, reason only about the words.
 
-    When the input is an array of two sections, segment BOTH. Paragraph indices are globally unique across sections (they never repeat), so return ONE flat scenes_data list covering every indexed paragraph from every section, in ascending index order. Two adjacent sections may hold a single scene that spans the boundary between them: because their paragraphs are contiguous, emit it as ONE scene instead of splitting it with open flags. open_start_index / open_end_index still refer only to continuation BEYOND all paragraphs present in this call (the FIRST section's read_only_context on the start side, the LAST section's final paragraph on the end side).
+    When the input is two or more sections, segment ALL, treating it like one big section. Return only ONE scenes_data list, 
+    and instead of using open_start_index or open_end_index, just output each scene as if the sections are together; open_start_index and open_end_index are reserved for the edges of the first and last sections.
 
     # TASK
     Return, via the output_scenes tool, an ordered list of segmented scenes covering every paragraph in "indexed_paragraphs".
@@ -46,7 +47,8 @@ SYSTEM_PROMPT = """
     # OUTPUT 
     - start_paragraph_index: inclusive start index range for a scene from "indexed_paragraphs".
     - end_paragraph_index: inclusive end index range for a scene from "indexed_paragraphs".
-    - paragraph_type: "scene" contains story prose with one central focus. "noise" contains anything not related to the story: footnotes, captions, table-of-contents, licenses, HEADERS, etc.
+    - paragraph_type: "scene" is story prose unified by ONE emotional beat with ONE dominant tone/feeling. A scene builds and turns. A scene is one feeling or idea, start to finish. Reason if a scene 
+    - paragraph_type: "noise" contains anything not related to the story: footnotes, captions, table-of-contents, licenses, HEADERS, etc.
     - open_start_index: True ONLY if segment is FIRST "SCENE" segment, ONLY when TOTAL SECTIONS > 1, and ONLY if part of the scene is contained within "read_only_context_paragraphs". Otherwise, False.
     - open_end_index: True ONLY if segment is LAST "SCENE" segment, ONLY when TOTAL SECTIONS > 1, and ONLY if the scene obviously continues past the last paragraph. Otherwise, False.
     - title: a short, 4-10 word title for the scene. if noise, label it as "NOISE". 
@@ -57,7 +59,10 @@ SYSTEM_PROMPT = """
     - segments in sections that are not the first or last section will always have open_start_index and open_end_index set to False.
     - segments that are considered noise will always have open_start_index and open_end_index set to False.
     - tool-call output_scenes, and output nothing else.
-    - attempt to keep scenes between 200-600 words. Do not feel restricted if a scene goes on longer or ends shorter, use best judgement to determine scene cut-off points.
+    - Here is how to cut scenes:
+        - PRIMARY FOCUS: cut a scene when the emotional register / tone shifts. This outranks all others.
+        - SECONDARY FOCUS: cut when the tone is steady but a scene changes: pov, setting, time-jump, new conversation, etc.
+        - SIZE: Follow TONE over word count. Try to aim for 500-1000 words, hard cap at around 1600, but never split a scene preemptively. Unified tone > broken scenes.
 
     # EXAMPLE 1
     -- input --
@@ -134,7 +139,7 @@ SYSTEM_PROMPT = """
         {"start_paragraph_index": 23, "end_paragraph_index": 23, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
     ]}
 
-    Reasoning: two sections of the same chapter arrive together. Indices 20-23 are globally unique and contiguous, so they are covered exactly once, in ascending order, by ONE flat list. The scene that opens at 20 continues across the section boundary (21 into 22) into the second section, so it is emitted as ONE scene (20-22), NOT split with open flags. Index 23 is a footnote = noise. Although the sections are labeled 1/2 and 2/2, both are present in this call so nothing continues beyond the batch: every open flag is False.
+    Reasoning: two sections of the same chapter arrive together. Indices 20-23 are globally unique and contiguous, so they are covered exactly once. The scene that opens at 20 continues across chunk, so it is emitted as ONE scene (20-22), NOT split with open flags. Index 23 is a footnote = noise.
     """
 
 class MultiSceneData(BaseModel):
@@ -230,7 +235,7 @@ class SceneBreaker:
                     messages=messages,
                     tool_choice={"type": "function", "function": {"name": "output_scenes"}},
                     extra_body={"provider":{"require_parameters":True},
-                                "reasoning": {"effort": "high"}}
+                                "reasoning": {"effort": "medium"}}
                 )
             except Exception as e:
                 # only API/network failures land here; parse/coverage handled below
