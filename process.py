@@ -14,10 +14,11 @@ load_dotenv()
 
 # --- metadata parser constants --- #
 
-CATALOG_PATH = "pg_catalog.csv"
-DATA_PATH = "data"
-SCENES_PATH = "scenes"
-CHECKPOINT_DIR = "checkpoints"
+CATALOG_PATH = "master/pg_catalog.csv"
+DATA_PATH = "master/data"
+SCENES_PATH = "master/scenes"
+CHECKPOINT_DIR = "master/checkpoints"
+SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads it)
 
 # --- model constants --- #
 
@@ -212,20 +213,23 @@ class Intensity(str, Enum):
     HIGH = "high"          # the feeling dominates every line
 
 
-class Valence(str, Enum):
-    DARK = "dark"          # negative / oppressive
-    MIXED = "mixed"        # ambivalent (e.g. bittersweet, ironic)
-    LIGHT = "light"        # positive / uplifting
+class Arc(str, Enum):
+    # trajectory of the feeling ACROSS the scene. Powers the box-to-box sequence
+    # search ("as tension builds") and scaffolds a summary that names direction.
+    RISING = "rising"      # feeling intensifies toward the end
+    STEADY = "steady"      # feeling holds at one level throughout
+    FALLING = "falling"    # feeling releases / subsides toward the end
+    TURN = "turn"          # feeling flips or pivots partway through
 
 
 class SceneTags(BaseModel):
     # STANDARD: exactly ONE dominant_tone (a scene is one flavor), ONE intensity,
-    # ONE valence, and 1-3 lowercase modern descriptor adjectives. The enums are
-    # the rigid search facets; `descriptors` carries modern vocabulary so a vibe
-    # query ("claustrophobic dread") still matches 1865 prose that never says it.
+    # ONE arc (its trajectory), and 1-3 lowercase modern descriptor adjectives. The
+    # enums are the rigid search facets; `descriptors` carries modern vocabulary so
+    # a vibe query ("claustrophobic dread") still matches 1865 prose that never says it.
     dominant_tone: Tone
     intensity: Intensity
-    valence: Valence
+    arc: Arc
     descriptors: list[str] = Field(
         min_length=1, max_length=3,
         description="1-3 lowercase modern adjectives for the flavor, e.g. "
@@ -252,9 +256,6 @@ CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_KEY"],
 )
-with open("test/test.json", "r") as f:
-    TEST_CHUNK = json.dumps(json.load(f), ensure_ascii=False)
-
 
 def _classify_error(e: Exception) -> str:
     # "transient": network/429/5xx -> worth retrying with backoff.
@@ -435,26 +436,56 @@ def scenes_to_records(file_code, scenes, book, metadata):
     # metadata stays a set in memory; JSON/Qdrant can't hold a set, so serialize
     # a list-Subjects copy here (the sink) without mutating the caller's dict.
     book_metadata = MetadataParser.to_dict(metadata)
+    author = book_metadata.get("Author")
+    language = book_metadata.get("Language")
     records = []
     for i, m in enumerate(merged):
         start, end = m["start"], m["end_paragraph_index"]
         text = "<p>" + PARA_BREAK.join(text_of[j].strip() for j in range(start, end + 1) if j in text_of) + "</p>"
-        # neighbor pointers: scenes are contiguous + book-ordered, so prev/next by
-        # index power the small-to-big fetch (grab surrounding scenes after a hit)
-        # and let Mode-2 transitions be built as a join over adjacent pairs.
+        word_count = len(re.sub(r"<[^>]+>", " ", text).split())
+        # FLAT, TYPED, INGEST-READY: one record == one Qdrant point. Enrichment
+        # (embed.py) fills the null flavor fields + summary, then denormalizes
+        # prev_tone/next_tone. Vectors + the Qdrant {id,vector,payload} envelope
+        # are added at upsert, NOT stored here (keep this file DB-agnostic).
+        # neighbor pointers: scenes are contiguous + book-ordered, so prev/next
+        # power the small-to-big fetch and the box-to-box sequence walk.
         records.append({
             "scene_id": f"{file_code}-{i}",
+            "book_id": file_code,
             "prev_scene_id": f"{file_code}-{i-1}" if i > 0 else None,
             "next_scene_id": f"{file_code}-{i+1}" if i < last else None,
-            "chapter_title": chapter_of.get(start),
+
+            # --- flavor facets (Mode-1 filter); enrichment fills --- #
+            "dominant_tone": None,
+            "intensity": None,
+            "arc": None,
+            "descriptors": None,
+
+            # --- transition facets (Mode-2); denormalized at enrichment --- #
+            "prev_tone": None,
+            "next_tone": None,
+
+            # --- display / provenance --- #
             "scene_title": m["title"],
+            "chapter_title": chapter_of.get(start),
             "stitch_status": m["status"],   # complete | stitched | broken_stitch
             "start_paragraph_index": start,
             "end_paragraph_index": end,
-            "text": text,
+            "word_count": word_count,
+
+            # --- book facets (flat filters) + full blob for display --- #
+            "author": author,
+            "language": language,
             "book_metadata": book_metadata,
-            "summary": None,   # one-line flavor summary, enrichment LLM fills later
-            "tags": None,      # SceneTags, enrichment (second-phase) LLM fills later
+
+            # --- content --- #
+            "summary": None,        # flavor summary (embedded), enrichment fills
+            "text_html": text,      # render form; embed source is `summary`
+
+            # --- bookkeeping --- #
+            "schema_version": SCHEMA_VERSION,
+            "enriched": False,
+            "enrich_model": None,
         })
 
     return records
@@ -464,7 +495,7 @@ def main():
     sb = SceneBreaker()
 
     desired_book = []
-    desired = "11"
+    desired = "1727"
     book = books[desired]
     print_lock = threading.Lock()
 

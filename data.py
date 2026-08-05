@@ -8,9 +8,10 @@ from bs4 import BeautifulSoup, Comment, Tag
 
 # --- metadata parser constants --- #
 
-CATALOG_PATH = "pg_catalog.csv"
-DATA_PATH = "data"
-RECALL_PATH = "recall"   # cache: metadata.json + books.json, keyed by file_code
+CATALOG_PATH = "master/pg_catalog.csv"
+DATA_PATH = "master/data"
+RECALL_PATH = "master/recall"   # cache: metadata.json + books.json, keyed by file_code
+TEST_PATH = "master/test"
 
 # --- scene parser constants --- #
 
@@ -465,7 +466,7 @@ def main():
 
     for book in books.values():
         print(book.file_code)
-        book.to_json("test")
+        book.to_json(TEST_PATH)
 
 if __name__ == "__main__":
     main()
