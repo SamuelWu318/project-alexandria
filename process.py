@@ -1,4 +1,4 @@
-from data import MetadataParser, SceneParser
+from data import build_library, MetadataParser
 import os, json, re, time, math, threading, shutil
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +26,7 @@ SYSTEM_PROMPT = """
     # ROLE
     You split one book section into an ordered list of segments. Each segment is either:
     - "scene": story prose or dialogue.
-    - "noise": non-story text — leftover HTML, licenses, footnotes, captions, table-of-contents, chapter titles, headers.
+    - "noise": non-story text — unnecessary HTML, licenses, footnotes, captions, table-of-contents, chapter titles, headers, images.
     Label paragraphs by index ONLY. Never rewrite or output the paragraph text.
 
     # INPUT
@@ -394,35 +394,6 @@ def _save_checkpoint(path: Path, data: MultiSceneData):
     tmp.write_text(data.model_dump_json(), encoding="utf-8")
     os.replace(tmp, path)
 
-
-def parsers():
-    path = Path(DATA_PATH)
-    
-    metadata = {}
-    mdp = MetadataParser()
-
-    # search all files in path and create scenes
-    books = {}
-    sp = SceneParser()
-    mdp = MetadataParser()
-
-    for file in sorted(path.iterdir()):
-        if not file.is_file(): continue
-
-        match = re.search(r"pg(\d+)-h.zip", file.name)
-        if not match: continue
-
-        file_code = match.group(1)
-        md = mdp.feed(file_code)
-        metadata[file_code] = md
-        book = sp.parse(file_code, str(path), md.get("Title"))
-
-        books[book.file_code] = book
-        # send to llm by doing books[file_code].chunks[chunk_num].scene_payload()
-
-    return metadata, books
-
-
 def scenes_to_records(file_code, scenes, book, metadata):
     # get all text at all indices and their chapter title
     text_of, chapter_of = {}, {}
@@ -461,6 +432,9 @@ def scenes_to_records(file_code, scenes, book, metadata):
 
     PARA_BREAK = "</p><p>"
     last = len(merged) - 1
+    # metadata stays a set in memory; JSON/Qdrant can't hold a set, so serialize
+    # a list-Subjects copy here (the sink) without mutating the caller's dict.
+    book_metadata = MetadataParser.to_dict(metadata)
     records = []
     for i, m in enumerate(merged):
         start, end = m["start"], m["end_paragraph_index"]
@@ -478,7 +452,7 @@ def scenes_to_records(file_code, scenes, book, metadata):
             "start_paragraph_index": start,
             "end_paragraph_index": end,
             "text": text,
-            "book_metadata": metadata,
+            "book_metadata": book_metadata,
             "summary": None,   # one-line flavor summary, enrichment LLM fills later
             "tags": None,      # SceneTags, enrichment (second-phase) LLM fills later
         })
@@ -486,7 +460,7 @@ def scenes_to_records(file_code, scenes, book, metadata):
     return records
 
 def main():
-    metadata, books = parsers()
+    metadata, books = build_library()
     sb = SceneBreaker()
 
     desired_book = []

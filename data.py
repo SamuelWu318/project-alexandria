@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup, Comment, Tag
 
 CATALOG_PATH = "pg_catalog.csv"
 DATA_PATH = "data"
+RECALL_PATH = "recall"   # cache: metadata.json + books.json, keyed by file_code
 
 # --- scene parser constants --- #
 
@@ -35,7 +36,7 @@ class MetadataParser:
             "Author": None,
             "Translator": None,
             "Title": None,
-            "Subjects": [],
+            "Subjects": set(),
             "Date": None,
             "Language": None,
         }
@@ -76,7 +77,7 @@ class MetadataParser:
             "Author": None,
             "Translator": None,
             "Title": row["Title"],
-            "Subjects": [s.strip() for s in row["Subjects"].split(";") if s.strip()],
+            "Subjects": set((s.strip() for s in row["Subjects"].split(";") if s.strip())),
             "Date": None,
             "Language": row["Language"],
         }
@@ -95,6 +96,20 @@ class MetadataParser:
 
         self.metadata = metadata
         return metadata
+
+    # --- recall (de)serialization: Subjects is a set, not JSON-native --- #
+    @staticmethod
+    def to_dict(md: dict) -> dict:
+        d = dict(md)
+        subj = d.get("Subjects")
+        if isinstance(subj, set): d["Subjects"] = sorted(subj)
+        return d
+
+    @staticmethod
+    def from_dict(d: dict) -> dict:
+        md = dict(d)
+        md["Subjects"] = set(md.get("Subjects") or [])
+        return md
 
 
 # --- BOOK CLASS --- #
@@ -116,6 +131,22 @@ class Book:
             out.append(c.payload())
 
         path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # full round-trip for the recall cache (lossless, unlike payload()/to_json)
+    def to_dict(self) -> dict:
+        return {
+            "file_code": self.file_code,
+            "title": self.title,
+            "chunks": [c.to_dict() for c in self.chunks],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Book:
+        return cls(
+            file_code=d["file_code"],
+            title=d["title"],
+            chunks=[Chunk.from_dict(c) for c in d["chunks"]],
+        )
 
 # each book will contain chunks
 @dataclass
@@ -157,11 +188,42 @@ class Chunk:
     def json(self, payload) -> str:
         return json.dumps(payload, ensure_ascii=False, indent=4)
 
+    # full round-trip for the recall cache
+    def to_dict(self) -> dict:
+        return {
+            "chunk_index": self.chunk_index,
+            "chapter_index": self.chapter_index,
+            "chapter_heading": self.chapter_heading,
+            "part": self.part,
+            "part_count": self.part_count,
+            "context": [p.to_dict() for p in self.context],
+            "paragraphs": [p.to_dict() for p in self.paragraphs],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Chunk:
+        return cls(
+            chunk_index=d["chunk_index"],
+            chapter_index=d["chapter_index"],
+            chapter_heading=d["chapter_heading"],
+            part=d["part"],
+            part_count=d["part_count"],
+            context=[Paragraph.from_dict(p) for p in d["context"]],
+            paragraphs=[Paragraph.from_dict(p) for p in d["paragraphs"]],
+        )
+
 # each chunk will contain paragraphs
 @dataclass
 class Paragraph:
     index: int  # global paragraph index, book-wide (never resets per chapter)
     text: str   # text of each paragraph
+
+    def to_dict(self) -> dict:
+        return {"index": self.index, "text": self.text}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Paragraph:
+        return cls(index=d["index"], text=d["text"])
 
 
 # --- SCENE PARSER --- #
@@ -331,16 +393,38 @@ class SceneParser:
         return self.parse_book(self.parse_file(file_code, folder), file_code, title)
 
 
-def main():
-    path = Path(DATA_PATH)
+# --- RECALL CACHE --- #
 
-    metadata = {}
+
+def _load_recall(path: Path) -> dict:
+    # code -> data map, or {} if the cache file is missing/corrupt.
+    if not path.exists(): return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def build_library(data_path: str = DATA_PATH,
+                  recall_path: str = RECALL_PATH) -> tuple[dict, dict]:
+    # single source of metadata + books, backed by the recall cache. Each is a
+    # code -> data JSON file (alice -> "11"): pull from cache when present, else
+    # parse the .zip and add the new entry. Returns live dicts keyed by
+    # file_code: metadata[code] -> metadata dict, books[code] -> Book.
+    path = Path(data_path)
+    recall = Path(recall_path)
+    recall.mkdir(parents=True, exist_ok=True)
+    md_file = recall / "metadata.json"
+    books_file = recall / "books.json"
+
+    md_cache = _load_recall(md_file)        # code -> metadata dict (Subjects as list)
+    books_cache = _load_recall(books_file)  # code -> Book dict
+
+    metadata: dict = {}
+    books: dict = {}
     mdp = MetadataParser()
-
-    # search all files in path and create scenes
-    books = []
     sp = SceneParser()
-    mdp = MetadataParser()
+    md_dirty = books_dirty = False
 
     for file in sorted(path.iterdir()):
         if not file.is_file(): continue
@@ -349,12 +433,37 @@ def main():
         if not match: continue
 
         file_code = match.group(1)
-        metadata = mdp.feed(match.group(1))
-        book = sp.parse(file_code, str(path), metadata.get("Title"))
 
-        books.append(book)
+        # metadata: from recall json, else parse + add
+        if file_code in md_cache:
+            md = MetadataParser.from_dict(md_cache[file_code])
+        else:
+            md = mdp.feed(file_code)
+            md_cache[file_code] = MetadataParser.to_dict(md)
+            md_dirty = True
+        metadata[file_code] = md
 
-    for book in books:
+        # book: from recall json, else parse + add
+        if file_code in books_cache:
+            book = Book.from_dict(books_cache[file_code])
+        else:
+            book = sp.parse(file_code, str(path), md.get("Title"))
+            books_cache[file_code] = book.to_dict()
+            books_dirty = True
+        books[book.file_code] = book
+
+    if md_dirty:
+        md_file.write_text(json.dumps(md_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    if books_dirty:
+        books_file.write_text(json.dumps(books_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return metadata, books
+
+
+def main():
+    metadata, books = build_library()
+
+    for book in books.values():
         print(book.file_code)
         book.to_json("test")
 
