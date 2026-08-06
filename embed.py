@@ -7,39 +7,34 @@
 # BATCH_CHAR_LIMIT of paragraph text), and one call returns, per scene and IN ORDER,
 # first the flavor (dominant_tone, intensity, arc, descriptors) then a GENERAL
 # one-sentence summary consistent with it. Then neighbor tones are denormalized
-# (prev_tone/next_tone) for Mode-2 search, each summary is embedded by fastembed,
-# and one Qdrant point per scene is upserted.
+# (prev_tone/next_tone) for Mode-2 search, and each scene is upserted as one Qdrant
+# point with TWO named vectors (summary, descriptors) — queryable alone or fused.
 #
 # NOTE (prompt/model tuning is the user's): edit BATCH_SYSTEM_PROMPT, ENRICH_EFFORT
 # and BATCH_CHAR_LIMIT below to retune. ENRICH_EFFORT is lower than the segmenter's
 # "high" because classifying already-cut scenes is easier than cutting.
 # -----------------------------------------------------------------------------
-import os, sys, json, re, time, uuid, threading, shutil
+import sys, json, re, time, threading, shutil
 from collections import Counter
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel, ValidationError, Field, field_validator
 from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
-from fastembed import TextEmbedding
 
 # reuse the single OpenRouter client, model, tag vocab enums, error policy
 from process import CLIENT, MODEL, Tone, Intensity, Arc, _classify_error, SCHEMA_VERSION
+# vector-store primitives shared with the read path (search.py owns them)
+from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
 
 
 # --- constants --- #
 
 SCENES_PATH = "master/scenes"
-QDRANT_PATH = "master/qdrant_db"          # local on-disk Qdrant (no server needed)
-COLLECTION = "master/scenes"
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"   # fastembed, 384-dim; first run downloads it
 ENRICH_CKPT_DIR = "master/checkpoints/enrich"
 ENRICH_WORKERS = 4                 # concurrent batches in flight
 ENRICH_EFFORT = "medium"          # reasoning effort for enrichment; tune as needed
 BATCH_CHAR_LIMIT = 13000          # ~12-15k chars of paragraph text packed per prompt
-
-# stable per-scene Qdrant id: uuid5(NAMESPACE, scene_id) -> same scene, same point
-NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "projectalexandria.scenes")
 
 
 # --- batch enrichment schema (tag vocab enums live in process.py) --- #
@@ -319,67 +314,51 @@ def enrich_file(path: Path) -> list[dict]:
     return records
 
 
-# --- qdrant --- #
-
-def _point_id(scene_id: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, scene_id))
-
-
-_EMBEDDER = None
-
-def _embedder() -> TextEmbedding:
-    global _EMBEDDER
-    if _EMBEDDER is None:
-        _EMBEDDER = TextEmbedding(model_name=EMBED_MODEL)
-    return _EMBEDDER
-
-
-def _embed(texts: list[str]) -> list[list[float]]:
-    return [v.tolist() for v in _embedder().embed(texts)]
-
+# --- qdrant index (write path; config/embedder/id come from search.py) --- #
 
 def _ensure_collection(client: QdrantClient, dim: int):
-    if not client.collection_exists(COLLECTION):
-        client.create_collection(
-            COLLECTION,
-            vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
-        )
+    # named-vector collection: "summary" and "descriptors", queryable alone or fused.
+    # self-heals: an existing collection with the wrong vector shape is rebuilt.
+    want = {n: models.VectorParams(size=dim, distance=models.Distance.COSINE)
+            for n in VECTOR_NAMES}
+    if client.collection_exists(COLLECTION):
+        cfg = client.get_collection(COLLECTION).config.params.vectors
+        if isinstance(cfg, dict) and set(cfg) == set(VECTOR_NAMES):
+            return
+        client.delete_collection(COLLECTION)   # single-vector / stale -> rebuild
+    client.create_collection(COLLECTION, vectors_config=want)
 
 
 def index_records(client: QdrantClient, records: list[dict]):
-    # embed each summary (fastembed) and upsert one point per scene. payload ==
-    # the full flat record (the DB row); id is the stable scene uuid (re-runs overwrite).
+    # embed BOTH the summary and the descriptor adjectives (separate named vectors)
+    # and upsert one point per scene. payload == the full flat record (the DB row);
+    # id is the stable scene uuid (re-runs overwrite).
     ready = [r for r in records if r.get("summary")]
     if not ready:
         print("  no enriched summaries to index")
         return
-    vectors = _embed([r["summary"] for r in ready])
-    _ensure_collection(client, len(vectors[0]))
+    sum_vecs = _embed([r["summary"] for r in ready])
+    # descriptors are 1-3 adjectives (schema-guaranteed); join to a vibe string.
+    desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
+    _ensure_collection(client, len(sum_vecs[0]))
     points = [
-        models.PointStruct(id=_point_id(r["scene_id"]), vector=v, payload=r)
-        for r, v in zip(ready, vectors)
+        models.PointStruct(id=_point_id(r["scene_id"]),
+                           vector={"summary": s, "descriptors": d}, payload=r)
+        for r, s, d in zip(ready, sum_vecs, desc_vecs)
     ]
     client.upsert(COLLECTION, points=points)
     print(f"  indexed {len(ready)} points into '{COLLECTION}'")
 
 
-def search(client: QdrantClient, text: str, limit: int = 5,
-           flt: models.Filter | None = None):
-    # single-box semantic search (Mode-1). Compose N of these + walk next_scene_id
-    # for the box-to-box sequence search. Returns scored points (payload = record).
-    vec = _embed([text])[0]
-    return client.query_points(COLLECTION, query=vec, limit=limit,
-                               query_filter=flt, with_payload=True).points
-
-
 def main():
-    # embed.py [code ...]   e.g. `python embed.py 11`  (default: every scenes file)
+    # embed.py [code ...]   enrich + index those books (default: all scenes files).
+    # the Qdrant search test now lives in tests.py.
     if len(sys.argv) > 1:
         files = [Path(f"{SCENES_PATH}/pg{c}-s.json") for c in sys.argv[1:]]
     else:
         files = sorted(Path(SCENES_PATH).glob("pg*-s.json"))
 
-    client = QdrantClient(path=QDRANT_PATH)   # first run downloads the embed model
+    client = open_client()   # first run downloads the embed model
     for f in files:
         if not f.exists():
             print(f"skip (missing): {f}")

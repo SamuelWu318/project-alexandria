@@ -1,7 +1,6 @@
-from data import build_library, MetadataParser
-import os, json, re, time, math, threading, shutil
+from data import MetadataParser
+import os, json, re, time, math
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI, pydantic_function_tool
 from dotenv import load_dotenv
@@ -489,73 +488,3 @@ def scenes_to_records(file_code, scenes, book, metadata):
         })
 
     return records
-
-def main():
-    metadata, books = build_library()
-    sb = SceneBreaker()
-
-    desired_book = []
-    desired = "1727"
-    book = books[desired]
-    print_lock = threading.Lock()
-
-    ckpt_dir = Path(CHECKPOINT_DIR) / f"pg{desired}"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    def work(chunk):
-        # one chunk answered by one LLM call
-        key = str(chunk.chunk_index)
-        label = f"CHUNK {key}"
-        cpath = ckpt_dir / f"chunk-{key}.json"
-
-        # resume: skip chunks already segmented in a prior run
-        cached = _load_checkpoint(cpath)
-        if cached is not None:
-            with print_lock:
-                print(f"**** {label} CACHED (skip LLM) ****")
-            return cached
-
-        data = sb.break_chunk(chunk.scene_payload())
-        _save_checkpoint(cpath, data)  # persist before printing, so it survives a crash
-
-        # print as each chunk finishes, real-time
-        with print_lock:
-            print(f"**** {label} VERIFIED ****")
-            for scene in data.scenes_data:
-                if scene.paragraph_type == "noise" or scene.title == "NOISE":
-                    print(f"scene from {label} marked as noise")
-                    continue
-                print(f"scene from {label} passed")
-                print(f"scene open? {scene.open_end_index} on end, {scene.open_start_index} on start.")
-        return data
-
-    # up to 6 concurrent LLM calls; results ordered by chunk (book) position
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        results = list(ex.map(work, book.chunks))
-
-    # ordered scene collection (silent). count paragraphs dropped as noise.
-    kept_paras, noise_paras = 0, 0
-    for data in results:
-        for scene in data.scenes_data:
-            span = scene.end_paragraph_index - scene.start_paragraph_index + 1
-            if scene.paragraph_type == "noise" or scene.title == "NOISE":
-                noise_paras += span
-                continue
-            kept_paras += span
-            desired_book.append(scene)
-
-    print(f"NOISE: dropped {noise_paras} paragraphs as noise; kept {kept_paras} "
-          f"({noise_paras + kept_paras} total covered)")
-
-    records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
-
-    out_path = Path(f"{SCENES_PATH}/pg{desired}-s.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"wrote {len(records)} scenes to {out_path}")
-
-    # book fully saved: drop its checkpoints, no longer needed for resume
-    shutil.rmtree(ckpt_dir, ignore_errors=True)
-
-if __name__ == "__main__":
-    main()

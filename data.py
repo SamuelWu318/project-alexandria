@@ -459,14 +459,3 @@ def build_library(data_path: str = DATA_PATH,
         books_file.write_text(json.dumps(books_cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return metadata, books
-
-
-def main():
-    metadata, books = build_library()
-
-    for book in books.values():
-        print(book.file_code)
-        book.to_json(TEST_PATH)
-
-if __name__ == "__main__":
-    main()
