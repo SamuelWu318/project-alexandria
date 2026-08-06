@@ -41,7 +41,7 @@ COMBINED_QUERIES = [
 DESCRIPTOR_QUERIES = [
     "claustrophobic, suffocating, dread",
     "joyful, tender, warm",
-    "cunning, triumphant, clever",
+    "cunning, clever, smart",
 ]
 
 
