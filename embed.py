@@ -46,15 +46,15 @@ class SceneEnrichment(BaseModel):
     dominant_tone: Tone
     intensity: Intensity
     arc: Arc
-    descriptors: list[str] = Field(min_length=1, max_length=3)
+    descriptors: list[str] = Field(min_length=3, max_length=5)
     summary: str
 
     @field_validator("descriptors")
     @classmethod
     def _norm_desc(cls, v: list[str]) -> list[str]:
         cleaned = [d.strip().lower() for d in v if d and d.strip()]
-        if not (1 <= len(cleaned) <= 3):
-            raise ValueError("descriptors must have 1-3 non-empty items")
+        if not (3 <= len(cleaned) <= 5):
+            raise ValueError("descriptors must have 3-5 non-empty items")
         return cleaned
 
     @field_validator("summary")
@@ -344,7 +344,7 @@ def index_records(client: QdrantClient, records: list[dict]):
         print("  no enriched summaries to index")
         return
     sum_vecs = _embed([r["summary"] for r in ready])
-    # descriptors are 1-3 adjectives (schema-guaranteed); join to a vibe string.
+    # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
     desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
     _ensure_collection(client, len(sum_vecs[0]))
     points = [
