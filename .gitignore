@@ -1,14 +1,9 @@
-.env
-plan.txt
-pg_catalog.csv
-example html
-test
-data
-.remember
-.claude
-.venv
 __pycache__
-checkpoints
-scenes
-recall
+.claude
+.remember
+.venv
+.env
+example html
 master
+_prompts.py
+tests.py

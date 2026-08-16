@@ -1,3 +1,20 @@
+# FOR CLAUDE — Stage 2: segmentation (cut chunks into flavor-pure scenes).
+# -----------------------------------------------------------------------------
+# SceneBreaker.break_chunk sends one section (Chunk.scene_payload) to the LLM and
+# forces an output_scenes tool call labelling every paragraph scene/noise, wrapped
+# in a retry loop (transient backoff + corrective-feedback re-ask) and a coverage
+# check (every input index covered exactly once). scenes_to_records then stitches
+# open-ended scenes across chunks and flattens them into one-record-per-scene dicts
+# for embed.py (enrichment fields start null).
+#
+# OWNERSHIP: the prompts (SYSTEM_PROMPT), MODEL, the tag-vocab enums (Tone /
+# Intensity / Arc / SceneTags) and the retry/temperature policy are the user's
+# tuning surface — do not touch unless asked. Plumbing (IO via storage.py,
+# docstrings, assembly) is fair game.
+#
+# Shared downstream: embed.py imports CLIENT, MODEL, Tone, Intensity, Arc,
+# _classify_error, SCHEMA_VERSION from here. Paths + JSON IO live in storage.py.
+# -----------------------------------------------------------------------------
 from data import MetadataParser
 import os, json, re, time, math
 from collections import Counter
@@ -8,15 +25,13 @@ from pydantic import BaseModel, ValidationError, Field, field_validator
 from typing import Literal
 from enum import Enum
 from pathlib import Path
+
+from storage import read_text, write_text
 load_dotenv()
 
 
-# --- metadata parser constants --- #
+# --- constants --- #
 
-CATALOG_PATH = "master/pg_catalog.csv"
-DATA_PATH = "master/data"
-SCENES_PATH = "master/scenes"
-CHECKPOINT_DIR = "master/checkpoints"
 SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads it)
 
 # --- model constants --- #
@@ -103,49 +118,6 @@ SYSTEM_PROMPT = """
         ]}
         Reasoning: section is 2/3. The first scene's opening lies in read_only_context_paragraphs, so open_start_index is True. Lump in index 10 because it is transitional, doesn't hurt. The last scene clearly continues past index 11, so open_end_index is True. Only indices 9-11 are segmented; 7-8 are context.
         """
-"""
-    # EXAMPLE 1
-    -- input --
-    {
-    "chapter_title": "A Mad Tea-Party",
-    "section_within_chunk": "1/1",
-    "read_only_context_paragraphs": [],
-    "indexed_paragraphs": [
-    { "index": 0, "text": "There was a table set out under a tree, and the March Hare and the Hatter were having tea."},
-    { "index": 1, "text": "Alice sat down uninvited. The Hatter asked a riddle with no answer."},
-    { "index": 2, "text": "They moved round the table, and Alice, quite exhausted, walked off into the wood."},
-    { "index": 3, "text": "[7] 'Mad as a hatter' predates Carroll; hatters were poisoned by mercury."}
-    ]
-    }
-    -- output_scenes --
-    {"scenes_data": [
-        {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "Tea with the Hatter and Hare"},
-        {"start_paragraph_index": 3, "end_paragraph_index": 3, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
-    ]}
-    Reasoning: section is 1/1 — one whole chapter, no cut-off scenes. Index 3 is a footnote = noise. Indices 0-3 are each covered once.
-
-    # EXAMPLE 2
-    -- input --
-    {
-    "chapter_title": "BOOK IV",
-    "section_within_chunk": "2/3",
-    "read_only_context_paragraphs": [
-    { "index": 7, "text": "Helen told of Troy while the hall listened."},
-    { "index": 8, "text": "Then Menelaus began the long tale of his voyage home, and as night fell he spoke of the sea-god Proteus."}
-    ],
-    "indexed_paragraphs": [
-    { "index": 9, "text": "The sea-god was the Old Man of the Sea, whom he wrestled at dawn to force the truth from him."},
-    { "index": 10, "text": "The tale done, Telemachus rose to take his leave."},
-    { "index": 11, "text": "\"Brothers!\" Telemachus announced."}
-    ]
-    }
-    -- output_scenes --
-    {"scenes_data":[
-        {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "open_start_index": True, "open_end_index": False, "title": "Menelaus finishes his tale"},
-        {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "open_start_index": False, "open_end_index": True, "title": "Telemachus speaks to his brothers"}
-    ]}
-    Reasoning: section is 2/3. The first scene's opening lies in read_only_context (paras 7-8), so open_start_index is True. The last scene clearly continues past index 11, so open_end_index is True. Only indices 9-11 are segmented; 7-8 are context.
-    """
 
 class MultiSceneData(BaseModel):
     scenes_data: list[SceneData]
@@ -165,8 +137,8 @@ TOOL = pydantic_function_tool(
     description="Force return of scenes in structure."
 )
 
+# --- enrichment classes --- #
 
-# ---- (enrichment) tags -----------------------------------------
 # Rigid flavor tags for the goal: fetch scenes by emotional FLAVOR, then inject
 # that flavor into the user's own prose. A scene is ONE tone (see HOW TO CUT), so
 # these tags describe exactly ONE dominant feeling. The enrichment LLM call fills
@@ -249,7 +221,8 @@ TAGS_TOOL = pydantic_function_tool(
     name="output_tags",
     description="Return the rigid single-tone flavor tags for ONE scene.",
 )
-# -----------------------------------------------------------------------------
+
+# --- ai client --- #
 
 CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -257,8 +230,10 @@ CLIENT = OpenAI(
 )
 
 def _classify_error(e: Exception) -> str:
-    # "transient": network/429/5xx -> worth retrying with backoff.
-    # "fatal": 4xx (400/401/403 etc.) -> retrying won't help, raise now.
+    """Classify an API error: "transient" (retry with backoff) vs "fatal" (raise now).
+
+    transient = network / 429 / 5xx; fatal = other 4xx where retrying won't help.
+    """
     if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError)):
         return "transient"
     if isinstance(e, openai.APIStatusError):
@@ -267,15 +242,16 @@ def _classify_error(e: Exception) -> str:
 
 
 def _expected_indices(payload: str) -> set[int]:
-    # every index in indexed_paragraphs for the section.
-    # (read_only_context_paragraphs are NOT expected in the output.)
+    """Indices the model must cover: every indexed_paragraphs index (context excluded)."""
     obj = json.loads(payload)
     return {p["index"] for p in obj.get("indexed_paragraphs", [])}
 
 
 def _validate_coverage(data: MultiSceneData, expected: set[int]):
-    # runs BEFORE noise extraction, so EVERY expected index must be covered
-    # exactly once. returns (ok, human-readable reason for the model).
+    """Verify every expected index is covered exactly once -> (ok, reason for the model).
+
+    Runs BEFORE noise extraction, so missing / duplicate / extra indices all fail.
+    """
     covered = []
     for s in data.scenes_data:
         covered.extend(range(s.start_paragraph_index, s.end_paragraph_index + 1))
@@ -302,6 +278,7 @@ def _validate_coverage(data: MultiSceneData, expected: set[int]):
 class SceneBreaker:
     def break_chunk(self, chunk: str, max_transient_retries: int = 6,
                     max_validation_retries: int = 3):
+        """Segment one section via a forced output_scenes call, retrying until coverage passes."""
         expected = _expected_indices(chunk)
         # conversation is kept across retries so corrective feedback (below) is
         # appended to real history instead of restarting cold each attempt.
@@ -379,23 +356,26 @@ class SceneBreaker:
             attempt += 1
 
 def _load_checkpoint(path: Path):
-    # returns cached MultiSceneData, or None if missing/corrupt (recompute).
-    if not path.exists():
+    """Load a cached MultiSceneData, or None if missing/corrupt (forces recompute)."""
+    raw = read_text(path)
+    if raw is None:
         return None
     try:
-        return MultiSceneData.model_validate_json(path.read_text(encoding="utf-8"))
+        return MultiSceneData.model_validate_json(raw)
     except Exception:
         return None
 
 
 def _save_checkpoint(path: Path, data: MultiSceneData):
-    # atomic: write temp then rename, so a crash mid-write can't leave partial json.
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(data.model_dump_json(), encoding="utf-8")
-    os.replace(tmp, path)
+    """Atomically checkpoint one chunk's segmentation (crash-safe via storage.write_text)."""
+    write_text(path, data.model_dump_json())
 
 def scenes_to_records(file_code, scenes, book, metadata):
-    # get all text at all indices and their chapter title
+    """Stitch cross-chunk scenes and flatten them into flat, ingest-ready record dicts.
+
+    One record == one future Qdrant point; enrichment fields (tone/summary/...) start
+    null and are filled in by embed.py.
+    """
     text_of, chapter_of = {}, {}
     for chunk in book.chunks:
         for p in chunk.paragraphs:

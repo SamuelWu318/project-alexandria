@@ -1,16 +1,22 @@
-# ad-hoc test / smoke harness
+# FOR CLAUDE — Interactive test / smoke harness (run by hand, not pytest).
 # -----------------------------------------------------------------------------
-# main() runs ONLY the Qdrant search test. The other two methods are the old
-# driver/leftover mains pulled out of data.py (payload dump) and process.py
-# (segmentation run) — call them by hand when needed.
+# Three entry points, called manually:
+#   * search_test()       — the read path: run canned queries against the live
+#                           Qdrant index and print hits. This is what main() runs.
+#   * segment_test(code)  — the stage-2 driver: build the library, segment ONE book
+#                           with the LLM (resumable via checkpoints), write its
+#                           scenes json. Was process.main.
+#   * payload_dump_test() — dump every book's chunk payloads for eyeballing. Was
+#                           data.main.
+# Paths + JSON IO come from storage.py.
 # -----------------------------------------------------------------------------
-import json, threading, shutil
+import threading, shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from data import build_library, TEST_PATH
-from process import (SceneBreaker, scenes_to_records, _load_checkpoint,
-                     _save_checkpoint, CHECKPOINT_DIR, SCENES_PATH)
+from data import build_library
+from process import SceneBreaker, scenes_to_records, _load_checkpoint, _save_checkpoint
+from storage import TEST_PATH, SCENES_PATH, CHECKPOINT_DIR, write_json
 import search
 
 
@@ -46,6 +52,7 @@ DESCRIPTOR_QUERIES = [
 
 
 def _show(hits):
+    """Print each hit: score, scene id, flavor tags, title, summary, descriptors."""
     for h in hits:
         p = h.payload
         print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
@@ -54,7 +61,7 @@ def _show(hits):
 
 
 def search_test(book_id: str = "1727", limit: int = 2):
-    # summary-only, then summary+descriptors (weighted rerank), then pure descriptors.
+    """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
     client = search.open_client()
     flt = search.book_filter(book_id)
 
@@ -77,7 +84,7 @@ def search_test(book_id: str = "1727", limit: int = 2):
 # --- payload dump (was data.main) --- #
 
 def payload_dump_test():
-    # dump every book's chunk payloads to TEST_PATH/pg{code}-p.json for inspection.
+    """Dump every book's chunk payloads to TEST_PATH/pg{code}-p.json for inspection."""
     _, books = build_library()
     for book in books.values():
         print(book.file_code)
@@ -87,7 +94,7 @@ def payload_dump_test():
 # --- segmentation run (was process.main) --- #
 
 def segment_test(desired: str = "1727"):
-    # segment ONE book with the LLM (resumable via checkpoints), write its scenes json.
+    """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     metadata, books = build_library()
     sb = SceneBreaker()
 
@@ -99,12 +106,11 @@ def segment_test(desired: str = "1727"):
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     def work(chunk):
-        # one chunk answered by one LLM call
+        """Segment one chunk with a single LLM call, reusing a checkpoint if present."""
         key = str(chunk.chunk_index)
         label = f"CHUNK {key}"
         cpath = ckpt_dir / f"chunk-{key}.json"
 
-        # resume: skip chunks already segmented in a prior run
         cached = _load_checkpoint(cpath)
         if cached is not None:
             with print_lock:
@@ -114,7 +120,6 @@ def segment_test(desired: str = "1727"):
         data = sb.break_chunk(chunk.scene_payload())
         _save_checkpoint(cpath, data)  # persist before printing, so it survives a crash
 
-        # print as each chunk finishes, real-time
         with print_lock:
             print(f"**** {label} VERIFIED ****")
             for scene in data.scenes_data:
@@ -129,7 +134,7 @@ def segment_test(desired: str = "1727"):
     with ThreadPoolExecutor(max_workers=6) as ex:
         results = list(ex.map(work, book.chunks))
 
-    # ordered scene collection (silent). count paragraphs dropped as noise.
+    # collect kept scenes in order; count paragraphs dropped as noise
     kept_paras, noise_paras = 0, 0
     for data in results:
         for scene in data.scenes_data:
@@ -145,9 +150,8 @@ def segment_test(desired: str = "1727"):
 
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
-    out_path = Path(f"{SCENES_PATH}/pg{desired}-s.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path = f"{SCENES_PATH}/pg{desired}-s.json"
+    write_json(out_path, records)
     print(f"wrote {len(records)} scenes to {out_path}")
 
     # book fully saved: drop its checkpoints, no longer needed for resume
@@ -155,6 +159,7 @@ def segment_test(desired: str = "1727"):
 
 
 def main():
+    """Default run: the Qdrant search test."""
     search_test()
 
 

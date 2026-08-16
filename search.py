@@ -1,9 +1,21 @@
-# read path: query the scene vector DB.
+# FOR CLAUDE — Read path: query the scene vector DB.
 # -----------------------------------------------------------------------------
-# Import THIS from the app / API. It pulls in only qdrant + fastembed — NO LLM,
-# NO segmentation — so the query path stays light and fast. It also owns the
-# vector-store primitives (collection config, embedder, id, filters) that the
-# build-once write path (data.py / process.py / embed.py) imports to index.
+# Import THIS from the app / API. It pulls in only qdrant + fastembed — NO LLM, NO
+# segmentation — so the query path stays light and fast. It also OWNS the
+# vector-store primitives (collection name, vector config, embedder, point id,
+# filters) that the build-once write path (embed.py) imports to index.
+#
+# By design this config lives here, NOT in storage.py: storage.py centralizes
+# plain-JSON file IO, whereas COLLECTION / VECTOR_NAMES / EMBED_MODEL / QDRANT_PATH
+# are one cohesive Qdrant contract shared between read and write. Both sides MUST
+# agree on them, so they have a single home.
+#
+# Invariants:
+#   * EMBED_MODEL must match the model the index was built with, or scores are junk.
+#   * point_id is a stable uuid5 of scene_id, so re-indexing a scene overwrites its
+#     existing point instead of creating a duplicate.
+#   * bge is asymmetric: only the summary QUERY is prefixed (QUERY_PREFIX); indexed
+#     passages and descriptor queries stay raw.
 # -----------------------------------------------------------------------------
 import uuid
 from qdrant_client import QdrantClient, models
@@ -12,16 +24,21 @@ from fastembed import TextEmbedding
 
 # --- vector store config (shared with embed.py's indexer) --- #
 
-QDRANT_PATH = "master/qdrant_db"          # local on-disk Qdrant (no server needed)
+QDRANT_PATH = "master/qdrant_db"           # local on-disk Qdrant (no server needed)
 COLLECTION = "master/scenes"
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"    # MUST match the model the index was built with
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
 VECTOR_NAMES = ("summary", "descriptors")  # two named vectors per scene point
 
-# stable per-scene Qdrant id: uuid5(NAMESPACE, scene_id) -> same scene, same point
+# bge query-side instruction prefix (summary path only). Set to "" to A/B without
+# re-indexing — passages are untouched, so the index stays valid either way.
+QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
+# stable per-scene Qdrant id namespace: uuid5(NAMESPACE, scene_id) -> same point
 NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "projectalexandria.scenes")
 
 
 def point_id(scene_id: str) -> str:
+    """Stable Qdrant point id for a scene (uuid5, so re-index overwrites)."""
     return str(uuid.uuid5(NAMESPACE, scene_id))
 
 
@@ -30,6 +47,7 @@ def point_id(scene_id: str) -> str:
 _EMBEDDER = None
 
 def _embedder() -> TextEmbedding:
+    """Lazily construct and cache the shared TextEmbedding model."""
     global _EMBEDDER
     if _EMBEDDER is None:
         _EMBEDDER = TextEmbedding(model_name=EMBED_MODEL)
@@ -37,17 +55,19 @@ def _embedder() -> TextEmbedding:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
+    """Embed a batch of texts into plain float lists."""
     return [v.tolist() for v in _embedder().embed(texts)]
 
 
 # --- client + filters --- #
 
 def open_client() -> QdrantClient:
+    """Open the on-disk Qdrant client (first call downloads the embed model)."""
     return QdrantClient(path=QDRANT_PATH)
 
 
 def book_filter(book_id: str | None) -> models.Filter | None:
-    # restrict search to one book (collection is multi-book once more are indexed)
+    """Filter that restricts a search to one book, or None for all books."""
     if not book_id:
         return None
     return models.Filter(must=[models.FieldCondition(
@@ -59,20 +79,22 @@ def book_filter(book_id: str | None) -> models.Filter | None:
 def search_summary(client: QdrantClient, summary: str, descriptors: str | None = None,
                    limit: int = 5, flt: models.Filter | None = None,
                    w_summary: float = 0.7):
-    # summary REQUIRED, descriptors OPTIONAL. Without descriptors: rank by the
-    # "summary" vector. With descriptors: summary GATES the candidate pool (and
-    # carries the heavier weight); descriptors only rerank within it, so a
-    # descriptor-only match can't inject an off-topic scene.
-    #   score = w_summary * summary_cos + (1 - w_summary) * descriptor_cos
+    """Search by summary (required); descriptors (optional) only rerank within the summary pool.
+
+    Without descriptors: rank by the "summary" vector. With descriptors: summary
+    GATES the candidate pool and carries the heavier weight, descriptors rerank
+    inside it — so a descriptor-only match can't inject an off-topic scene.
+        score = w_summary * summary_cos + (1 - w_summary) * descriptor_cos
+    """
     if not summary:
         raise ValueError("search_summary needs a summary")
-    sv = embed([summary])[0]
+    sv = embed([QUERY_PREFIX + summary])[0]   # query-side prefix (index stays raw)
 
     if not descriptors:
         return client.query_points(COLLECTION, query=sv, using="summary", limit=limit,
                                    query_filter=flt, with_payload=True).points
 
-    pool = max(limit * 5, 50)   # candidate pool from summary before descriptor rerank
+    pool = max(limit * 5, 50)   # summary candidate pool, reranked by descriptors below
     cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
                                 query_filter=flt, with_payload=True).points
     if not cands:
@@ -96,7 +118,7 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
 
 def search_descriptors(client: QdrantClient, descriptors: str, limit: int = 5,
                        flt: models.Filter | None = None):
-    # pure descriptor-vector search (vibe words only, no summary).
+    """Pure descriptor-vector search (vibe words only, no summary)."""
     if not descriptors:
         raise ValueError("search_descriptors needs descriptors")
     dv = embed([descriptors])[0]

@@ -1,4 +1,4 @@
-# enrichment + indexing pipeline
+# FOR CLAUDE — Stage 3: enrichment + indexing pipeline.
 # -----------------------------------------------------------------------------
 # in:  scenes/pg{code}-s.json  (flat records from process.py, enrichment fields null)
 # out: same file, enriched in place  +  a Qdrant collection of scene points.
@@ -10,9 +10,10 @@
 # (prev_tone/next_tone) for Mode-2 search, and each scene is upserted as one Qdrant
 # point with TWO named vectors (summary, descriptors) — queryable alone or fused.
 #
-# NOTE (prompt/model tuning is the user's): edit BATCH_SYSTEM_PROMPT, ENRICH_EFFORT
-# and BATCH_CHAR_LIMIT below to retune. ENRICH_EFFORT is lower than the segmenter's
-# "high" because classifying already-cut scenes is easier than cutting.
+# OWNERSHIP: prompt/model tuning is the user's — edit BATCH_SYSTEM_PROMPT,
+# ENRICH_EFFORT, BATCH_CHAR_LIMIT to retune (ENRICH_EFFORT is below the segmenter's
+# "high" because classifying already-cut scenes is easier than cutting). Paths +
+# atomic JSON IO come from storage.py; the Qdrant contract comes from search.py.
 # -----------------------------------------------------------------------------
 import sys, json, re, time, threading, shutil
 from collections import Counter
@@ -22,19 +23,19 @@ from pydantic import BaseModel, ValidationError, Field, field_validator
 from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
-# reuse the single OpenRouter client, model, tag vocab enums, error policy
+# reuse the single OpenRouter client, model, tag-vocab enums, error policy
 from process import CLIENT, MODEL, Tone, Intensity, Arc, _classify_error, SCHEMA_VERSION
 # vector-store primitives shared with the read path (search.py owns them)
 from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
+# paths + atomic JSON IO
+from storage import SCENES_PATH, ENRICH_CKPT_DIR, STATUS_PATH, read_json, write_json
 
 
-# --- constants --- #
+# --- tuning constants (model/prompt surface — the user's to tune) --- #
 
-SCENES_PATH = "master/scenes"
-ENRICH_CKPT_DIR = "master/checkpoints/enrich"
-ENRICH_WORKERS = 4                 # concurrent batches in flight
+ENRICH_WORKERS = 6                # concurrent batches in flight
 ENRICH_EFFORT = "medium"          # reasoning effort for enrichment; tune as needed
-BATCH_CHAR_LIMIT = 13000          # ~12-15k chars of paragraph text packed per prompt
+BATCH_CHAR_LIMIT = 12000          # ~12-15k chars of paragraph text packed per prompt
 
 
 # --- batch enrichment schema (tag vocab enums live in process.py) --- #
@@ -62,6 +63,8 @@ class SceneEnrichment(BaseModel):
         v = re.sub(r"\s+", " ", v or "").strip()
         if not v:
             raise ValueError("summary must be non-empty")
+        v = v[0].upper() + v[1:]     # uniform surface form: capital start ...
+        v = v.rstrip(" .") + "."     # ... and exactly one trailing period
         return v
 
 
@@ -78,8 +81,8 @@ BATCH_TOOL = pydantic_function_tool(
 
 BATCH_SYSTEM_PROMPT = """
 # ROLE
-You enrich a BATCH of scenes. For EACH scene: FIRST classify its single dominant
-FLAVOR, THEN write ONE general summary consistent with that flavor. Output ONLY a
+You enrich a BATCH of scenes. For EACH scene: FIRST find its single dominant
+TONE, THEN write ONE general summary consistent with that tone. Output ONLY a
 call to output_enrichment.
 
 # INPUT
@@ -87,25 +90,28 @@ A JSON object {"scenes": [ {"index", "scene_title", "chapter_title", "text"}, ..
 `text` is the full scene prose. `index` identifies the scene.
 
 # OUTPUT
-output_enrichment with "items": exactly ONE object per input scene. Cover EVERY
-index exactly once — no gaps, no duplicates, no indices that were not in the input.
+output_enrichment with "items": ONE object per input scene. Cover EVERY
+index exactly once — no gaps, no duplicates, no indices that were not in input.
 Each item:
-- index: copy the scene's index from the input.
-- dominant_tone: the ONE dominant feeling (controlled vocabulary; pick the single
-  closest term, do not average two feelings).
-- intensity: low (faint wash) / moderate (clearly colours the scene) / high (dominates every line).
-- arc: rising (builds toward the end) / steady (holds one level) / falling (subsides) / turn (flips partway).
-- descriptors: 1-3 lowercase MODERN adjectives for the flavor (e.g. ["creeping","claustrophobic"]).
+- index: the scene's index from the input.
+- dominant_tone: the ONE dominant feeling (controlled vocabulary; pick the single cleanest term).
+- intensity: low (background) / moderate (visible) / high (dominates).
+- arc: rising / steady / falling / turn (tone/conflict changes drastically).
+- descriptors: 3-5 lowercase MODERN adjectives for the flavor (e.g. ["creeping","claustrophobic"]).
 - summary: see below. Write it AFTER the flavor and keep it consistent with it.
 
-# SUMMARY — MUST BE GENERAL, ONE SENTENCE
-The summary is matched against short, GENERIC scene descriptions a writer types, so
-generalize hard. Describe the TYPE of scene: the roles/archetypes and the dynamic or
-subject — NOT proper names, NOT plot specifics.
-- Style to imitate: "conversation between an authority figure and a rebellious recruit about listening to authority".
-- Style to imitate: "a hunted man hiding in the dark under the mounting threat of discovery".
-- Exactly ONE sentence. Terse. No conjunctions or extra clauses that chain events or
-  lengthen it. No names, no quotes, no title, no book framing.
+# SUMMARY — GENERAL, ONE SITUATION, READABLE SENTENCE
+The summary IS the search target: a writer types a short generic scene description
+and it must match. Write it as ONE clear, natural, grammatical sentence that reads
+well on its own.
+- Describe the TYPE of scene: roles/archetypes plus one action or dynamic. Nothing unique to that book should be included.
+- ONE situation: one actor or relationship in one situation doing one action. You may add a short clause that colours the SAME moment, but not a second moment or secoond set of characters (NOT "X does A while Y does B").
+- NO feeling words (grief, dread, joy, desperate, tender, aching...). The emotion is already carried by dominant_tone + descriptors. State only the situation.
+- ~10-18 words. Present tense. Start with a capital, end with a period. No quotes, no title, no book framing.
+- Examples:
+  - An authority figure instructs a young recruit at training grounds to trust reason over emotion.
+  - A hunted man hides in a dark forest at night as his pursuer draws near.
+  - A defeated challenger kneels in a grand hall to offer his sword to the victor.
 
 # RULES
 - A scene is ONE flavor. Choose the single strongest tone.
@@ -119,10 +125,12 @@ subject — NOT proper names, NOT plot specifics.
 def _run_tool(system_prompt: str, user_content: str, tool: dict, tool_name: str,
               model_cls, effort: str = ENRICH_EFFORT, validate=None,
               max_transient_retries: int = 6, max_validation_retries: int = 3):
-    # one forced tool call, validated into model_cls. Mirrors SceneBreaker's retry
-    # policy: transient (network/429/5xx) backs off; bad/absent args get corrective
-    # feedback appended to history; temp bumps across attempts. `validate(data)` ->
-    # (ok, reason) adds a semantic check (e.g. batch index coverage) on top of schema.
+    """One forced tool call validated into `model_cls`, using SceneBreaker's retry policy.
+
+    Transient errors back off; bad/absent args get corrective feedback appended to
+    history; temp bumps across attempts. Optional `validate(data) -> (ok, reason)`
+    adds a semantic check (e.g. batch index coverage) on top of schema validation.
+    """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
@@ -187,13 +195,12 @@ def _run_tool(system_prompt: str, user_content: str, tool: dict, tool_name: str,
 # --- enrichment --- #
 
 def _plain(text_html: str) -> str:
-    # scene prose without markup, whitespace collapsed (LLM input, not stored)
+    """Scene prose with markup stripped and whitespace collapsed (LLM input, not stored)."""
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text_html or "")).strip()
 
 
 def _batches(records: list[dict], limit: int = BATCH_CHAR_LIMIT):
-    # pack scenes into prompt-sized groups by paragraph-text length. A scene is
-    # never split; one over the limit becomes its own (over-budget) batch.
+    """Group scenes into prompt-sized batches by text length; a scene is never split."""
     batch, size = [], 0
     for r in records:
         n = len(_plain(r.get("text_html", "")))
@@ -207,8 +214,10 @@ def _batches(records: list[dict], limit: int = BATCH_CHAR_LIMIT):
 
 
 def _enrich_batch(batch: list[dict]) -> list[dict]:
-    # one call enriches the whole batch; returns per-scene {"tags":{...},"summary"}
-    # aligned to batch order. Coverage-validated: one item per scene, no gaps/dupes.
+    """Enrich one batch in a single call -> per-scene {"tags", "summary"} in batch order.
+
+    Coverage-validated: exactly one item per scene, no gaps or duplicates.
+    """
     payload = json.dumps({"scenes": [
         {"index": i, "scene_title": r.get("scene_title"),
          "chapter_title": r.get("chapter_title"), "text": _plain(r.get("text_html", ""))}
@@ -248,7 +257,7 @@ def _enrich_batch(batch: list[dict]) -> list[dict]:
 
 
 def _apply(rec: dict, enriched: dict):
-    # write enrichment onto the record (prev_tone/next_tone done later, once all known)
+    """Write one scene's enrichment onto its record (prev_tone/next_tone denormalized later)."""
     t = enriched["tags"]
     rec["dominant_tone"] = t["dominant_tone"]
     rec["intensity"] = t["intensity"]
@@ -260,15 +269,13 @@ def _apply(rec: dict, enriched: dict):
 
 
 def enrich_file(path: Path) -> list[dict]:
-    # enrich every scene in one scenes json, resumable via per-scene checkpoints,
-    # then denormalize neighbor tones and write the file back in place.
-    records = json.loads(path.read_text(encoding="utf-8"))
+    """Enrich every scene in one scenes json (resumable), denormalize tones, rewrite in place."""
+    records = read_json(path, [])
     if not records:
         return records
 
     code = records[0]["book_id"]
     ckpt_dir = Path(ENRICH_CKPT_DIR) / f"pg{code}"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
     print_lock = threading.Lock()
 
     # resume: apply anything already enriched or checkpointed; only the rest hit the LLM
@@ -276,10 +283,10 @@ def enrich_file(path: Path) -> list[dict]:
     for r in records:
         if r.get("enriched") and r.get("summary"):
             continue
-        cpath = ckpt_dir / f"{r['scene_id']}.json"
-        if cpath.exists():
+        cached = read_json(ckpt_dir / f"{r['scene_id']}.json")
+        if cached is not None:
             try:
-                _apply(r, json.loads(cpath.read_text(encoding="utf-8")))
+                _apply(r, cached)
                 continue
             except Exception:
                 pass  # corrupt checkpoint -> recompute
@@ -289,8 +296,7 @@ def enrich_file(path: Path) -> list[dict]:
         # one LLM call per batch; checkpoint each scene before mutating the record
         results = _enrich_batch(batch)
         for r, res in zip(batch, results):
-            (ckpt_dir / f"{r['scene_id']}.json").write_text(
-                json.dumps(res, ensure_ascii=False), encoding="utf-8")
+            write_json(ckpt_dir / f"{r['scene_id']}.json", res, indent=None)
             _apply(r, res)
         with print_lock:
             print(f"**** BATCH ({len(batch)}) {', '.join(r['scene_id'] for r in batch)} ****")
@@ -308,7 +314,7 @@ def enrich_file(path: Path) -> list[dict]:
         r["prev_tone"] = by_id[p]["dominant_tone"] if p in by_id else None
         r["next_tone"] = by_id[n]["dominant_tone"] if n in by_id else None
 
-    path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, records)
     shutil.rmtree(ckpt_dir, ignore_errors=True)   # book done: checkpoints no longer needed
     print(f"enriched {len(records)} scenes -> {path}")
     return records
@@ -317,8 +323,7 @@ def enrich_file(path: Path) -> list[dict]:
 # --- qdrant index (write path; config/embedder/id come from search.py) --- #
 
 def _ensure_collection(client: QdrantClient, dim: int):
-    # named-vector collection: "summary" and "descriptors", queryable alone or fused.
-    # self-heals: an existing collection with the wrong vector shape is rebuilt.
+    """Ensure the named-vector ("summary"/"descriptors") collection exists; rebuild if stale."""
     want = {n: models.VectorParams(size=dim, distance=models.Distance.COSINE)
             for n in VECTOR_NAMES}
     if client.collection_exists(COLLECTION):
@@ -330,9 +335,10 @@ def _ensure_collection(client: QdrantClient, dim: int):
 
 
 def index_records(client: QdrantClient, records: list[dict]):
-    # embed BOTH the summary and the descriptor adjectives (separate named vectors)
-    # and upsert one point per scene. payload == the full flat record (the DB row);
-    # id is the stable scene uuid (re-runs overwrite).
+    """Embed summary + descriptors as two named vectors and upsert one point per scene.
+
+    payload == the full flat record; id is the stable scene uuid, so re-runs overwrite.
+    """
     ready = [r for r in records if r.get("summary")]
     if not ready:
         print("  no enriched summaries to index")
@@ -350,21 +356,46 @@ def index_records(client: QdrantClient, records: list[dict]):
     print(f"  indexed {len(ready)} points into '{COLLECTION}'")
 
 
+# --- book completion status (skip finished books) --- #
+
+def _load_status() -> dict:
+    """Load the {book_id: status} map; missing file / key / null all mean "not done"."""
+    return read_json(STATUS_PATH, {})
+
+
+def _mark_status(book_id: str, value):
+    """Persist one book's completion status so the next run can skip it."""
+    status = _load_status()
+    status[book_id] = value
+    write_json(STATUS_PATH, status)
+
+
 def main():
-    # embed.py [code ...]   enrich + index those books (default: all scenes files).
-    # the Qdrant search test now lives in tests.py.
+    """CLI: `embed.py [code ...]` enrich + index those books (default: all scenes files).
+
+    A book marked "completed" in STATUS_PATH is skipped; set its status to null (or
+    delete the file) to force a redo. Interactive tests live in tests.py.
+    """
     if len(sys.argv) > 1:
         files = [Path(f"{SCENES_PATH}/pg{c}-s.json") for c in sys.argv[1:]]
     else:
         files = sorted(Path(SCENES_PATH).glob("pg*-s.json"))
 
     client = open_client()   # first run downloads the embed model
+    status = _load_status()
     for f in files:
         if not f.exists():
             print(f"skip (missing): {f}")
             continue
+        m = re.search(r"pg(\d+)-s\.json$", f.name)
+        code = m.group(1) if m else f.stem
+        if status.get(code) == "completed":
+            print(f"skip (completed): {code}")
+            continue
         records = enrich_file(f)
         index_records(client, records)
+        _mark_status(code, "completed")   # persisted so the next run skips it
+        print(f"marked {code} completed")
 
 
 if __name__ == "__main__":

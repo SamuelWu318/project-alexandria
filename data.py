@@ -1,29 +1,45 @@
+# FOR CLAUDE — Stage 1: parse + recall (the read-from-Gutenberg layer).
+# -----------------------------------------------------------------------------
+# Turns raw Project Gutenberg files into in-memory objects the rest of the
+# pipeline consumes. Two halves:
+#   * MetadataParser — pulls one book's metadata row out of pg_catalog.csv.
+#   * SceneParser    — unzips a book's HTML, strips boilerplate, and cuts the body
+#                      into a Book -> Chunks -> Paragraphs tree.
+# build_library() ties them together behind the RECALL cache (master/recall):
+# parse each .zip once, then reload from JSON forever after.
+#
+# Key invariants (do not break):
+#   * Paragraph.index is GLOBAL and book-wide — it never resets per chapter, and
+#     all_paras[k].index == k. process.py's stitching and context lookback depend
+#     on this contiguity.
+#   * Chunks pack paragraphs up to TARGET_CHARS on paragraph boundaries; a lone
+#     over-budget paragraph is kept whole (never split mid-paragraph).
+#   * Extraction is LOSSLESS: <p> outside every div.chapter is swept up as a
+#     leading "Front Matter" segment rather than silently dropped.
+#   * to_dict/from_dict on Book/Chunk/Paragraph are the lossless recall round-trip;
+#     payload()/scene_payload() are lossy views for dumps / the LLM.
+# All path constants + JSON IO come from storage.py.
+# -----------------------------------------------------------------------------
 from __future__ import annotations
-import re, csv, json, zipfile, unicodedata
+import re, csv, json, zipfile
 from dataclasses import dataclass, field, asdict
-from functools import lru_cache
 from pathlib import Path
 from datetime import datetime
 from bs4 import BeautifulSoup, Comment, Tag
 
-# --- metadata parser constants --- #
-
-CATALOG_PATH = "master/pg_catalog.csv"
-DATA_PATH = "master/data"
-RECALL_PATH = "master/recall"   # cache: metadata.json + books.json, keyed by file_code
-TEST_PATH = "master/test"
+from storage import CATALOG_PATH, DATA_PATH, RECALL_PATH, read_json, write_json
 
 # --- scene parser constants --- #
 
-BOILERPLATE_SELECTORS = ["#pg-header", "#pg-footer", 
-                         "#project-gutenberg-license"]  # selectors for boilerplate removal
-CHAPTER_SELECTOR = "div.chapter"                        # chapter selectors to break into chunks
-HEADING_TAGS = ["h1", "h2", "h3", "h4"]                 # identify the start of segments/chapters 
-MIN_SEGMENT_CHARS = 200                                 # guaranteed to not be prose; at least 200 chars
-TARGET_CHARS = 30000                                    # about a maximum of 6k tokens for each chunk
-OVERLAP_PARAGRAPHS = 3                                  # number of paragraphs to look back to
-KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # keep for text rendering with html 
-             "u", "small", "br"}          
+BOILERPLATE_SELECTORS = ["#pg-header", "#pg-footer",
+                         "#project-gutenberg-license"]  # boilerplate to strip out
+CHAPTER_SELECTOR = "div.chapter"                        # primary chunk boundary
+HEADING_TAGS = ["h1", "h2", "h3", "h4"]                 # mark the start of a segment
+MIN_SEGMENT_CHARS = 200                                 # below this = not prose, drop
+TARGET_CHARS = 30000                                    # ~6k-token chunk budget
+OVERLAP_PARAGRAPHS = 3                                  # lookback window for scene context
+KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # inline tags kept for rendering
+             "u", "small", "br"}
 
 
 # --- METADATA PARSER --- #
@@ -41,20 +57,19 @@ class MetadataParser:
             "Date": None,
             "Language": None,
         }
-
         self._catalog = self._load_catalog(Path(catalog_path))
 
-    # loads the catalog of metadata
     @staticmethod
     def _load_catalog(path: Path) -> dict:
+        """Load pg_catalog.csv into a Text# -> row dict."""
         catalog = {}
         with path.open(newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f): catalog[row["Text#"]] = row
         return catalog
 
-    # flips names to be first name, last name
     @staticmethod
     def _parse_name(entry: str) -> str | None:
+        """Flip a "Last, First" catalog name into "First Last" (drops [notes]/dates)."""
         entry = re.sub(r"\[.*?\]", "", entry).strip()
         if not entry: return None
 
@@ -66,8 +81,8 @@ class MetadataParser:
         if parts: return parts[0]
         return None
 
-    # bring all metadata found in catalog into metadata dict
     def feed(self, file_code: str) -> dict:
+        """Build the metadata dict for one book from its catalog row."""
         row = self._catalog.get(file_code)
         if row is None:
             raise KeyError(f"Text# {file_code} not found in {CATALOG_PATH}")
@@ -87,7 +102,7 @@ class MetadataParser:
         if authors: metadata["Author"] = self._parse_name(authors[0])
 
         for entry in authors:
-            if "[translator]" in entry.lower(): 
+            if "[translator]" in entry.lower():
                 metadata["Translator"] = self._parse_name(entry)
                 break
 
@@ -98,9 +113,9 @@ class MetadataParser:
         self.metadata = metadata
         return metadata
 
-    # --- recall (de)serialization: Subjects is a set, not JSON-native --- #
     @staticmethod
     def to_dict(md: dict) -> dict:
+        """Serialize metadata for JSON/Qdrant: the Subjects set becomes a sorted list."""
         d = dict(md)
         subj = d.get("Subjects")
         if isinstance(subj, set): d["Subjects"] = sorted(subj)
@@ -108,33 +123,27 @@ class MetadataParser:
 
     @staticmethod
     def from_dict(d: dict) -> dict:
+        """Rehydrate metadata from JSON: Subjects list becomes a set again."""
         md = dict(d)
         md["Subjects"] = set(md.get("Subjects") or [])
         return md
 
 
-# --- BOOK CLASS --- #
+# --- BOOK / CHUNK / PARAGRAPH TREE --- #
 
 
-# each book will be wrapped in a book class
 @dataclass
 class Book:
     file_code: str
     title: str | None
     chunks: list[Chunk] = field(default_factory=list)
 
-    def to_json(self, folder) -> str:
-        path = Path(f"{folder}/pg{self.file_code}-p.json")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        out = []
+    def to_json(self, folder) -> None:
+        """Dump this book's chunk payloads (lossy view) to folder/pg{code}-p.json."""
+        write_json(f"{folder}/pg{self.file_code}-p.json", [c.payload() for c in self.chunks])
 
-        for c in self.chunks:
-            out.append(c.payload())
-
-        path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # full round-trip for the recall cache (lossless, unlike payload()/to_json)
     def to_dict(self) -> dict:
+        """Lossless dict for the recall cache (round-trips via from_dict)."""
         return {
             "file_code": self.file_code,
             "title": self.title,
@@ -143,28 +152,27 @@ class Book:
 
     @classmethod
     def from_dict(cls, d: dict) -> Book:
+        """Rebuild a Book from its recall-cache dict."""
         return cls(
             file_code=d["file_code"],
             title=d["title"],
             chunks=[Chunk.from_dict(c) for c in d["chunks"]],
         )
 
-# each book will contain chunks
+
 @dataclass
 class Chunk:
-    # chunk: one chapter, or a chunk of size TARGET_CHARS
     chunk_index: int                # chunk number within the book
     chapter_index: int              # chapter the chunk comes from
     chapter_heading: str | None
     part: int                       # 1-based sub-chunk within the chapter
     part_count: int                 # total sub-chunks for this chapter
 
-    # read-only: used to identify potential scenes. Will allow 
-    # previous paragraph to recognize the scene.
-    context: list[Paragraph] = field(default_factory=list)
-    paragraphs: list[Paragraph] = field(default_factory=list)
+    context: list[Paragraph] = field(default_factory=list)     # read-only lookback paragraphs
+    paragraphs: list[Paragraph] = field(default_factory=list)  # the chunk's own paragraphs
 
     def payload(self) -> dict:
+        """Full inspection view of the chunk (used by payload dumps)."""
         return {
             "chunk_index": self.chunk_index,
             "chapter_index": self.chapter_index,
@@ -178,6 +186,7 @@ class Chunk:
         }
 
     def scene_payload(self) -> dict:
+        """Compact JSON string fed to the segmenter LLM (one section to split)."""
         return json.dumps({
             "chapter_title": self.chapter_heading,
             "section_within_chunk": f"{self.part}/{self.part_count}",
@@ -187,10 +196,11 @@ class Chunk:
         }, ensure_ascii=False)
 
     def json(self, payload) -> str:
+        """Pretty-print any payload dict as indented JSON."""
         return json.dumps(payload, ensure_ascii=False, indent=4)
 
-    # full round-trip for the recall cache
     def to_dict(self) -> dict:
+        """Lossless dict for the recall cache (round-trips via from_dict)."""
         return {
             "chunk_index": self.chunk_index,
             "chapter_index": self.chapter_index,
@@ -203,6 +213,7 @@ class Chunk:
 
     @classmethod
     def from_dict(cls, d: dict) -> Chunk:
+        """Rebuild a Chunk from its recall-cache dict."""
         return cls(
             chunk_index=d["chunk_index"],
             chapter_index=d["chapter_index"],
@@ -213,17 +224,19 @@ class Chunk:
             paragraphs=[Paragraph.from_dict(p) for p in d["paragraphs"]],
         )
 
-# each chunk will contain paragraphs
+
 @dataclass
 class Paragraph:
-    index: int  # global paragraph index, book-wide (never resets per chapter)
-    text: str   # text of each paragraph
+    index: int  # global, book-wide paragraph index (never resets per chapter)
+    text: str
 
     def to_dict(self) -> dict:
+        """Serialize to a plain {index, text} dict."""
         return {"index": self.index, "text": self.text}
 
     @classmethod
     def from_dict(cls, d: dict) -> Paragraph:
+        """Rebuild a Paragraph from its dict."""
         return cls(index=d["index"], text=d["text"])
 
 
@@ -231,8 +244,8 @@ class Paragraph:
 
 
 class SceneParser:
-    # open up the file and sent it to parse_html
     def parse_file(self, file_code: str, folder: str) -> Tag:
+        """Open a book's -h.zip, decode its HTML, and return the stripped body."""
         with zipfile.ZipFile(folder + '/pg' + file_code + "-h.zip", 'r') as z:
             file_name = ""
             for name in z.namelist():
@@ -243,7 +256,6 @@ class SceneParser:
             with z.open(file_name, 'r') as _:
                 method = "utf-8"
                 head = _.read(200).decode('ascii', errors="ignore").lower()
-
                 if "utf-8" in head: method = "utf-8"
                 if "iso-8859-1" in head: method = "iso-8859-1"
                 if "ascii" in head: method = "ascii"
@@ -252,9 +264,9 @@ class SceneParser:
                 raw_html = h.read().decode(method)
 
         return self.parse_html(raw_html)
-    
-    # elimination of headers, footers, and licenses
+
     def parse_html(self, raw_html: str) -> Tag:
+        """Parse HTML and remove comments, headers, footers, and the license."""
         soup = BeautifulSoup(raw_html, "html.parser")
 
         for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
@@ -267,27 +279,27 @@ class SceneParser:
         return soup.body or soup
 
     def get_text(self, raw_html: str) -> str:
+        """Return the stripped body as newline-joined plain text."""
         body = self.parse_html(raw_html)
         return body.get_text(separator="\n", strip=True)
 
     @staticmethod
     def _clean_html(tag: Tag) -> str:
-        # preserve inline formatting. HTML reparsed into an isolated tree
-        # then the whitespace is collapsed, returning a string safe for use
+        """Keep inline formatting (KEEP_TAGS), unwrap everything else, collapse whitespace."""
         s = BeautifulSoup(tag.decode_contents(), "html.parser")
         for e in s.find_all(True):
-            # remove unnecessary attrs if keep, unwrap if remove
             if e.name in KEEP_TAGS: e.attrs = {}
             else: e.unwrap()
         return re.sub(r"\s+", " ", s.decode()).strip()
 
     @staticmethod
     def _heading(tag: Tag) -> str | None:
+        """First heading text inside `tag`, whitespace-normalized, or None."""
         heading = tag.find(HEADING_TAGS)
         return " ".join(heading.get_text(separator=" ").split()) if heading else None
 
     def _get_segments_fallback(self, body: Tag) -> list[tuple[str | None, list[str]]]:
-        # only necessary if there are no chapters. Divides at headings instead.
+        """Chapterless fallback: split into (heading, paragraphs) at each heading."""
         segments: list[tuple[str | None, list[str]]] = []
         heading: str | None = None
         texts: list[str] = []
@@ -301,17 +313,14 @@ class SceneParser:
                 if t: texts.append(t)
 
         if texts: segments.append((heading, texts))
-
         return segments
 
     def get_segments(self, body: Tag) -> list[tuple[str | None, list[str]]]:
-        # stage 2: cut the body into ordered (heading, paragraphs) segments.
+        """Cut the body into ordered (heading, paragraphs) segments (chapters > headings > whole)."""
         chapters = body.select(CHAPTER_SELECTOR)
         if chapters:
             segments: list[tuple[str | None, list[str]]] = []
-            # <p> that live outside every div.chapter (a title page, a stray
-            # note) would be silently dropped by a chapter-only walk; sweep them
-            # up as a leading front-matter segment so extraction stays lossless.
+            # sweep <p> outside every div.chapter into a leading segment so nothing is dropped
             chapter_ps = {id(p) for ch in chapters for p in ch.find_all("p")}
             loose = [t for t in (self._clean_html(p) for p in body.find_all("p")
                                  if id(p) not in chapter_ps) if t]
@@ -326,15 +335,12 @@ class SceneParser:
         if body.find_all("h2"):
             return self._get_segments_fallback(body)
 
-        # for chapterless single document (e.g. the Declaration)
+        # chapterless single document (e.g. the Declaration)
         texts = [t for t in (self._clean_html(p) for p in body.find_all("p")) if t]
         return [(None, texts)] if texts else []
 
     def _pack(self, paragraphs: list[Paragraph]) -> list[list[Paragraph]]:
-        # stage 3: greedily pack paragraphs into parts, each <= TARGET_CHARS,
-        # on paragraph boundaries. A lone paragraph over budget gets its own
-        # part (kept whole - never split mid-paragraph). Indices are assigned by
-        # the caller (global, book-wide) and preserved here untouched.
+        """Greedily group paragraphs into parts <= TARGET_CHARS, never splitting one."""
         parts: list[list[Paragraph]] = []
         current: list[Paragraph] = []
         size = 0
@@ -343,21 +349,20 @@ class SceneParser:
             if current and size + len(p.text) > TARGET_CHARS:
                 parts.append(current)
                 current, size = [], 0
-
             current.append(p)
             size += len(p.text)
 
         if current:
             parts.append(current)
-
         return parts
 
     def parse_book(self, body: Tag, file_code: str = "", title: str | None = None) -> Book:
-        # segment, drop structural front/back matter, assign one book-wide
-        # global paragraph index, then pack each content chapter into
-        # budget-bounded chunks. Context reaches back OVERLAP_PARAGRAPHS in
-        # global order - across the chapter boundary for a chapter's first
-        # part - so scene continuations spanning chapters can be caught later.
+        """Segment -> drop tiny segments -> assign global indices -> pack into Chunks.
+
+        Each chunk's context reaches back OVERLAP_PARAGRAPHS in global order (across
+        the chapter boundary for a chapter's first part) so cross-chunk scene
+        continuations can be caught during segmentation.
+        """
         segments = [(h, ts) for h, ts in self.get_segments(body)
                     if sum(len(t) for t in ts) >= MIN_SEGMENT_CHARS]
 
@@ -372,9 +377,7 @@ class SceneParser:
 
             parts = self._pack(chapter_paras)
             for part_no, owned in enumerate(parts):
-                # lookback = the OVERLAP paragraphs immediately preceding this
-                # chunk's first owned paragraph in global order (empty only for
-                # the book's very first chunk). all_paras[k].index == k.
+                # lookback = OVERLAP paragraphs preceding this chunk's first paragraph (all_paras[k].index == k)
                 start = owned[0].index
                 context = all_paras[max(0, start - OVERLAP_PARAGRAPHS):start]
                 chunks.append(Chunk(
@@ -390,36 +393,28 @@ class SceneParser:
         return Book(file_code=file_code, title=title, chunks=chunks)
 
     def parse(self, file_code: str, folder: str, title: str | None = None) -> Book:
-        # convenience entry point: zip -> stripped body -> chunked Book.
+        """Convenience entry point: zip -> stripped body -> chunked Book."""
         return self.parse_book(self.parse_file(file_code, folder), file_code, title)
 
 
 # --- RECALL CACHE --- #
 
 
-def _load_recall(path: Path) -> dict:
-    # code -> data map, or {} if the cache file is missing/corrupt.
-    if not path.exists(): return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
 def build_library(data_path: str = DATA_PATH,
                   recall_path: str = RECALL_PATH) -> tuple[dict, dict]:
-    # single source of metadata + books, backed by the recall cache. Each is a
-    # code -> data JSON file (alice -> "11"): pull from cache when present, else
-    # parse the .zip and add the new entry. Returns live dicts keyed by
-    # file_code: metadata[code] -> metadata dict, books[code] -> Book.
+    """Load every book's metadata + parsed Book, backed by the recall cache.
+
+    metadata.json and books.json under recall_path are code -> data maps: reuse a
+    cached entry when present, else parse the .zip and add it. Returns live dicts
+    keyed by file_code — metadata[code] -> metadata dict, books[code] -> Book.
+    """
     path = Path(data_path)
     recall = Path(recall_path)
-    recall.mkdir(parents=True, exist_ok=True)
     md_file = recall / "metadata.json"
     books_file = recall / "books.json"
 
-    md_cache = _load_recall(md_file)        # code -> metadata dict (Subjects as list)
-    books_cache = _load_recall(books_file)  # code -> Book dict
+    md_cache = read_json(md_file, {})        # code -> metadata dict (Subjects as list)
+    books_cache = read_json(books_file, {})  # code -> Book dict
 
     metadata: dict = {}
     books: dict = {}
@@ -432,10 +427,8 @@ def build_library(data_path: str = DATA_PATH,
 
         match = re.search(r"pg(\d+)-h.zip", file.name)
         if not match: continue
-
         file_code = match.group(1)
 
-        # metadata: from recall json, else parse + add
         if file_code in md_cache:
             md = MetadataParser.from_dict(md_cache[file_code])
         else:
@@ -444,7 +437,6 @@ def build_library(data_path: str = DATA_PATH,
             md_dirty = True
         metadata[file_code] = md
 
-        # book: from recall json, else parse + add
         if file_code in books_cache:
             book = Book.from_dict(books_cache[file_code])
         else:
@@ -454,8 +446,8 @@ def build_library(data_path: str = DATA_PATH,
         books[book.file_code] = book
 
     if md_dirty:
-        md_file.write_text(json.dumps(md_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(md_file, md_cache)
     if books_dirty:
-        books_file.write_text(json.dumps(books_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(books_file, books_cache)
 
     return metadata, books
