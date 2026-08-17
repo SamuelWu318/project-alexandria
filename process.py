@@ -111,49 +111,50 @@ Non-story FORMS are still scenes: verse, letters, documents, and stage plays are
     {"start_paragraph_index": 3, "end_paragraph_index": 4, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "The dreaded knock at the door"}
   ]}
 
-# EXAMPLE 2 — a stage play: non-prose form, but it IS the story (keep it)
+# EXAMPLE 2 — a letter embedded in a story: non-prose form, but it IS the story (keep it)
   -- input --
   {
-  "chapter_title": "A Play in Three Acts",
+  "chapter_title": "The East Window",
   "section_within_chunk": "1/1",
   "read_only_context_paragraphs": [],
   "indexed_paragraphs": [
-    { "index": 0, "text": "GAOLER. [setting the lamp on the sill] One hour before the magistrate comes. Spend it in prayer, not in schemes." },
-    { "index": 1, "text": "PRISONER. I am done with praying. Tell me instead who paid you to lose the key the night they took me." },
-    { "index": 2, "text": "GAOLER. [pausing at the door] Mind your tongue. These walls have sent men to the rope for less than that." }
+    { "index": 0, "text": "The letter had travelled three months to reach her, and she read it by the window where the light was kindest." },
+    { "index": 1, "text": "My dearest Clara, — Not a day passes on this cold station that I do not think of the garden and your voice in it. Keep the lamp in the east window burning; I will be home before the apples fall. Ever yours, Thomas." },
+    { "index": 2, "text": "She folded it along the worn creases, as she had a hundred times, and pressed it flat against her heart." }
   ]
   }
   -- reasoning (think first) --
   1. Section 1/1 — no open flags.
-  2. Form is a stage play: names in caps, bracketed stage directions, dialogue. Not prose, but not noise. The dramatic dialogue and its stage directions ARE the story; keep them.
-  3. The bracketed bits ([setting the lamp...], [pausing at the door]) are stage directions, part of the scene — not footnotes.
-  4. Tone: veiled threat held across all three lines (warning, then the "rope") = menace, steady. One flavor, so one scene, 0-2.
+  2. Noise: none. Index 1 is a formal letter (salutation "My dearest Clara,", signature "Ever yours, Thomas"). Different form from the narrative, but it IS the story — a letter, poem, or document that carries the story is a scene. Noise would be an editorial note ABOUT the letter, not the letter itself.
+  3. Tone: tenderness held across all three — the careful reading (0), the letter's warmth (1), pressing it to her heart (2). One flavor, steady.
+  4. One scene, 0-2.
   5. Coverage: 0,1,2 each once.
   -- output_scenes --
   {"scenes_data": [
-    {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "The gaoler warns the prisoner before dawn"}
+    {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "open_start_index": False, "open_end_index": False, "title": "A soldier's letter read by the window"}
   ]}
 
-# EXAMPLE 3 — an all-noise section: front matter, no story at all
+# EXAMPLE 3 — an all-noise section: subtle translator / preface commentary, no story
   -- input --
   {
-  "chapter_title": "Front Matter",
-  "section_within_chunk": "1/4",
+  "chapter_title": "Translator's Preface",
+  "section_within_chunk": "1/6",
   "read_only_context_paragraphs": [],
   "indexed_paragraphs": [
-    { "index": 0, "text": "The Project Gutenberg eBook of The Hollow Road, by A. N. Author" },
-    { "index": 1, "text": "This eBook is for the use of anyone anywhere at no cost and with almost no restrictions whatsoever." },
-    { "index": 2, "text": "Title: The Hollow Road. Author: A. N. Author. Release Date: March 1899. Language: English." },
-    { "index": 3, "text": "PREFACE. This edition collates the 1832 manuscript with the corrected proofs of 1834; spelling has been modernised throughout." },
-    { "index": 4, "text": "A NOTE ON THE TEXT. Footnotes marked [Tr.] are the translator's; those marked [Ed.] belong to the present editor." }
+    { "index": 0, "text": "In rendering these letters into English I have kept the author's abrupt transitions, which earlier translators smoothed away to the loss of their fire." },
+    { "index": 1, "text": "The manuscript reached me through the Contarini family, whose Venice archive survived the flood of 1966 nearly intact." },
+    { "index": 2, "text": "A word on the notes: where the meaning is doubtful I mark the passage with a dagger rather than interrupt the reader with my own conjecture." },
+    { "index": 3, "text": "I have preserved the original chapter divisions, though the third and fourth were plainly transposed by a careless copyist." },
+    { "index": 4, "text": "The tale itself begins on a winter road outside Vilnius — though the author never went there, and wrote all of it from a sickbed in Nice." }
   ]
   }
   -- reasoning (think first) --
-  1. Scan for noise first (the priority step).
-  2. Every paragraph is book apparatus — Gutenberg header (0), license blurb (1), bibliographic block (2), editorial preface on publication history (3), a note on the text (4). None is story prose or dialogue.
-  3. No scene anywhere, so no tonal seams and no open flags (flags mark scenes only).
-  4. Contiguous noise collapses into ONE segment, not five — fewer segments, same coverage.
-  5. Coverage: 0-4 covered once by the single noise segment.
+  1. Scan for noise first.
+  2. Every paragraph is the translator speaking ABOUT the text — how it was rendered (0), where the manuscript came from (1), a note on the notation (2), an editorial choice on chapter order (3). This is subtle: it reads like flowing first-person prose, but the "I" is the translator, not a character in a story.
+  3. Index 4 is the trap: it names the story's setting ("a winter road outside Vilnius"), but the sentence is biography about the author, not the scene itself. Naming the story is not the same as being the story. Still noise.
+  4. Apparatus talks ABOUT the book; a scene happens INSIDE the story. No scene here, so no seams and no open flags.
+  5. Contiguous noise collapses into ONE segment.
+  6. Coverage: 0-4 covered once.
   -- output_scenes --
   {"scenes_data": [
     {"start_paragraph_index": 0, "end_paragraph_index": 4, "paragraph_type": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
