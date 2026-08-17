@@ -113,7 +113,7 @@ def search_test(book_id: str = "1727", limit: int = 2):
 
 def payload_dump_test():
     """Dump every book's chunk payloads to INSPECT_PATH/pg{code}-p.json for inspection."""
-    _, books = build_library(recall_path=RECALL_PATH)
+    _, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
     for book in books.values():
         print(book.file_code)
         book.to_json(INSPECT_PATH)
@@ -137,9 +137,8 @@ def _exclude_book(code: str, md: dict, reason: str, detail=None):
     write_json(path, excluded)
 
 
-def segment_test(desired: str):
+def segment_test(metadata: dict, books: dict, desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
-    metadata, books = build_library(recall_path=RECALL_PATH)
     sb = SceneBreaker()
 
     desired_book = []
@@ -244,8 +243,9 @@ def step_one_retrieval(file_ids):
 
 def step_two_processing(file_ids):
     """Segments all files into scenes."""
+    metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
     for file_id in file_ids:
-        segment_test(file_id)
+        segment_test(metadata, books, file_id)
 
 def main():
     step_one_retrieval(FILE_IDS)
