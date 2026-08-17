@@ -14,11 +14,40 @@ import threading, shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from data import build_library
+from data import build_library, MetadataParser, parse_rights
 from process import SceneBreaker, scenes_to_records, _load_checkpoint, _save_checkpoint
-from storage import TEST_PATH, SCENES_PATH, CHECKPOINT_DIR, write_json
-import search
+from storage import write_json, read_json
+import search, subprocess, os, sys
 
+
+# book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds
+# this fraction of its non-noise text
+OTHER_SKIP_RATIO = 0.70
+TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
+DATA_PATH = TEST_PATH + "/data"
+SCENES_PATH = TEST_PATH + "/scenes"
+INSPECT_PATH = TEST_PATH + "/inspect"
+RECALL_PATH = TEST_PATH + "/recall"
+CHECKPOINT_DIR = TEST_PATH + "/checkpoints"
+
+# a book whose metadata Subjects contain any of these words is treated as non-prose
+# and excluded from segmentation up front; the exclusion is logged to EXCLUDED_BOOKS_FILE
+EXCLUDE_SUBJECT_WORDS = ("poems", "poetry", "plays", "drama")
+EXCLUDED_BOOKS_FILE = "excluded-books.json"
+
+# --- test file numbers --- #
+FILE_IDS = [
+    "64317",    # great gatsby
+    "71865",    # mrs dalloway
+    "4300",     # ulysses
+    "2814",     # dubliners
+    "5200",     # metamorphosis
+    "215",      # call of the wild
+    "55",       # wizard of oz
+    "73",       # red badge of courage
+    "75201",    # a farewell to arms
+    ""
+]
 
 # --- qdrant search test --- #
 # general, plot-free scene descriptions (how a writer searches) mapped to famous
@@ -49,7 +78,6 @@ DESCRIPTOR_QUERIES = [
     "joyful, tender, warm",
     "cunning, clever, smart",
 ]
-
 
 def _show(hits):
     """Print each hit: score, scene id, flavor tags, title, summary, descriptors."""
@@ -84,22 +112,59 @@ def search_test(book_id: str = "1727", limit: int = 2):
 # --- payload dump (was data.main) --- #
 
 def payload_dump_test():
-    """Dump every book's chunk payloads to TEST_PATH/pg{code}-p.json for inspection."""
-    _, books = build_library()
+    """Dump every book's chunk payloads to INSPECT_PATH/pg{code}-p.json for inspection."""
+    _, books = build_library(recall_path=RECALL_PATH)
     for book in books.values():
         print(book.file_code)
-        book.to_json(TEST_PATH)
+        book.to_json(INSPECT_PATH)
 
 
 # --- segmentation run (was process.main) --- #
 
-def segment_test(desired: str = "1727"):
+def _exclude_book(code: str, md: dict, reason: str, detail=None):
+    """Append one rejected book to the running excluded-books json under SCENES_PATH.
+
+    reason is "non prose" or "not public domain"; detail is the matched subjects or
+    the dc.rights string that triggered it. Kept auditable for later look-back.
+    """
+    path = f"{SCENES_PATH}/{EXCLUDED_BOOKS_FILE}"
+    excluded = read_json(path, {})
+    excluded[code] = {
+        "reason": reason,
+        "detail": detail,
+        "metadata": MetadataParser.to_dict(md),
+    }
+    write_json(path, excluded)
+
+
+def segment_test(desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
-    metadata, books = build_library()
+    metadata, books = build_library(recall_path=RECALL_PATH)
     sb = SceneBreaker()
 
     desired_book = []
     book = books[desired]
+
+    # pre-segmentation gates: reject + log books that must not be embedded.
+    md = metadata[desired]
+
+    # gate 1: US public domain only — read dc.rights straight from the book HTML
+    rights = parse_rights(desired, DATA_PATH)
+    if rights != "Public domain in the USA.":
+        _exclude_book(desired, md, "not public domain", rights)
+        print(f"EXCLUDE pg{desired}: dc.rights={rights!r} not US public domain — "
+              f"not segmenting (logged to {SCENES_PATH}/{EXCLUDED_BOOKS_FILE})")
+        return
+
+    # gate 2: non-prose by subject (poetry / plays / drama)
+    matched = sorted(s for s in (md.get("Subjects") or [])
+                     if any(w in s.lower() for w in EXCLUDE_SUBJECT_WORDS))
+    if matched:
+        _exclude_book(desired, md, "non prose", matched)
+        print(f"EXCLUDE pg{desired}: subjects {matched} — not segmenting "
+              f"(logged to {SCENES_PATH}/{EXCLUDED_BOOKS_FILE})")
+        return
+
     print_lock = threading.Lock()
 
     ckpt_dir = Path(CHECKPOINT_DIR) / f"pg{desired}"
@@ -134,8 +199,9 @@ def segment_test(desired: str = "1727"):
     with ThreadPoolExecutor(max_workers=6) as ex:
         results = list(ex.map(work, book.chunks))
 
-    # collect kept scenes in order; count paragraphs dropped as noise
-    kept_paras, noise_paras = 0, 0
+    # collect kept scenes in order; count paragraphs dropped as noise, and tally
+    # "other" (poetry/plays) so a book that is mostly non-prose can be skipped
+    kept_paras, noise_paras, other_paras = 0, 0, 0
     for data in results:
         for scene in data.scenes_data:
             span = scene.end_paragraph_index - scene.start_paragraph_index + 1
@@ -143,10 +209,20 @@ def segment_test(desired: str = "1727"):
                 noise_paras += span
                 continue
             kept_paras += span
+            if scene.content_form == "other":
+                other_paras += span
             desired_book.append(scene)
 
     print(f"NOISE: dropped {noise_paras} paragraphs as noise; kept {kept_paras} "
           f"({noise_paras + kept_paras} total covered)")
+
+    # book-level gate: if non-prose "other" (poetry/plays) is > 70% of the non-noise
+    # text, this is not a prose book — skip records/embedding entirely.
+    other_ratio = other_paras / kept_paras if kept_paras else 0.0
+    if other_ratio > OTHER_SKIP_RATIO:
+        print(f"SKIP pg{desired}: 'other' (poetry/plays) is {other_paras}/{kept_paras} "
+              f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding this book")
+        return
 
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
@@ -157,10 +233,23 @@ def segment_test(desired: str = "1727"):
     # book fully saved: drop its checkpoints, no longer needed for resume
     shutil.rmtree(ckpt_dir, ignore_errors=True)
 
+def step_one_retrieval(file_ids):
+    """Converts all files into zip folders for processing."""
+    for file_id in file_ids:
+        if Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file():
+            continue
+
+        cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
+        subprocess.Popen(cmd, cwd=DATA_PATH)
+
+def step_two_processing(file_ids):
+    """Segments all files into scenes."""
+    for file_id in file_ids:
+        segment_test(file_id)
 
 def main():
-    """Default run: the Qdrant search test."""
-    search_test()
+    step_one_retrieval(FILE_IDS)
+    #search_test()
 
 
 if __name__ == "__main__":

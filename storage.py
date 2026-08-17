@@ -28,14 +28,15 @@ from typing import Any
 
 # --- paths (single source of truth; the whole corpus + outputs live under master/) --- #
 
-CATALOG_PATH    = "master/pg_catalog.csv"           # Gutenberg metadata catalog (CSV)
+CATALOG_PATH    = "master/pg_catalog.csv"            # Gutenberg metadata catalog (CSV)
 DATA_PATH       = "master/data"                      # source book archives, pg{code}-h.zip
 RECALL_PATH     = "master/recall"                    # parse cache: metadata.json + books.json
-TEST_PATH       = "master/test"                      # ad-hoc payload dumps for inspection
+SEGMENT_PATH    = "master/segment"                   # ad-hoc payload dumps for inspection
 SCENES_PATH     = "master/scenes"                    # per-book scene records, pg{code}-s.json
 CHECKPOINT_DIR  = "master/checkpoints"               # segmentation checkpoints (resumable)
 ENRICH_CKPT_DIR = "master/checkpoints/enrich"        # enrichment checkpoints (resumable)
 STATUS_PATH     = "master/checkpoints/status.json"   # {book_id: "completed"} -> skip on rerun
+TEST_PATH       = "test"                             # directory for testing all of project alexandria
 
 
 def read_json(path: str | Path, default: Any = None) -> Any:
@@ -63,7 +64,7 @@ def read_text(path: str | Path, default: str | None = None) -> str | None:
 
 
 def write_text(path: str | Path, text: str) -> None:
-    """Atomically write `text`: parents created, temp file written then os.replace()d."""
+    """Atomically write `text`: parents created, temp file written then os.replaced()."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")

@@ -400,6 +400,29 @@ class SceneParser:
 # --- RECALL CACHE --- #
 
 
+_RIGHTS_RE = re.compile(r'name="dc\.rights"\s+content="([^"]*)"', re.I)
+
+
+def parse_rights(file_code: str, folder: str) -> str | None:
+    """Search a book's HTML head for the dc.rights <meta> and return its content, or None.
+
+    Gutenberg stamps every book with <meta name="dc.rights" content="..."> — the US
+    public-domain gate reads this. Opens the -h.zip directly, independent of the
+    body-stripping parse, so the value is available even for books we never segment.
+    """
+    try:
+        with zipfile.ZipFile(f"{folder}/pg{file_code}-h.zip", "r") as z:
+            name = next((n for n in z.namelist() if n.endswith((".htm", ".html"))), None)
+            if name is None:
+                return None
+            with z.open(name, "r") as h:
+                raw = h.read().decode("utf-8", errors="ignore")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return None
+    m = _RIGHTS_RE.search(raw)
+    return m.group(1).strip() if m else None
+
+
 def build_library(data_path: str = DATA_PATH,
                   recall_path: str = RECALL_PATH) -> tuple[dict, dict]:
     """Load every book's metadata + parsed Book, backed by the recall cache.
