@@ -438,8 +438,8 @@ class SceneBreaker:
             validation_tries += 1
             if validation_tries > max_validation_retries:
                 raise RuntimeError(
-                    f"break_chunk validation failure after "
-                    f"{max_validation_retries} retries: {correction}")
+                    f"break_chunk validation failure after \
+                    {max_validation_retries} retries: {correction}")
             print(f"  validation retry {validation_tries}/{max_validation_retries}: {correction[:140]}")
             messages.append({"role": "assistant", "content": str(echo)})
             messages.append({"role": "user", "content": correction})

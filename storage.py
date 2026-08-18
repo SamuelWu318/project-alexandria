@@ -31,7 +31,6 @@ from typing import Any
 CATALOG_PATH    = "master/pg_catalog.csv"            # Gutenberg metadata catalog (CSV)
 DATA_PATH       = "master/data"                      # source book archives, pg{code}-h.zip
 RECALL_PATH     = "master/recall"                    # parse cache: metadata.json + books.json
-SEGMENT_PATH    = "master/segment"                   # ad-hoc payload dumps for inspection
 SCENES_PATH     = "master/scenes"                    # per-book scene records, pg{code}-s.json
 CHECKPOINT_DIR  = "master/checkpoints"               # segmentation checkpoints (resumable)
 ENRICH_CKPT_DIR = "master/checkpoints/enrich"        # enrichment checkpoints (resumable)

@@ -16,19 +16,22 @@ from concurrent.futures import ThreadPoolExecutor
 
 from data import build_library, MetadataParser, parse_rights
 from process import SceneBreaker, scenes_to_records, _load_checkpoint, _save_checkpoint
+from embed import enrich_file, index_records
 from storage import write_json, read_json
-import search, subprocess, os, sys
+from qdrant_client import QdrantClient
+import search, subprocess, os, sys, time
 
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds
 # this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
 TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
-DATA_PATH = TEST_PATH + "/data"
-SCENES_PATH = TEST_PATH + "/scenes"
-INSPECT_PATH = TEST_PATH + "/inspect"
-RECALL_PATH = TEST_PATH + "/recall"
+DATA_PATH = TEST_PATH + "/data"                 # contains the raw zip files needed
+SCENES_PATH = TEST_PATH + "/scenes"             # contains fully stitched scenes + fields before and after fill
+SEGMENTS_PATH = TEST_PATH + "/segments"         # contains excluded book list + pre-processing chunks
+RECALL_PATH = TEST_PATH + "/recall"             # contains books and metadata jsons for recall
 CHECKPOINT_DIR = TEST_PATH + "/checkpoints"
+QDRANT_PATH = TEST_PATH + "/qdrant_db"          # on-disk local Qdrant db (embed writes, search reads)
 
 # a book whose metadata Subjects contain any of these words is treated as non-prose
 # and excluded from segmentation up front; the exclusion is logged to EXCLUDED_BOOKS_FILE
@@ -46,7 +49,6 @@ FILE_IDS = [
     "55",       # wizard of oz
     "73",       # red badge of courage
     "75201",    # a farewell to arms
-    ""
 ]
 
 # --- qdrant search test --- #
@@ -79,55 +81,25 @@ DESCRIPTOR_QUERIES = [
     "cunning, clever, smart",
 ]
 
-def _show(hits):
-    """Print each hit: score, scene id, flavor tags, title, summary, descriptors."""
-    for h in hits:
-        p = h.payload
-        print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
-              f"/{p.get('intensity')}/{p.get('arc')}]  {p.get('scene_title')}")
-        print(f"     {p.get('summary')}  << {p.get('descriptors')}")
-
-
-def search_test(book_id: str = "1727", limit: int = 2):
-    """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
-    client = search.open_client()
-    flt = search.book_filter(book_id)
-
-    print("===== SUMMARY ONLY =====")
-    for q in TEST_QUERIES:
-        print(f"\nQUERY: {q}")
-        _show(search.search_summary(client, q, limit=limit, flt=flt))
-
-    print("\n===== SUMMARY + DESCRIPTORS (weighted) =====")
-    for summ, desc in COMBINED_QUERIES:
-        print(f"\nQUERY: {summ!r}  +  descriptors {desc!r}")
-        _show(search.search_summary(client, summ, descriptors=desc, limit=limit, flt=flt))
-
-    print("\n===== DESCRIPTORS ONLY =====")
-    for desc in DESCRIPTOR_QUERIES:
-        print(f"\nQUERY: descriptors {desc!r}")
-        _show(search.search_descriptors(client, desc, limit=limit, flt=flt))
-
-
 # --- payload dump (was data.main) --- #
 
 def payload_dump_test():
-    """Dump every book's chunk payloads to INSPECT_PATH/pg{code}-p.json for inspection."""
+    """Dump every book's chunk payloads to SEGMENTS_PATH/pg{code}-p.json for inspection."""
     _, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
     for book in books.values():
         print(book.file_code)
-        book.to_json(INSPECT_PATH)
+        book.to_json(SEGMENTS_PATH)
 
 
 # --- segmentation run (was process.main) --- #
 
 def _exclude_book(code: str, md: dict, reason: str, detail=None):
-    """Append one rejected book to the running excluded-books json under SCENES_PATH.
+    """Append one rejected book to the running excluded-books json under SEGMENT_PATH.
 
     reason is "non prose" or "not public domain"; detail is the matched subjects or
     the dc.rights string that triggered it. Kept auditable for later look-back.
     """
-    path = f"{SCENES_PATH}/{EXCLUDED_BOOKS_FILE}"
+    path = f"{SEGMENTS_PATH}/{EXCLUDED_BOOKS_FILE}"
     excluded = read_json(path, {})
     excluded[code] = {
         "reason": reason,
@@ -152,7 +124,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
     if rights != "Public domain in the USA.":
         _exclude_book(desired, md, "not public domain", rights)
         print(f"EXCLUDE pg{desired}: dc.rights={rights!r} not US public domain — "
-              f"not segmenting (logged to {SCENES_PATH}/{EXCLUDED_BOOKS_FILE})")
+              f"not segmenting (logged to {SEGMENTS_PATH}/{EXCLUDED_BOOKS_FILE})")
         return
 
     # gate 2: non-prose by subject (poetry / plays / drama)
@@ -161,7 +133,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
     if matched:
         _exclude_book(desired, md, "non prose", matched)
         print(f"EXCLUDE pg{desired}: subjects {matched} — not segmenting "
-              f"(logged to {SCENES_PATH}/{EXCLUDED_BOOKS_FILE})")
+              f"(logged to {SEGMENTS_PATH}/{EXCLUDED_BOOKS_FILE})")
         return
 
     print_lock = threading.Lock()
@@ -223,6 +195,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
               f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding this book")
         return
 
+    # the full stitched together segments
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
     out_path = f"{SCENES_PATH}/pg{desired}-s.json"
@@ -232,23 +205,102 @@ def segment_test(metadata: dict, books: dict, desired: str):
     # book fully saved: drop its checkpoints, no longer needed for resume
     shutil.rmtree(ckpt_dir, ignore_errors=True)
 
+# --- enrichment + indexing run (was embed.main) --- #
+
+def embed_test(file_ids=None):
+    """Enrich each scenes json under SCENES_PATH and index it into a LOCAL Qdrant db
+    saved in the test root (TEST_PATH/qdrant_db). Test-tree mirror of embed.main.
+
+    file_ids picks specific books; None enriches every pg*-s.json under SCENES_PATH.
+    """
+    if file_ids:
+        files = [Path(f"{SCENES_PATH}/pg{c}-s.json") for c in file_ids if c]
+    else:
+        files = sorted(Path(SCENES_PATH).glob("pg*-s.json"))
+
+    client = QdrantClient(path=QDRANT_PATH)   # on-disk local db in the test root, auto-created
+    try:
+        for f in files:
+            if not f.exists():
+                print(f"skip (missing): {f}")
+                continue
+            records = enrich_file(f)         # LLM-enrich in place (resumable), rewrite the json
+            index_records(client, records)   # upsert one point per scene into the local collection
+    finally:
+        client.close()
+
+# --- search --- #
+
+def _show(hits):
+    """Print each hit: score, scene id, flavor tags, title, summary, descriptors."""
+    for h in hits:
+        p = h.payload
+        print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
+              f"/{p.get('intensity')}/{p.get('arc')}]  {p.get('scene_title')}")
+        print(f"     {p.get('summary')}  << {p.get('descriptors')}")
+
+
+def search_test(book_id: str, limit: int = 2):
+    """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
+    client = QdrantClient(path=QDRANT_PATH)   # read the test db that embed_test wrote
+
+    flt = search.book_filter(book_id)
+
+    try:
+        print("===== SUMMARY ONLY =====")
+        for q in TEST_QUERIES:
+            print(f"\nQUERY: {q}")
+            _show(search.search_summary(client, q, limit=limit, flt=flt))
+
+        print("\n===== SUMMARY + DESCRIPTORS (weighted) =====")
+        for summ, desc in COMBINED_QUERIES:
+            print(f"\nQUERY: {summ!r}  +  descriptors {desc!r}")
+            _show(search.search_summary(client, summ, descriptors=desc, limit=limit, flt=flt))
+
+        print("\n===== DESCRIPTORS ONLY =====")
+        for desc in DESCRIPTOR_QUERIES:
+            print(f"\nQUERY: descriptors {desc!r}")
+            _show(search.search_descriptors(client, desc, limit=limit, flt=flt))
+    finally:
+        client.close()
+
+# --- steps --- #
+
 def step_one_retrieval(file_ids):
-    """Converts all files into zip folders for processing."""
+    """Download each book's -h.zip into DATA_PATH. Launches the wgets in parallel,
+    then waits for all of them so step two never reads a half-finished download."""
+    Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
+    procs = []
+
     for file_id in file_ids:
-        if Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file():
-            continue
+        if not file_id or Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
-        subprocess.Popen(cmd, cwd=DATA_PATH)
+        procs.append(subprocess.Popen(cmd, cwd=DATA_PATH))
+
+    for p in procs:
+        p.wait()
 
 def step_two_processing(file_ids):
-    """Segments all files into scenes."""
+    """Segments all files into scenes, creating segment, scenes, and recall folders."""
     metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
     for file_id in file_ids:
+        if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
         segment_test(metadata, books, file_id)
 
+def step_three_embedding(file_ids):
+    """Enrich + index each book's scenes into the local Qdrant db (test root),
+    skipping any id with no scenes json yet (excluded or not segmented)."""
+    exist_ids = []
+    for file_id in file_ids:
+        if not Path(SCENES_PATH + f"/pg{file_id}-s.json").is_file(): continue
+        exist_ids.append(file_id)
+    embed_test(exist_ids)
+
 def main():
-    step_one_retrieval(FILE_IDS)
+    #step_one_retrieval(FILE_IDS)
+    step_two_processing(FILE_IDS)
+    #step_three_embedding(FILE_IDS)
     #search_test()
 
 
