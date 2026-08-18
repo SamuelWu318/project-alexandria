@@ -38,6 +38,7 @@ EXCLUDE_SUBJECT_WORDS = ("poems", "poetry", "plays", "drama")
 EXCLUDED_BOOKS_FILE = "excluded-books.json"
 
 # --- test file numbers --- #
+
 FILE_IDS = [
     "64317",    # great gatsby
     "71865",    # mrs dalloway
@@ -51,6 +52,7 @@ FILE_IDS = [
 ]
 
 # --- qdrant search test --- #
+
 # general, plot-free scene descriptions (how a writer searches) mapped to famous
 # Odyssey (pg1727) scenes. Confirms the GENERAL summaries retrieve the right scene.
 TEST_QUERIES = [
@@ -204,6 +206,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
     # book fully saved: drop its checkpoints, no longer needed for resume
     shutil.rmtree(ckpt_dir, ignore_errors=True)
 
+
 # --- enrichment + indexing run (was embed.main) --- #
 
 def embed_test(file_ids=None):
@@ -227,6 +230,7 @@ def embed_test(file_ids=None):
             index_records(client, records)   # upsert one point per scene into the local collection
     finally:
         client.close()
+
 
 # --- search --- #
 
@@ -262,6 +266,7 @@ def search_test(book_id: str, limit: int = 2):
             _show(search.search_descriptors(client, desc, limit=limit, flt=flt))
     finally:
         client.close()
+
 
 # --- steps --- #
 

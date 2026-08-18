@@ -44,7 +44,6 @@ KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # inline tags kept for r
 
 # --- METADATA PARSER --- #
 
-
 class MetadataParser:
     def __init__(self, catalog_path: str = CATALOG_PATH):
         self.metadata = {
@@ -130,7 +129,6 @@ class MetadataParser:
 
 
 # --- BOOK / CHUNK / PARAGRAPH TREE --- #
-
 
 @dataclass
 class Book:
@@ -241,7 +239,6 @@ class Paragraph:
 
 
 # --- SCENE PARSER --- #
-
 
 class SceneParser:
     def parse_file(self, file_code: str, folder: str) -> Tag:
@@ -398,7 +395,6 @@ class SceneParser:
 
 
 # --- RECALL CACHE --- #
-
 
 _RIGHTS_RE = re.compile(r'name="dc\.rights"\s+content="([^"]*)"', re.I)
 
