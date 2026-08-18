@@ -22,8 +22,7 @@ from qdrant_client import QdrantClient
 import search, subprocess, os, sys, time
 
 
-# book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds
-# this fraction of its non-noise text
+# book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
 TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
 DATA_PATH = TEST_PATH + "/data"                 # contains the raw zip files needed
