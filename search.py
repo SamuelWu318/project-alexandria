@@ -18,6 +18,7 @@
 #     passages and descriptor queries stay raw.
 # -----------------------------------------------------------------------------
 import uuid
+import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 
@@ -115,12 +116,91 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
     cands.sort(key=lambda c: c.score, reverse=True)
     return cands[:limit]
 
+# --- weighted + negative descriptor search --- #
+# Per-descriptor weighting is a QUERY-time operation: nothing extra is stored. Instead
+# of embedding one joined "a, b, c" string (search_descriptors above), each descriptor
+# is embedded on its own and combined by weight, so the caller can lean the search
+# ("0.7 melancholy, 0.3 eerie") and push AWAY from anti-descriptors by subtraction.
 
-def search_descriptors(client: QdrantClient, descriptors: str, limit: int = 5,
-                       flt: models.Filter | None = None):
-    """Pure descriptor-vector search (vibe words only, no summary)."""
-    if not descriptors:
-        raise ValueError("search_descriptors needs descriptors")
-    dv = embed([descriptors])[0]
-    return client.query_points(COLLECTION, query=dv, using="descriptors", limit=limit,
-                               query_filter=flt, with_payload=True).points
+WEIGHT_TOL = 1e-6   # how far a weight list may drift from summing to 1.00
+
+
+def _unit(v) -> np.ndarray:
+    """L2-normalize a vector; a zero vector is returned unchanged (guards divide-by-zero)."""
+    v = np.asarray(v, dtype=np.float32)
+    n = float(np.linalg.norm(v))
+    return v / n if n else v
+
+
+def _check_weights(terms: list[str], weights: list[float], label: str):
+    """Validate a (terms, weights) pair: non-empty, equal length, non-negative, sum≈1.00."""
+    if not terms:
+        raise ValueError(f"{label}: need at least one term")
+    if len(terms) != len(weights):
+        raise ValueError(f"{label}: {len(terms)} terms but {len(weights)} weights")
+    if any(w < 0 for w in weights):
+        raise ValueError(f"{label}: weights must be non-negative")
+    total = sum(weights)
+    if abs(total - 1.0) > WEIGHT_TOL:
+        raise ValueError(f"{label}: weights must sum to 1.00 (got {total:.6f})")
+
+
+def weighted_vector(terms: list[str], weights: list[float]) -> np.ndarray:
+    """Weighted centroid of the terms' embeddings, returned as a unit vector.
+
+    Each term is embedded and L2-normalized FIRST, so no single word dominates by raw
+    magnitude; the per-term unit vectors are then summed by weight and the result is
+    re-normalized. Caller validates lengths/weights via _check_weights.
+    """
+    vecs = embed(terms)                         # one batched embed call for all terms
+    acc = np.zeros(len(vecs[0]), dtype=np.float32)
+    for v, w in zip(vecs, weights):
+        acc += w * _unit(v)
+    return _unit(acc)
+
+
+def search_weighted_descriptors(
+    client: QdrantClient,
+    descriptors: list[str], 
+    weights: list[float] = None,
+    *,
+    anti_descriptors: list[str] | None = None,
+    anti_weights: list[float] | None = None,
+    anti_strength: float = 1.0,
+    limit: int = 5,
+    flt: models.Filter | None = None,
+):
+    """Descriptor search with per-descriptor weights and optional anti-descriptors.
+
+    `descriptors`/`weights` are equal-length; `weights` are the writer's percentages and
+    MUST sum to 1.00. The query is a weighted centroid of the INDIVIDUAL descriptor
+    embeddings (not one joined string), so "0.7 melancholy, 0.3 eerie" leans the search
+    toward melancholy while still feeling the eerie pull.
+
+    If `anti_descriptors`/`anti_weights` are supplied (same contract — equal length, sum
+    to 1.00, given together), their weighted centroid is SUBTRACTED from the query,
+    tilting results away from that flavor with no extra positive descriptor needed.
+    `anti_strength` scales the push (1.0 == equal weight to the positive direction).
+    Note: subtraction TILTS in cosine space, it does not hard-exclude; for a clean cut
+    on the controlled tags use a payload `must_not` filter instead.
+
+    Returns Qdrant ScoredPoints (payload == the full scene record), ranked best-first.
+    """
+    if not weights: weights = [1.00 / len(descriptors) for _ in descriptors]
+    
+    _check_weights(descriptors, weights, "descriptors")
+    q = weighted_vector(descriptors, weights)
+
+    if anti_descriptors or anti_weights:
+        if not (anti_descriptors and anti_weights):
+            raise ValueError("anti_descriptors and anti_weights must be given together")
+        _check_weights(anti_descriptors, anti_weights, "anti_descriptors")
+        q = q - anti_strength * weighted_vector(anti_descriptors, anti_weights)
+        if float(np.linalg.norm(q)) < 1e-8:
+            raise ValueError("positive and anti descriptors cancel out; lower anti_strength")
+        q = _unit(q)
+
+    return client.query_points(
+        COLLECTION, query=q.tolist(), using="descriptors",
+        limit=limit, query_filter=flt, with_payload=True,
+    ).points

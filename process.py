@@ -15,9 +15,10 @@
 # Shared downstream: embed.py imports CLIENT, MODEL, Tone, Intensity, Arc,
 # _classify_error, SCHEMA_VERSION from here. Paths + JSON IO live in storage.py.
 # -----------------------------------------------------------------------------
-from data import MetadataParser
-import os, json, re, time, math
+from data import MetadataParser, parse_rights
+import os, json, re, time, math, threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI, pydantic_function_tool
 from dotenv import load_dotenv
@@ -25,8 +26,9 @@ from pydantic import BaseModel, ValidationError
 from typing import Literal
 from enum import Enum
 from pathlib import Path
+from checkpoint import CheckpointDir
+from storage import read_json, write_json
 
-from storage import read_text, write_text
 load_dotenv()
 
 
@@ -37,6 +39,8 @@ SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads 
 # --- model constants --- #
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+
+SEGMENT_WORKERS = 6   # concurrent chunk-segmentation LLM calls in flight per book
 SYSTEM_PROMPT = """
 # ROLE
 You split ONE book section into an ordered list of segments. Give each segment TWO labels:
@@ -445,20 +449,88 @@ class SceneBreaker:
             messages.append({"role": "user", "content": correction})
             attempt += 1
 
-def _load_checkpoint(path: Path):
-    """Load a cached MultiSceneData, or None if missing/corrupt (forces recompute)."""
-    raw = read_text(path)
-    if raw is None:
-        return None
-    try:
-        return MultiSceneData.model_validate_json(raw)
-    except Exception:
-        return None
+
+# --- pre-segmentation gates (which books must NOT be segmented) --- #
+
+EXCLUDE_SUBJECT_WORDS = ("poems", "poetry", "plays", "drama")   # non-prose by Gutenberg subject
+EXCLUDED_BOOKS_FILE = "excluded-books.json"                     # running log of rejected books
 
 
-def _save_checkpoint(path: Path, data: MultiSceneData):
-    """Atomically checkpoint one chunk's segmentation (crash-safe via storage.write_text)."""
-    write_text(path, data.model_dump_json())
+def _log_exclusion(exclude_dir, code, md, reason, detail=None):
+    """Append one rejected book to the running excluded-books json under exclude_dir.
+
+    reason is "non prose" or "not public domain"; detail is the matched subjects or the
+    dc.rights string that triggered it. Kept auditable for later look-back.
+    """
+    path = f"{exclude_dir}/{EXCLUDED_BOOKS_FILE}"
+    excluded = read_json(path, {})
+    excluded[code] = {"reason": reason, "detail": detail,
+                      "metadata": MetadataParser.to_dict(md)}
+    write_json(path, excluded)
+
+
+def presegmentation_gate(code, md, data_path, exclude_dir) -> str | None:
+    """Decide whether ONE book may be segmented. Returns an exclusion reason (already
+    logged + printed) if it must be skipped, else None to proceed.
+
+    gate 1 — US public domain only: read dc.rights straight from the book HTML.
+    gate 2 — non-prose by subject: poetry / plays / drama in the Gutenberg Subjects.
+    """
+    rights = parse_rights(code, data_path)
+    if rights != "Public domain in the USA.":
+        _log_exclusion(exclude_dir, code, md, "not public domain", rights)
+        print(f"EXCLUDE pg{code}: dc.rights={rights!r} not US public domain — "
+              f"not segmenting (logged under {exclude_dir}/{EXCLUDED_BOOKS_FILE})")
+        return "not public domain"
+
+    matched = sorted(s for s in (md.get("Subjects") or [])
+                     if any(w in s.lower() for w in EXCLUDE_SUBJECT_WORDS))
+    if matched:
+        _log_exclusion(exclude_dir, code, md, "non prose", matched)
+        print(f"EXCLUDE pg{code}: subjects {matched} — not segmenting "
+              f"(logged under {exclude_dir}/{EXCLUDED_BOOKS_FILE})")
+        return "non prose"
+
+    return None
+
+
+def segment_book(book, checkpoint_base, workers: int = SEGMENT_WORKERS):
+    """Segment ONE whole book into scenes: one forced LLM call per chunk, run in
+    parallel, each chunk checkpointed so a crash resumes instead of re-paying. Returns
+    the ordered, flattened list of scene objects (noise scenes INCLUDED — the caller
+    filters, tallies, and records them). Checkpoints are dropped once the book finishes.
+
+    `checkpoint_base` is the directory the per-book resume cache lives under — the
+    caller owns paths, but this module owns the typed codec (it owns MultiSceneData).
+    """
+    ckpt = CheckpointDir(checkpoint_base, f"pg{book.file_code}",
+                         load=MultiSceneData.model_validate,
+                         dump=lambda d: d.model_dump(mode="json"))
+    sb = SceneBreaker()
+    log_lock = threading.Lock()
+
+    def work(chunk):
+        """Segment one chunk with a single LLM call, reusing a checkpoint if present."""
+        key = f"chunk-{chunk.chunk_index}"
+        cached = ckpt.load(key)
+        if cached is not None:
+            with log_lock:
+                print(f"**** CHUNK {chunk.chunk_index} CACHED (skip LLM) ****")
+            return cached
+        data = sb.break_chunk(chunk.scene_payload())
+        ckpt.save(key, data)   # persist before returning, so a crash survives
+        with log_lock:
+            print(f"**** CHUNK {chunk.chunk_index} VERIFIED ****")
+        return data
+
+    # ex.map preserves input order, so scenes stay in chunk (reading) order
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(work, book.chunks))
+
+    scenes = [scene for data in results for scene in data.scenes_data]
+    ckpt.clear()   # book fully segmented: checkpoints no longer needed
+    return scenes
+
 
 def scenes_to_records(file_code, scenes, book, metadata):
     """Stitch cross-chunk scenes and flatten them into flat, ingest-ready record dicts.
