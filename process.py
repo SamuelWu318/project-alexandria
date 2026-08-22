@@ -369,24 +369,45 @@ def _validate_coverage(data: MultiSceneData, expected: set[int]):
     return False, "; ".join(parts)
 
 
+def _retry_note(notes: list[str]) -> str:
+    """System-prompt addendum for a RETRY. Each attempt is a FRESH conversation, so the
+    coverage misses from earlier attempts are replayed here to remind the model to
+    segment the paragraphs it missed. Empty string on the first attempt."""
+    if not notes:
+        return ""
+    lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
+    return ("\n\n# RETRY — SEGMENT THE PARAGRAPHS YOU MISSED\n"
+            "Earlier attempts on THIS SAME section did not segment every paragraph "
+            "correctly. Cover EVERY indexed paragraph exactly once now — ascending, no "
+            "gaps, no overlaps, no indices that were not in the input. Problems from "
+            f"previous attempts:\n{lines}")
+
+
 class SceneBreaker:
-    def break_chunk(self, chunk: str, max_transient_retries: int = 6,
-                    max_validation_retries: int = 3):
-        """Segment one section via a forced output_scenes call, retrying until coverage passes."""
+    def break_chunk(self, chunk: str):
+        """Segment one section via a forced output_scenes call, retrying until coverage passes.
+
+        Retries NEVER abort. Each retry starts a FRESH conversation (no chat history is
+        carried); the paragraphs missed on earlier attempts are replayed as a note added
+        to the system prompt. Transient errors back off; the temperature climbs only
+        until TEMP_FREEZE_ATTEMPTS then HOLDS. Only a fatal API error raises.
+        """
+        TEMP_FREEZE_ATTEMPTS = 10   # attempts before the temperature stops climbing (hard cap)
         expected = _expected_indices(chunk)
-        # conversation is kept across retries so corrective feedback (below) is
-        # appended to real history instead of restarting cold each attempt.
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": chunk},
-        ]
+        notes = []                  # coverage misses from earlier attempts, replayed in the system note
         transient_tries = 0
         validation_tries = 0
-        attempt = 0  # drives temp bump across all retries
+        attempt = 0                 # drives temp bump across all retries
 
         while True:
             # temp 0, increase if attempts fail
-            temp = 0 if attempt == 0 else math.log(attempt ** 0.15) + 0.15
+            temp = 0 if attempt == 0 else min(0.75, math.log(attempt ** 0.20) + 0.15)
+            # FRESH conversation every attempt: no chat history is carried; the paragraphs
+            # missed on earlier tries are replayed as a note appended to the system prompt.
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT + _retry_note(notes)},
+                {"role": "user", "content": chunk},
+            ]
             try:
                 print("Sending chunk...")
                 response = CLIENT.chat.completions.create(
@@ -401,53 +422,37 @@ class SceneBreaker:
                 if _classify_error(e) == "fatal":
                     raise RuntimeError(f"break_chunk fatal (no retry): {e}") from e
                 transient_tries += 1
-                if transient_tries > max_transient_retries:
-                    raise RuntimeError(
-                        f"break_chunk transient failure after "
-                        f"{max_transient_retries} retries: {e}") from e
                 sleep = min(2 ** transient_tries, 30)
-                print(f"  transient retry {transient_tries}/{max_transient_retries} "
-                      f"(sleep {sleep}s): {e}")
+                # never give up: after the cap the temperature stops climbing and we keep
+                # retrying at that held value (only a fatal API error above aborts).
+                attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
+                print(f"  transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
                 time.sleep(sleep)
-                attempt += 1
                 continue
 
             # inspect the response: no tool_call -> bad args -> incomplete coverage
             choices = response.choices
             msg = choices[0].message if choices else None
-            echo = None       # what the model produced, echoed back into history
-            correction = None  # what it did wrong, told to the model
-
             if not msg or not msg.tool_calls:
-                echo = (msg.content if msg else "") or "(empty response, no tool call)"
-                correction = ("You did NOT call the output_scenes tool. You must respond "
-                              "ONLY with a call to output_scenes and nothing else.")
+                reason = "did not call the output_scenes tool"
             else:
                 args = msg.tool_calls[0].function.arguments
-                echo = args
                 try:
                     data = MultiSceneData.model_validate_json(args)
                 except (ValidationError, json.JSONDecodeError, ValueError) as e:
-                    correction = (f"Your output_scenes arguments failed schema validation: {e}. "
-                                  f"Return arguments that exactly match the schema.")
+                    reason = f"arguments failed schema validation: {e}"
                 else:
                     ok, why = _validate_coverage(data, expected)
                     if ok:
                         return data
-                    correction = (f"Your segmentation did not cover the paragraphs correctly. {why}. "
-                                  f"Every index in indexed_paragraphs must be covered EXACTLY once, "
-                                  f"in ascending order, no gaps and no overlaps. Redo the full segmentation.")
+                    reason = why
 
-            # a correction is set: append to history and retry with the feedback
+            # remember the miss; the NEXT attempt is a fresh conversation whose system
+            # note reminds the model to segment the paragraphs it missed this time.
             validation_tries += 1
-            if validation_tries > max_validation_retries:
-                raise RuntimeError(
-                    f"break_chunk validation failure after \
-                    {max_validation_retries} retries: {correction}")
-            print(f"  validation retry {validation_tries}/{max_validation_retries}: {correction[:140]}")
-            messages.append({"role": "assistant", "content": str(echo)})
-            messages.append({"role": "user", "content": correction})
-            attempt += 1
+            attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
+            notes.append(reason)
+            print(f"  validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:140]}")
 
 
 # --- pre-segmentation gates (which books must NOT be segmented) --- #

@@ -17,7 +17,7 @@ from process import scenes_to_records, segment_book, presegmentation_gate
 from embed import enrich_file, index_records
 from storage import write_json, read_json
 from qdrant_client import QdrantClient
-import search, relational, subprocess, os, sys, time, re
+import search, relational, subprocess, os, sys, time, re, contextlib
 
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
@@ -39,7 +39,6 @@ FILE_IDS = [
     "71865",    # mrs dalloway
     "4300",     # ulysses
     "2814",     # dubliners
-    "5200",     # metamorphosis
     "215",      # call of the wild
     "55",       # wizard of oz
     "73",       # red badge of courage
@@ -48,32 +47,28 @@ FILE_IDS = [
 
 # --- qdrant search test --- #
 
-# general, plot-free scene descriptions (how a writer searches) mapped to famous
-# Odyssey (pg1727) scenes. Confirms the GENERAL summaries retrieve the right scene.
+# general, plot-free scene descriptions (how a writer searches), each mapped to a famous
+# scene in one of the FILE_IDS books. Confirms GENERAL summaries retrieve the right scene.
 TEST_QUERIES = [
-    "a man outsmarting a physically powerful opponent",          # Cyclops / Polyphemus
-    "a hero resisting the lure of enchanting voices",            # Sirens
-    "a sorceress turning men into animals",                      # Circe
-    "a disguised ruler testing the loyalty of his household",    # beggar disguise
-    "a contest of strength only the true master can win",        # stringing the bow
-    "a long-separated husband and wife reunited",                # Odysseus & Penelope
-    "a warrior killing the men who invaded his home",            # slaying the suitors
-    "a living man journeying among the dead",                    # the Underworld
-    "an old servant recognizing a hero by an old scar",          # Eurycleia & the scar
-    "sailors doomed for eating forbidden cattle",                # Cattle of the Sun
+    "A man is inspired by a wealthy host's extravagant party.",
+    "An evil witch is killed.",              
+    "A young soldier panics and flees from his first taste of battle."
 ]
 
-# (summary, descriptors) pairs — exercise the fused two-vector search.
+# (summary, descriptors-list) pairs for search_combined: the summary gates the pool, the
+# weighted-descriptor centroid reranks within it. descriptors is a LIST (equal-weighted).
 COMBINED_QUERIES = [
-    ("a man outsmarting a physically powerful opponent", "cunning, triumphant, defiant"),
-    ("a hero facing a monster at sea", "claustrophobic, terrifying, doomed"),
-    ("a homecoming", "tender, bittersweet, joyful"),
+    ("A crowd of glittering strangers drifts through a wealthy host's extravagant summer party.",
+     ["festive", "glamorous", "hollow"]),                       # Gatsby (64317)
+    ("A wounded officer and a nurse fall in love in a wartime hospital.",
+     ["tender", "bittersweet", "yearning"]),                    # A Farewell to Arms (75201)
 ]
 
-# pure-descriptor (vibe-only) queries
+# pure-descriptor (vibe-only) queries — each a descriptor list for search_weighted_descriptors.
 DESCRIPTOR_QUERIES = [
-    ["claustrophobic", "suffocating", "dread"],
-    ["warm", "joyful", "relieved"]
+    ["festive", "glamorous", "restless"],           # Gatsby-party glitter (64317)
+    ["claustrophobic", "absurd", "dehumanizing"],
+    ["chaotic", "terrifying", "cowardly"],          # Red Badge battle-panic (73)
 ]
 
 # --- payload dump (was data.main) --- #
@@ -194,7 +189,7 @@ def _show(hits):
         print(f"     {p.get('summary')}  << {p.get('descriptors')}")
 
 
-def search_test(book_id: str, limit: int = 2):
+def search_test(book_id: str = None, limit: int = 2):
     """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
     client = QdrantClient(path=QDRANT_PATH)   # read the test db that embed_test wrote
 
@@ -206,10 +201,10 @@ def search_test(book_id: str, limit: int = 2):
             print(f"\nQUERY: {q}")
             _show(search.search_summary(client, q, limit=limit, flt=flt))
 
-        print("\n===== SUMMARY + DESCRIPTORS (weighted) =====")
+        print("\n===== SUMMARY + WEIGHTED DESCRIPTORS (search_combined) =====")
         for summ, desc in COMBINED_QUERIES:
             print(f"\nQUERY: {summ!r}  +  descriptors {desc!r}")
-            _show(search.search_summary(client, summ, descriptors=desc, limit=limit, flt=flt))
+            _show(search.search_combined(client, summ, desc, limit=limit, flt=flt))
 
         print("\n===== DESCRIPTORS ONLY =====")
         for descriptors in DESCRIPTOR_QUERIES:
@@ -217,6 +212,51 @@ def search_test(book_id: str, limit: int = 2):
             _show(search.search_weighted_descriptors(client, descriptors))
     finally:
         client.close()
+
+
+# --- keep-awake (macOS lid-close survival) --- #
+
+def _pmset_disablesleep(value: int) -> bool:
+    """Toggle macOS lid-close sleep via `sudo pmset -b disablesleep <value>` (needs admin;
+    prompts for your password in the terminal). 1 = never sleep on lid close even on
+    BATTERY; 0 = restore default. Returns True on success; safe warn-and-continue if it
+    fails (no sudo rights, no tty, or non-macOS)."""
+    try:
+        subprocess.run(["sudo", "pmset", "-b", "disablesleep", str(value)], check=True)
+        return True
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
+        print(f"pmset disablesleep {value} failed ({e}) — lid-close sleep unchanged")
+        return False
+
+
+@contextlib.contextmanager
+def stay_awake():
+    """Keep the Mac awake for the whole block so a long process/embed run survives a
+    closed lid, then automatically restore normal sleep on exit — including Ctrl-C.
+
+    Two layers:
+      * `sudo pmset -b disablesleep 1` — strong guard: no lid-close sleep even on
+        BATTERY. Needs admin, so it prompts for your password when you run tests.py.
+        Auto-reverted to 0 in `finally` (normal end, exception, OR Ctrl-C).
+      * `caffeinate -imsw <pid>` — prevents idle/disk/system sleep, bound to this PID.
+
+    Only a low-battery/critical sleep or a manual Ctrl-C stops the run. (A hard SIGKILL
+    would skip the revert; if that ever happens, rerun `sudo pmset -b disablesleep 0`.)
+    """
+    proc = None
+    disabled = _pmset_disablesleep(1)   # admin prompt; reverted in finally below
+    try:
+        proc = subprocess.Popen(["caffeinate", "-i", "-m", "-s", "-w", str(os.getpid())])
+        print("staying awake: lid-close safe (Ctrl-C or low battery stops it)")
+    except (FileNotFoundError, OSError):
+        print("caffeinate unavailable — relying on pmset only")
+    try:
+        yield
+    finally:
+        if proc is not None:
+            proc.terminate()
+        if disabled:
+            _pmset_disablesleep(0)      # restore normal sleep on Ctrl-C / end / error
 
 
 # --- steps --- #
@@ -238,25 +278,27 @@ def step_one_retrieval(file_ids):
 
 def step_two_processing(file_ids):
     """Segments all files into scenes, creating segment, scenes, and recall folders."""
-    metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
-    for file_id in file_ids:
-        if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
-        segment_test(metadata, books, file_id)
+    with stay_awake():   # process runs long — survive a closed lid
+        metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
+        for file_id in file_ids:
+            if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
+            segment_test(metadata, books, file_id)
 
 def step_three_embedding(file_ids):
     """Enrich + index each book's scenes into the local Qdrant db (test root),
     skipping any id with no scenes json yet (excluded or not segmented)."""
-    exist_ids = []
-    for file_id in file_ids:
-        if not Path(SCENES_PATH + f"/pg{file_id}-s.json").is_file(): continue
-        exist_ids.append(file_id)
-    embed_test(exist_ids)
+    with stay_awake():   # embed runs long — survive a closed lid
+        exist_ids = []
+        for file_id in file_ids:
+            if not Path(SCENES_PATH + f"/pg{file_id}-s.json").is_file(): continue
+            exist_ids.append(file_id)
+        embed_test(exist_ids)
 
 def main():
-    #step_one_retrieval(FILE_IDS)
-    #step_two_processing(FILE_IDS)
+    step_one_retrieval(FILE_IDS)
+    step_two_processing(FILE_IDS)
     step_three_embedding(FILE_IDS)
-    #search_test()
+    search_test()
     pass
 
 

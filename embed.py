@@ -15,7 +15,7 @@
 # "high" because classifying already-cut scenes is easier than cutting). Paths +
 # atomic JSON IO come from storage.py; the Qdrant contract comes from search.py.
 # -----------------------------------------------------------------------------
-import sys, json, re, time, threading, os
+import sys, json, re, time, threading, math
 from collections import Counter
 from pathlib import Path, PurePath
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +38,7 @@ from storage import SCENES_PATH, ENRICH_CKPT_DIR, STATUS_PATH, read_json, write_
 # --- tuning constants (model/prompt surface — the user's to tune) --- #
 
 ENRICH_WORKERS = 6                # concurrent batches in flight
-ENRICH_EFFORT = "medium"          # reasoning effort for enrichment; tune as needed
+ENRICH_EFFORT = "high"            # reasoning effort for enrichment; tune as needed
 BATCH_CHAR_LIMIT = 12000          # ~12-15k chars of paragraph text packed per prompt
 
 
@@ -205,22 +205,41 @@ grammatical sentence that reads well on its own.
 
 # --- LLM helper --- #
 
-def _run_tool(system_prompt: str, user_content: str, validate=None,
-              max_transient_retries: int = 6, max_validation_retries: int = 3):
+def _retry_note(notes: list[str]) -> str:
+    """System-prompt addendum for a RETRY. Each attempt is a FRESH conversation, so the
+    scenes missed on earlier attempts are replayed here to remind the model to enrich
+    every scene it skipped. Empty string on the first attempt."""
+    if not notes:
+        return ""
+    lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
+    return ("\n\n# RETRY — ENRICH THE SCENES YOU MISSED\n"
+            "Earlier attempts on THIS SAME batch did not return one item per scene. "
+            "Return EXACTLY one item per input index now — cover every index once, no "
+            "gaps, no duplicates, no indices that were not in the input. Problems from "
+            f"previous attempts:\n{lines}")
+
+
+def _run_tool(system_prompt: str, user_content: str, validate=None):
     """One forced tool call validated into BatchEnrichment, using SceneBreaker's retry policy.
 
-    Transient errors back off; bad/absent args get corrective feedback appended to
-    history; temp bumps across attempts. Optional `validate(data) -> (ok, reason)`
-    adds a semantic check (e.g. batch index coverage) on top of schema validation.
+    Retries NEVER abort the run. Each retry starts a FRESH conversation (no chat history
+    is carried); the scenes missed on earlier attempts are replayed as a note added to
+    the system prompt. Transient errors back off; the temperature climbs only until
+    TEMP_FREEZE_ATTEMPTS then HOLDS. Only a fatal API error raises. Optional
+    `validate(data) -> (ok, reason)` adds a semantic check on top of schema validation.
     """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    TEMP_FREEZE_ATTEMPTS = 10   # attempts before the temperature stops climbing (hard cap)
+    notes = []                  # coverage misses from earlier attempts, replayed in the system note
     transient_tries = validation_tries = attempt = 0
 
     while True:
-        temp = 0 if attempt == 0 else min(0.6, 0.15 * attempt)
+        temp = 0 if attempt == 0 else min(0.75, math.log(attempt ** 0.20) + 0.15)
+        # FRESH conversation every attempt: the indices missed on earlier tries are
+        # replayed as a note appended to the system prompt (no chat history carried).
+        messages = [
+            {"role": "system", "content": system_prompt + _retry_note(notes)},
+            {"role": "user", "content": user_content},
+        ]
         try:
             response = CLIENT.chat.completions.create(
                 model=MODEL, temperature=temp, tools=[BATCH_TOOL],
@@ -233,45 +252,36 @@ def _run_tool(system_prompt: str, user_content: str, validate=None,
             if _classify_error(e) == "fatal":
                 raise RuntimeError(f"output_enrichment fatal (no retry): {e}") from e
             transient_tries += 1
-            if transient_tries > max_transient_retries:
-                raise RuntimeError(f"output_enrichment transient failure after "
-                                   f"{max_transient_retries} retries: {e}") from e
             sleep = min(2 ** transient_tries, 30)
-            print(f"  transient retry {transient_tries}/{max_transient_retries} "
-                  f"(sleep {sleep}s): {e}")
+            # never give up: after the cap the temperature stops climbing and we keep
+            # retrying at that held value (only a fatal API error above aborts).
+            attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
+            print(f"  transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
             time.sleep(sleep)
-            attempt += 1
             continue
 
         choices = response.choices
         msg = choices[0].message if choices else None
         if not msg or not msg.tool_calls:
-            echo = (msg.content if msg else "") or "(empty response, no tool call)"
-            correction = (f"You did NOT call output_enrichment. Respond ONLY with a call "
-                          f"to output_enrichment and nothing else.")
+            reason = "did not call output_enrichment"
         else:
             args = msg.tool_calls[0].function.arguments
-            echo = args
             try:
                 data = BatchEnrichment.model_validate_json(args)
             except (ValidationError, json.JSONDecodeError, ValueError) as e:
-                correction = (f"Your output_enrichment arguments failed schema validation: {e}. "
-                              f"Return arguments that exactly match the schema.")
+                reason = f"arguments failed schema validation: {e}"
             else:
                 ok, why = validate(data) if validate else (True, "")
                 if ok:
                     return data
-                correction = (f"Your output_enrichment output is incomplete: {why}. "
-                              f"Return one item per input scene, covering every index exactly once.")
+                reason = why
 
+        # remember the miss; the NEXT attempt is a fresh conversation whose system note
+        # reminds the model to enrich the scenes it missed this time.
         validation_tries += 1
-        if validation_tries > max_validation_retries:
-            raise RuntimeError(f"output_enrichment validation failure after "
-                               f"{max_validation_retries} retries: {correction}")
-        print(f"  validation retry {validation_tries}/{max_validation_retries}: {correction[:120]}")
-        messages.append({"role": "assistant", "content": str(echo)})
-        messages.append({"role": "user", "content": correction})
-        attempt += 1
+        attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
+        notes.append(reason)
+        print(f"  validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:120]}")
 
 
 # --- enrichment --- #

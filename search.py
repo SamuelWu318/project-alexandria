@@ -204,3 +204,71 @@ def search_weighted_descriptors(
         COLLECTION, query=q.tolist(), using="descriptors",
         limit=limit, query_filter=flt, with_payload=True,
     ).points
+
+
+# --- combined: summary gate + weighted-descriptor rerank --- #
+
+def search_combined(
+    client: QdrantClient,
+    summary: str,
+    descriptors: list[str],
+    weights: list[float] | None = None,
+    *,
+    anti_descriptors: list[str] | None = None,
+    anti_weights: list[float] | None = None,
+    anti_strength: float = 1.0,
+    limit: int = 5,
+    flt: models.Filter | None = None,
+    w_summary: float = 0.7,
+):
+    """Fused search using BOTH named vectors: the summary GATES + weights the candidate
+    pool, and a WEIGHTED-descriptor centroid reranks within it.
+
+    Joins search_summary's precision gate (a stray descriptor can't drag in an off-topic
+    scene) with search_weighted_descriptors' per-term weighting + optional anti-
+    descriptors — instead of the single joined descriptor string that search_summary
+    takes. `descriptors`/`weights` follow the same contract as search_weighted_descriptors
+    (equal length, weights sum to 1.00; equal weights when omitted).
+        score = w_summary * summary_cos + (1 - w_summary) * descriptor_cos
+    Returns Qdrant ScoredPoints (payload == full scene record), best-first.
+    """
+    if not summary:
+        raise ValueError("search_combined needs a summary")
+    if not descriptors:
+        raise ValueError("search_combined needs descriptors")
+
+    # descriptor side: weighted centroid of the INDIVIDUAL descriptor embeddings
+    if not weights:
+        weights = [1.0 / len(descriptors) for _ in descriptors]
+    _check_weights(descriptors, weights, "descriptors")
+    dv = weighted_vector(descriptors, weights)
+    if anti_descriptors or anti_weights:
+        if not (anti_descriptors and anti_weights):
+            raise ValueError("anti_descriptors and anti_weights must be given together")
+        _check_weights(anti_descriptors, anti_weights, "anti_descriptors")
+        dv = dv - anti_strength * weighted_vector(anti_descriptors, anti_weights)
+        if float(np.linalg.norm(dv)) < 1e-8:
+            raise ValueError("positive and anti descriptors cancel out; lower anti_strength")
+        dv = _unit(dv)
+
+    # summary side: gate the candidate pool (query-side prefix; index stays raw)
+    sv = embed([QUERY_PREFIX + summary])[0]
+    pool = max(limit * 5, 50)
+    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+                                query_filter=flt, with_payload=True).points
+    if not cands:
+        return cands
+
+    # weighted-descriptor cosine for exactly those candidates (restrict by their ids)
+    ids = [c.id for c in cands]
+    dhits = client.query_points(
+        COLLECTION, query=dv.tolist(), using="descriptors", limit=len(ids),
+        query_filter=models.Filter(must=[models.HasIdCondition(has_id=ids)]),
+        with_payload=False,
+    ).points
+    dscore = {h.id: h.score for h in dhits}
+
+    for c in cands:
+        c.score = w_summary * c.score + (1 - w_summary) * dscore.get(c.id, 0.0)
+    cands.sort(key=lambda c: c.score, reverse=True)
+    return cands[:limit]
