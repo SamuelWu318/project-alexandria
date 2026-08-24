@@ -28,6 +28,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup, Comment, Tag
 
 from storage import CATALOG_PATH, DATA_PATH, RECALL_PATH, read_json, write_json
+import log
 
 # --- scene parser constants --- #
 
@@ -442,7 +443,12 @@ def build_library(data_path: str = DATA_PATH,
     md_dirty = books_dirty = False
 
     for file in sorted(path.iterdir()):
-        if not file.is_file(): continue
+        if not file.is_file(): 
+            log.warn(f"build_library: {file} is not a file — skipping")
+            continue
+        if not zipfile.is_zipfile(file):
+            log.warn(f"build_library: {file} is not a zip — skipping")
+            continue
 
         match = re.search(r"pg(\d+)-h.zip", file.name)
         if not match: continue

@@ -33,6 +33,7 @@ import relational
 from checkpoint import CheckpointDir
 # paths + atomic JSON IO
 from storage import SCENES_PATH, ENRICH_CKPT_DIR, STATUS_PATH, read_json, write_json
+import log
 
 
 # --- tuning constants (model/prompt surface — the user's to tune) --- #
@@ -83,7 +84,7 @@ BATCH_TOOL = pydantic_function_tool(
 )
 
 
-BATCH_SYSTEM_PROMPT = """
+BATCH_SYSTEM_PROMPT = ["""
 # ROLE
 You enrich a BATCH of scenes. For EACH scene, in this order: FIRST read
 it and find the SINGLE dominant TONE, THEN derive the other flavor labels from that
@@ -99,6 +100,10 @@ reason only about the words.
 # TASK
 Call output_enrichment with "items": ONE object per input scene. Cover EVERY index
 exactly once — no gaps, no duplicates, and no index that was not in the input.
+
+""",
+"",
+"""
 
 # THE FOUR FLAVOR LABELS
 - dominant_tone: the ONE feeling that rules the scene from the prose.
@@ -200,7 +205,7 @@ grammatical sentence that reads well on its own.
   {"items": [
     {"index": 12, "dominant_tone": "suspense", "intensity": "high", "arc": "turn", "descriptors": ["creeping","tense","ominous"], "summary": "A lone woman climbs a dark stairwell toward an unseen presence stirring above."}
   ]}
-"""
+"""]
 
 
 # --- LLM helper --- #
@@ -218,6 +223,12 @@ def _retry_note(notes: list[str]) -> str:
             "gaps, no duplicates, no indices that were not in the input. Problems from "
             f"previous attempts:\n{lines}")
 
+def _inject_retry_notes(prompt: str, notes: list[str]) -> str:
+    """Substitute the retry reminder into the prompt's RETRY_MARKER slot (a structured
+    position among the instructions); clears the slot on the first attempt (no notes)."""
+    temp = prompt
+    temp[1] = _retry_note(notes)
+    return "".join(temp)
 
 def _run_tool(system_prompt: str, user_content: str, validate=None):
     """One forced tool call validated into BatchEnrichment, using SceneBreaker's retry policy.
@@ -237,7 +248,7 @@ def _run_tool(system_prompt: str, user_content: str, validate=None):
         # FRESH conversation every attempt: the indices missed on earlier tries are
         # replayed as a note appended to the system prompt (no chat history carried).
         messages = [
-            {"role": "system", "content": system_prompt + _retry_note(notes)},
+            {"role": "system", "content": _inject_retry_notes(BATCH_SYSTEM_PROMPT, notes)},
             {"role": "user", "content": user_content},
         ]
         try:
@@ -256,7 +267,7 @@ def _run_tool(system_prompt: str, user_content: str, validate=None):
             # never give up: after the cap the temperature stops climbing and we keep
             # retrying at that held value (only a fatal API error above aborts).
             attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
-            print(f"  transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
+            log.warn(f"transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
             time.sleep(sleep)
             continue
 
@@ -281,7 +292,7 @@ def _run_tool(system_prompt: str, user_content: str, validate=None):
         validation_tries += 1
         attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
         notes.append(reason)
-        print(f"  validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:120]}")
+        log.warn(f"validation retry {validation_tries} (fresh convo, temp: {temp}): {reason[:120]}")
 
 
 # --- enrichment --- #
@@ -361,7 +372,7 @@ def _apply(rec: dict, enriched: dict):
 
 def enrich_file(path: Path) -> list[dict]:
     """Enrich every scene in one scenes json (resumable), denormalize tones, rewrite in place."""
-    print(f"Enriching File ID {PurePath(path).name[2:-7]}")
+    log.step(f"enriching book {PurePath(path).name[2:-7]}")
     records = read_json(path, [])
     if not records:
         return records
@@ -391,7 +402,7 @@ def enrich_file(path: Path) -> list[dict]:
             ckpt.save(r["scene_id"], res)
             _apply(r, res)
         with print_lock:
-            print(f"**** BATCH ({len(batch)}) {', '.join(r['scene_id'] for r in batch)} ****")
+            log.info(f"batch ({len(batch)}): {', '.join(r['scene_id'] for r in batch)}")
         return batch
 
     batches = list(_batches(todo))
@@ -408,7 +419,7 @@ def enrich_file(path: Path) -> list[dict]:
 
     write_json(path, records)
     ckpt.clear()   # book done: checkpoints no longer needed
-    print(f"enriched {len(records)} scenes -> {path}")
+    log.done(f"enriched {len(records)} scenes -> {path}")
     return records
 
 
@@ -439,11 +450,11 @@ def index_records(client: QdrantClient, records: list[dict],
     """
     if conn is not None:
         n = relational.sql_upsert(conn, records)
-        print(f"  mirrored {n} rows into the relational store")
+        log.info(f"mirrored {n} rows into the relational store")
 
     ready = [r for r in records if r.get("summary")]
     if not ready:
-        print("  no enriched summaries to index")
+        log.skip("no enriched summaries to index")
         return
     sum_vecs = _embed([r["summary"] for r in ready])
     # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
@@ -455,54 +466,4 @@ def index_records(client: QdrantClient, records: list[dict],
         for r, s, d in zip(ready, sum_vecs, desc_vecs)
     ]
     client.upsert(COLLECTION, points=points)
-    print(f"  indexed {len(ready)} points into '{COLLECTION}'")
-
-
-# --- book completion status (skip finished books) --- #
-
-def _load_status() -> dict:
-    """Load the {book_id: status} map; missing file / key / null all mean "not done"."""
-    return read_json(STATUS_PATH, {})
-
-
-def _mark_status(book_id: str, value):
-    """Persist one book's completion status so the next run can skip it."""
-    status = _load_status()
-    status[book_id] = value
-    write_json(STATUS_PATH, status)
-
-
-def main():
-    """CLI: `embed.py [code ...]` enrich + index those books (default: all scenes files).
-
-    A book marked "completed" in STATUS_PATH is skipped; set its status to null (or
-    delete the file) to force a redo. Interactive tests live in tests.py.
-    """
-    if len(sys.argv) > 1:
-        files = [Path(f"{SCENES_PATH}/pg{c}-s.json") for c in sys.argv[1:]]
-    else:
-        files = sorted(Path(SCENES_PATH).glob("pg*-s.json"))
-
-    client = open_client()          # first run downloads the embed model
-    conn = relational.open_db()     # SQLite mirror, created/migrated on open
-    status = _load_status()
-    try:
-        for f in files:
-            if not f.exists():
-                print(f"skip (missing): {f}")
-                continue
-            m = re.search(r"pg(\d+)-s\.json$", f.name)
-            code = m.group(1) if m else f.stem
-            if status.get(code) == "completed":
-                print(f"skip (completed): {code}")
-                continue
-            records = enrich_file(f)
-            index_records(client, records, conn)   # vectors + relational mirror, in lockstep
-            _mark_status(code, "completed")         # persisted so the next run skips it
-            print(f"marked {code} completed")
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()
+    log.info(f"indexed {len(ready)} points into '{COLLECTION}'")

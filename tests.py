@@ -13,12 +13,15 @@
 from pathlib import Path
 
 from data import build_library
+from dotenv import load_dotenv
 from process import scenes_to_records, segment_book, presegmentation_gate
 from embed import enrich_file, index_records
 from storage import write_json, read_json
 from qdrant_client import QdrantClient
 import search, relational, subprocess, os, sys, time, re, contextlib
+import log
 
+load_dotenv()
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
@@ -43,6 +46,13 @@ FILE_IDS = [
     "55",       # wizard of oz
     "73",       # red badge of courage
     "75201",    # a farewell to arms
+    "2701",     # moby dick
+    "1342",     # pride and prejudice
+    "84",       # frankenstein
+    "11",       # alice in wonderland
+    "1661",     # sherlock holmes
+    "345",      # dracula
+    "98",       # tale of two cities
 ]
 
 # --- qdrant search test --- #
@@ -52,7 +62,8 @@ FILE_IDS = [
 TEST_QUERIES = [
     "A man is inspired by a wealthy host's extravagant party.",
     "An evil witch is killed.",              
-    "A young soldier panics and flees from his first taste of battle."
+    "A young soldier panics and flees from his first taste of battle.",
+    "A man experiences a traumatic fight and narrowly wins or escapes."
 ]
 
 # (summary, descriptors-list) pairs for search_combined: the summary gates the pool, the
@@ -77,7 +88,7 @@ def payload_dump_test():
     """Dump every book's chunk payloads to SEGMENTS_PATH/pg{code}-p.json for inspection."""
     _, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
     for book in books.values():
-        print(book.file_code)
+        log.info(f"dumping payloads for book {book.file_code}")
         book.to_json(SEGMENTS_PATH)
 
 
@@ -87,14 +98,16 @@ def segment_test(metadata: dict, books: dict, desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     # do not segment if a completed scenes file already exists
     if Path(SCENES_PATH + f"/pg{desired}-s.json").is_file(): 
-        print(f"*** BOOK OF CODE {desired} ALREADY IN SCENES (skip segmentation) ***")
+        log.skip(f"book {desired} already in scenes — skip segmentation")
         return
+
+    log.step(f"segmenting book {desired}")
 
     desired_book = []
     book, md = books[desired], metadata[desired]
 
     # pre-segmentation gates (public-domain + non-prose)
-    if presegmentation_gate(desired, md, DATA_PATH, SEGMENTS_PATH): return
+    if presegmentation_gate(desired, md, DATA_PATH, RECALL_PATH): return
 
     # LLM orchestration (parallel per-chunk calls + resumable checkpoints)
     scenes = segment_book(book, CHECKPOINT_DIR)
@@ -111,14 +124,14 @@ def segment_test(metadata: dict, books: dict, desired: str):
             other_paras += span
         desired_book.append(scene)
 
-    print(f"NOISE: dropped {noise_paras} paragraphs as noise; kept {kept_paras} "
-          f"({noise_paras + kept_paras} total covered)")
+    log.info(f"noise: dropped {noise_paras} paragraphs, kept {kept_paras} "
+             f"({noise_paras + kept_paras} total covered)")
 
     # book-level gate: if non-prose "other" (poetry/plays) is > 70% text, skip it.
     other_ratio = other_paras / kept_paras if kept_paras else 0.0
     if other_ratio > OTHER_SKIP_RATIO:
-        print(f"SKIP pg{desired}: 'other' (poetry/plays) is {other_paras}/{kept_paras} "
-              f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding this book")
+        log.skip(f"book {desired}: 'other' (poetry/plays) is {other_paras}/{kept_paras} "
+                 f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding")
         return
 
     # the full stitched together segments
@@ -126,7 +139,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
 
     out_path = f"{SCENES_PATH}/pg{desired}-s.json"
     write_json(out_path, records)
-    print(f"wrote {len(records)} scenes to {out_path}")
+    log.done(f"book {desired}: recorded {len(records)} scenes -> {out_path}")
 
 
 # --- enrichment + indexing run (was embed.main) --- #
@@ -162,17 +175,17 @@ def embed_test(file_ids=None):
     try:
         for f in files:
             if not f.exists():
-                print(f"skip (missing): {f}")
+                log.skip(f"book {code}: skip embedding (missing scenes json)")
                 continue
             m = re.search(r"pg(\d+)-s\.json$", f.name)
             code = m.group(1) if m else f.stem
             if status.get(code) == "completed":
-                print(f"skip (completed): {code}")
+                log.skip(f"book {code}: skip embedding (already completed)")
                 continue
             records = enrich_file(f)              # LLM-enrich in place (resumable), rewrite the json
             index_records(client, records, conn)  # vectors + relational mirror, in lockstep
             _mark_status(code, "completed")        # persisted so the next run skips it
-            print(f"marked {code} completed")
+            log.done(f"book {code}: embedding finished")
     finally:
         conn.close()
         client.close()
@@ -196,17 +209,17 @@ def search_test(book_id: str = None, limit: int = 2):
     flt = search.book_filter(book_id)
 
     try:
-        print("===== SUMMARY ONLY =====")
+        log.step("SUMMARY ONLY")
         for q in TEST_QUERIES:
             print(f"\nQUERY: {q}")
             _show(search.search_summary(client, q, limit=limit, flt=flt))
 
-        print("\n===== SUMMARY + WEIGHTED DESCRIPTORS (search_combined) =====")
+        log.step("SUMMARY + WEIGHTED DESCRIPTORS (search_combined)")
         for summ, desc in COMBINED_QUERIES:
             print(f"\nQUERY: {summ!r}  +  descriptors {desc!r}")
             _show(search.search_combined(client, summ, desc, limit=limit, flt=flt))
 
-        print("\n===== DESCRIPTORS ONLY =====")
+        log.step("DESCRIPTORS ONLY")
         for descriptors in DESCRIPTOR_QUERIES:
             print(f"\nQUERY: descriptors {descriptors!r}")
             _show(search.search_weighted_descriptors(client, descriptors))
@@ -225,7 +238,7 @@ def _pmset_disablesleep(value: int) -> bool:
         subprocess.run(["sudo", "pmset", "-b", "disablesleep", str(value)], check=True)
         return True
     except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
-        print(f"pmset disablesleep {value} failed ({e}) — lid-close sleep unchanged")
+        log.warn(f"pmset disablesleep {value} failed ({e}) — lid-close sleep unchanged")
         return False
 
 
@@ -247,9 +260,9 @@ def stay_awake():
     disabled = _pmset_disablesleep(1)   # admin prompt; reverted in finally below
     try:
         proc = subprocess.Popen(["caffeinate", "-i", "-m", "-s", "-w", str(os.getpid())])
-        print("staying awake: lid-close safe (Ctrl-C or low battery stops it)")
+        log.info("staying awake: lid-close safe (Ctrl-C or low battery stops it)")
     except (FileNotFoundError, OSError):
-        print("caffeinate unavailable — relying on pmset only")
+        log.warn("caffeinate unavailable — relying on pmset only")
     try:
         yield
     finally:
@@ -272,6 +285,7 @@ def step_one_retrieval(file_ids):
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
         procs.append(subprocess.Popen(cmd, cwd=DATA_PATH))
+        log.info(f"book {file_id}: downloading")
 
     for p in procs:
         p.wait()
@@ -281,7 +295,9 @@ def step_two_processing(file_ids):
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
         for file_id in file_ids:
-            if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
+            if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): 
+                log.warn(f"book {file_id}: download is not a zip")
+                continue
             segment_test(metadata, books, file_id)
 
 def step_three_embedding(file_ids):
@@ -298,7 +314,7 @@ def main():
     step_one_retrieval(FILE_IDS)
     step_two_processing(FILE_IDS)
     step_three_embedding(FILE_IDS)
-    search_test()
+    #search_test()
     pass
 
 

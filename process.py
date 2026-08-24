@@ -21,16 +21,12 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI, pydantic_function_tool
-from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 from typing import Literal
 from enum import Enum
-from pathlib import Path
 from checkpoint import CheckpointDir
 from storage import read_json, write_json
-
-load_dotenv()
-
+import log
 
 # --- constants --- #
 
@@ -41,7 +37,7 @@ SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 SEGMENT_WORKERS = 6   # concurrent chunk-segmentation LLM calls in flight per book
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = ["""
 # ROLE
 You split ONE book section into an ordered list of segments. Give each segment TWO labels:
 - paragraph_type — "scene" (story text) or "noise" (non-story apparatus). This is the noise filter: only "noise" is dropped.
@@ -62,6 +58,10 @@ You receive one JSON object (one section) with:
 
 # TASK
 Call output_scenes with an ordered list of segments covering every paragraph in "indexed_paragraphs" exactly once — ascending, no gaps, no overlaps. Segment only "indexed_paragraphs": the first segment starts at the smallest index, the last ends at the largest.
+
+""",
+"",
+"""
 
 # HOW TO CUT A SCENE
 A scene is ONE flavor: a single dominant tone/feeling, held from first line to last. TONAL PURITY IS THE HIGHEST PRIORITY — a scene never holds two feelings. The moment the dominant tone shifts, the scene ENDS and a new one begins.
@@ -197,7 +197,7 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
     {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "content_form": "prose", "open_start_index": True, "open_end_index": False, "title": "The storm breaks and the sea calms"},
     {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": True, "title": "A black shape dead ahead"}
   ]}
-"""
+"""]
 
 class MultiSceneData(BaseModel):
     scenes_data: list[SceneData]
@@ -370,21 +370,29 @@ def _validate_coverage(data: MultiSceneData, expected: set[int]):
 
 
 def _retry_note(notes: list[str]) -> str:
-    """System-prompt addendum for a RETRY. Each attempt is a FRESH conversation, so the
-    coverage misses from earlier attempts are replayed here to remind the model to
-    segment the paragraphs it missed. Empty string on the first attempt."""
+    """The retry-reminder SECTION (rendered in the prompt's own `#`-section style), or ""
+    on the first attempt. It is dropped into SYSTEM_PROMPT's RETRY_MARKER slot by
+    _inject_retry_notes — placed among the instructions, NOT tacked onto the end."""
     if not notes:
         return ""
     lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
-    return ("\n\n# RETRY — SEGMENT THE PARAGRAPHS YOU MISSED\n"
+    return ("# RETRY — SEGMENT THE PARAGRAPHS YOU MISSED\n"
             "Earlier attempts on THIS SAME section did not segment every paragraph "
-            "correctly. Cover EVERY indexed paragraph exactly once now — ascending, no "
-            "gaps, no overlaps, no indices that were not in the input. Problems from "
-            f"previous attempts:\n{lines}")
+            "correctly. Cover EVERY indexed paragraph exactly once — ascending, no gaps, "
+            "no overlaps, no indices that were not in the input. Problems from previous "
+            f"attempts:\n{lines}\n")
+
+
+def _inject_retry_notes(prompt: str, notes: list[str]) -> str:
+    """Substitute the retry reminder into the prompt's RETRY_MARKER slot (a structured
+    position among the instructions); clears the slot on the first attempt (no notes)."""
+    temp = prompt
+    temp[1] = _retry_note(notes)
+    return "".join(temp)
 
 
 class SceneBreaker:
-    def break_chunk(self, chunk: str):
+    def break_chunk(self, file_code: str, chunk: str, chunk_index: str):
         """Segment one section via a forced output_scenes call, retrying until coverage passes.
 
         Retries NEVER abort. Each retry starts a FRESH conversation (no chat history is
@@ -405,11 +413,11 @@ class SceneBreaker:
             # FRESH conversation every attempt: no chat history is carried; the paragraphs
             # missed on earlier tries are replayed as a note appended to the system prompt.
             messages = [
-                {"role": "system", "content": SYSTEM_PROMPT + _retry_note(notes)},
+                {"role": "system", "content": _inject_retry_notes(SYSTEM_PROMPT, notes)},
                 {"role": "user", "content": chunk},
             ]
             try:
-                print("Sending chunk...")
+                log.info(f"book {file_code}: sending chunk {chunk_index} to {MODEL}")
                 response = CLIENT.chat.completions.create(
                     model=MODEL, temperature=temp, tools=[TOOL],
                     messages=messages,
@@ -426,7 +434,7 @@ class SceneBreaker:
                 # never give up: after the cap the temperature stops climbing and we keep
                 # retrying at that held value (only a fatal API error above aborts).
                 attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
-                print(f"  transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
+                log.warn(f"transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
                 time.sleep(sleep)
                 continue
 
@@ -452,7 +460,7 @@ class SceneBreaker:
             validation_tries += 1
             attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
             notes.append(reason)
-            print(f"  validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:140]}")
+            log.warn(f"validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:140]}")
 
 
 # --- pre-segmentation gates (which books must NOT be segmented) --- #
@@ -484,15 +492,15 @@ def presegmentation_gate(code, md, data_path, exclude_dir) -> str | None:
     rights = parse_rights(code, data_path)
     if rights != "Public domain in the USA.":
         _log_exclusion(exclude_dir, code, md, "not public domain", rights)
-        print(f"EXCLUDE pg{code}: dc.rights={rights!r} not US public domain — "
-              f"not segmenting (logged under {exclude_dir}/{EXCLUDED_BOOKS_FILE})")
+        log.skip(f"pg{code}: dc.rights={rights!r} not US public domain — not segmenting "
+                 f"(logged under {exclude_dir}/{EXCLUDED_BOOKS_FILE})")
         return "not public domain"
 
     matched = sorted(s for s in (md.get("Subjects") or [])
                      if any(w in s.lower() for w in EXCLUDE_SUBJECT_WORDS))
     if matched:
         _log_exclusion(exclude_dir, code, md, "non prose", matched)
-        print(f"EXCLUDE pg{code}: subjects {matched} — not segmenting "
+        log.skip(f"pg{code}: subjects {matched} — not segmenting "
               f"(logged under {exclude_dir}/{EXCLUDED_BOOKS_FILE})")
         return "non prose"
 
@@ -520,12 +528,12 @@ def segment_book(book, checkpoint_base, workers: int = SEGMENT_WORKERS):
         cached = ckpt.load(key)
         if cached is not None:
             with log_lock:
-                print(f"**** CHUNK {chunk.chunk_index} CACHED (skip LLM) ****")
+                log.info(f"book {book.file_code}: chunk {chunk.chunk_index} cached (skip LLM)")
             return cached
-        data = sb.break_chunk(chunk.scene_payload())
+        data = sb.break_chunk(book.file_code, chunk.scene_payload(), chunk.chunk_index)
         ckpt.save(key, data)   # persist before returning, so a crash survives
         with log_lock:
-            print(f"**** CHUNK {chunk.chunk_index} VERIFIED ****")
+            log.info(f"book {book.file_code}: chunk {chunk.chunk_index} verified")
         return data
 
     # ex.map preserves input order, so scenes stay in chunk (reading) order
