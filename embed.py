@@ -100,7 +100,6 @@ reason only about the words.
 # TASK
 Call output_enrichment with "items": ONE object per input scene. Cover EVERY index
 exactly once — no gaps, no duplicates, and no index that was not in the input.
-
 """,
 "",
 """
@@ -223,14 +222,15 @@ def _retry_note(notes: list[str]) -> str:
             "gaps, no duplicates, no indices that were not in the input. Problems from "
             f"previous attempts:\n{lines}")
 
-def _inject_retry_notes(prompt: str, notes: list[str]) -> str:
-    """Substitute the retry reminder into the prompt's RETRY_MARKER slot (a structured
-    position among the instructions); clears the slot on the first attempt (no notes)."""
-    temp = prompt
+def _inject_retry_notes(prompt: list, notes: list[str]) -> str:
+    """Rebuild the system prompt with the retry reminder in slot [1] of the parts list
+    (a structured position among the instructions), empty on the first attempt. Copies
+    the list first, so the module-level BATCH_SYSTEM_PROMPT is never mutated (thread-safe)."""
+    temp = prompt.copy()
     temp[1] = _retry_note(notes)
     return "".join(temp)
 
-def _run_tool(system_prompt: str, user_content: str, validate=None):
+def _run_tool(user_content: str, validate=None):
     """One forced tool call validated into BatchEnrichment, using SceneBreaker's retry policy.
 
     Retries NEVER abort the run. Each retry starts a FRESH conversation (no chat history
@@ -343,7 +343,7 @@ def _enrich_batch(batch: list[dict]) -> list[dict]:
         if extra:   parts.append(f"indices not in input {extra}")
         return False, "; ".join(parts)
 
-    data = _run_tool(BATCH_SYSTEM_PROMPT, payload, validate=validate)
+    data = _run_tool(payload, validate=validate)
     by_idx = {it.index: it for it in data.items}
     out = []
     for i in range(len(batch)):

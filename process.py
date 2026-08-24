@@ -58,7 +58,6 @@ You receive one JSON object (one section) with:
 
 # TASK
 Call output_scenes with an ordered list of segments covering every paragraph in "indexed_paragraphs" exactly once — ascending, no gaps, no overlaps. Segment only "indexed_paragraphs": the first segment starts at the smallest index, the last ends at the largest.
-
 """,
 "",
 """
@@ -371,7 +370,7 @@ def _validate_coverage(data: MultiSceneData, expected: set[int]):
 
 def _retry_note(notes: list[str]) -> str:
     """The retry-reminder SECTION (rendered in the prompt's own `#`-section style), or ""
-    on the first attempt. It is dropped into SYSTEM_PROMPT's RETRY_MARKER slot by
+    on the first attempt. It fills slot [1] of the SYSTEM_PROMPT parts list via
     _inject_retry_notes — placed among the instructions, NOT tacked onto the end."""
     if not notes:
         return ""
@@ -383,10 +382,11 @@ def _retry_note(notes: list[str]) -> str:
             f"attempts:\n{lines}\n")
 
 
-def _inject_retry_notes(prompt: str, notes: list[str]) -> str:
-    """Substitute the retry reminder into the prompt's RETRY_MARKER slot (a structured
-    position among the instructions); clears the slot on the first attempt (no notes)."""
-    temp = prompt
+def _inject_retry_notes(prompt: list, notes: list[str]) -> str:
+    """Rebuild the system prompt with the retry reminder in slot [1] of the parts list
+    (a structured position among the instructions), empty on the first attempt. Copies
+    the list first, so the module-level SYSTEM_PROMPT is never mutated (thread-safe)."""
+    temp = prompt.copy()
     temp[1] = _retry_note(notes)
     return "".join(temp)
 
