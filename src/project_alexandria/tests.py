@@ -18,20 +18,20 @@ from project_alexandria.process import scenes_to_records, segment_book, presegme
 from project_alexandria.embed import enrich_file, index_records
 import project_alexandria.search as search
 
-from utils import write_json, read_json, relational, log
+from utils import write_json, read_json, relational, log, SCHEMA_VERSION, SrcPaths
 from qdrant_client import QdrantClient
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
-TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
-DATA_PATH = TEST_PATH + "/data"                 # contains the raw zip files needed
-SCENES_PATH = TEST_PATH + "/scenes"             # contains fully stitched scenes + fields before and after fill
-SEGMENTS_PATH = TEST_PATH + "/segments"         # contains excluded book list + pre-processing chunks
-RECALL_PATH = TEST_PATH + "/recall"             # contains books and metadata jsons for recall
-CHECKPOINT_DIR = TEST_PATH + "/checkpoints"
-QDRANT_PATH = TEST_PATH + "/qdrant_db"          # on-disk local Qdrant db (embed writes, search reads)
-DB_PATH = TEST_PATH + "/scenes.db"              # on-disk SQLite relational mirror (embed writes, search reads)
-STATUS_PATH = CHECKPOINT_DIR + "/status.json"   # {book_id: "completed"} -> embed_test skips it on rerun
+# TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
+# DATA_PATH = TEST_PATH + "/data"                 # contains the raw zip files needed
+# SrcPaths.SCENES_DIR = TEST_PATH + "/scenes"             # contains fully stitched scenes + fields before and after fill
+# SEGMENTS_PATH = TEST_PATH + "/segments"         # contains excluded book list + pre-processing chunks
+# RECALL_PATH = TEST_PATH + "/recall"             # contains books and metadata jsons for recall
+# CHECKPOINT_DIR = TEST_PATH + "/checkpoints"
+# SrcPaths.QDRANT_DIR = TEST_PATH + "/qdrant_db"          # on-disk local Qdrant db (embed writes, search reads)
+# DB_PATH = TEST_PATH + "/scenes.db"              # on-disk SQLite relational mirror (embed writes, search reads)
+# STATUS_PATH = CHECKPOINT_DIR + "/status.json"   # {book_id: "completed"} -> embed_test skips it on rerun
 
 # --- test file numbers --- #
 
@@ -84,10 +84,10 @@ DESCRIPTOR_QUERIES = [
 
 def payload_dump_test():
     """Dump every book's chunk payloads to SEGMENTS_PATH/pg{code}-p.json for inspection."""
-    _, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
+    _, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
     for book in books.values():
         log.info(f"dumping payloads for book {book.file_code}")
-        book.to_json(SEGMENTS_PATH)
+        book.to_json(SrcPaths.SEGMENTS_DIR)
 
 
 # --- segmentation run (was process.main) --- #
@@ -95,7 +95,7 @@ def payload_dump_test():
 def segment_test(metadata: dict, books: dict, desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     # do not segment if a completed scenes file already exists
-    if Path(SCENES_PATH + f"/pg{desired}-s.json").is_file(): 
+    if Path(SrcPaths.SCENES_DIR + f"/pg{desired}-s.json").is_file(): 
         log.skip(f"book {desired} already in scenes — skip segmentation")
         return
 
@@ -105,10 +105,10 @@ def segment_test(metadata: dict, books: dict, desired: str):
     book, md = books[desired], metadata[desired]
 
     # pre-segmentation gates (public-domain + non-prose)
-    if presegmentation_gate(desired, md, DATA_PATH, RECALL_PATH): return
+    if presegmentation_gate(desired, md, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR): return
 
     # LLM orchestration (parallel per-chunk calls + resumable checkpoints)
-    scenes = segment_book(book, CHECKPOINT_DIR)
+    scenes = segment_book(book, SrcPaths.CHECKPOINT_DIR)
 
     # remove noise scenes, tally "other" scenes to check for poetry/plays to remove.
     kept_paras, noise_paras, other_paras = 0, 0, 0
@@ -135,7 +135,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
     # the full stitched together segments
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
-    out_path = f"{SCENES_PATH}/pg{desired}-s.json"
+    out_path = f"{SrcPaths.SCENES_DIR}/pg{desired}-s.json"
     write_json(out_path, records)
     log.done(f"book {desired}: recorded {len(records)} scenes -> {out_path}")
 
@@ -144,31 +144,31 @@ def segment_test(metadata: dict, books: dict, desired: str):
 
 def _load_status() -> dict:
     """Load the test-root {book_id: status} map; missing file / key / null all mean 'not done'."""
-    return read_json(STATUS_PATH, {})
+    return read_json(SrcPaths.STATUS_PATH, {})
 
 
 def _mark_status(code: str, value="completed"):
     """Persist one book's completion status so the next embed_test run skips it."""
     status = _load_status()
     status[code] = value
-    write_json(STATUS_PATH, status)
+    write_json(SrcPaths.STATUS_PATH, status)
  
 
 def embed_test(file_ids=None):
-    """Enrich each scenes json under SCENES_PATH and index it into a LOCAL Qdrant db
+    """Enrich each scenes json under SrcPaths.SCENES_DIR and index it into a LOCAL Qdrant db
     saved in the test root (TEST_PATH/qdrant_db). Test-tree mirror of embed.main.
 
-    file_ids picks specific books; None enriches every pg*-s.json under SCENES_PATH.
+    file_ids picks specific books; None enriches every pg*-s.json under SrcPaths.SCENES_DIR.
     A book marked "completed" in STATUS_PATH is skipped; null its status (or delete the
     file) to force a redo.
     """
     if file_ids:
-        files = [Path(f"{SCENES_PATH}/pg{c}-s.json") for c in file_ids if c]
+        files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
     else:
-        files = sorted(Path(SCENES_PATH).glob("pg*-s.json"))
+        files = sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json"))
 
-    client = QdrantClient(path=QDRANT_PATH)   # on-disk local db in the test root, auto-created
-    conn = relational.open_db(DB_PATH)        # test-root SQLite mirror, created/migrated on open
+    client = QdrantClient(path=SrcPaths.QDRANT_DIR)   # on-disk local db in the test root, auto-created
+    conn = relational.open_db(SrcPaths.DB_PATH)        # test-root SQLite mirror, created/migrated on open
     status = _load_status()
     try:
         for f in files:
@@ -210,14 +210,14 @@ _EMPTY_ENRICH = {          # current enrichment tags -> unenriched default (mirr
 def reconfigure_tags(file_ids=None):
     """TEMPORARY one-shot: re-key + blank every scene record's enrichment tags in place.
 
-    For each pg*-s.json under SCENES_PATH (or just `file_ids`): pop the stale pre-rename
+    For each pg*-s.json under SrcPaths.SCENES_DIR (or just `file_ids`): pop the stale pre-rename
     frame keys, set every current enrichment tag to its empty default, stamp the current
     schema_version, and rewrite the file. Structural fields are preserved. Clears each
     book's completed status so embed_test re-enriches it. Prints a per-file tally.
     """
-    from src.utils.storage import SCHEMA_VERSION
-    files = ([Path(f"{SCENES_PATH}/pg{c}-s.json") for c in file_ids if c]
-             if file_ids else sorted(Path(SCENES_PATH).glob("pg*-s.json")))
+
+    files = ([Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
+             if file_ids else sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json")))
     status = _load_status()
     touched = 0
     for f in files:
@@ -240,7 +240,7 @@ def reconfigure_tags(file_ids=None):
         touched += 1
         log.done(f"{f.name}: reconfigured {len(records)} records -> schema v{SCHEMA_VERSION}")
     if touched:
-        write_json(STATUS_PATH, status)    # persist the cleared statuses once
+        write_json(SrcPaths.STATUS_PATH, status)    # persist the cleared statuses once
     log.info(f"reconfigure_tags: migrated {touched} file(s); statuses cleared")
 
 
@@ -257,7 +257,7 @@ def _show(hits):
 
 def search_test(book_id: str = None, limit: int = 2):
     """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
-    client = QdrantClient(path=QDRANT_PATH)   # read the test db that embed_test wrote
+    client = QdrantClient(path=SrcPaths.QDRANT_DIR)   # read the test db that embed_test wrote
 
     flt = search.book_filter(book_id)
 
@@ -334,10 +334,10 @@ def step_one_retrieval(file_ids):
     procs = []
 
     for file_id in file_ids:
-        if not file_id or Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): continue
+        if not file_id or Path(SrcPaths.DATA_DIR + f"/pg{file_id}-h.zip").is_file(): continue
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
-        procs.append(subprocess.Popen(cmd, cwd=DATA_PATH))
+        procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))
         log.info(f"book {file_id}: downloading")
 
     for p in procs:
@@ -346,9 +346,9 @@ def step_one_retrieval(file_ids):
 def step_two_processing(file_ids):
     """Segments all files into scenes, creating segment, scenes, and recall folders."""
     with stay_awake():   # process runs long — survive a closed lid
-        metadata, books = build_library(data_path=DATA_PATH, recall_path=RECALL_PATH)
+        metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
         for file_id in file_ids:
-            if not Path(DATA_PATH + f"/pg{file_id}-h.zip").is_file(): 
+            if not Path(SrcPaths.DATA_DIR + f"/pg{file_id}-h.zip").is_file(): 
                 log.warn(f"book {file_id}: download is not a zip")
                 continue
             segment_test(metadata, books, file_id)
@@ -359,7 +359,7 @@ def step_three_embedding(file_ids):
     with stay_awake():   # embed runs long — survive a closed lid
         exist_ids = []
         for file_id in file_ids:
-            if not Path(SCENES_PATH + f"/pg{file_id}-s.json").is_file(): continue
+            if not Path(SrcPaths.SCENES_DIR + f"/pg{file_id}-s.json").is_file(): continue
             exist_ids.append(file_id)
         embed_test(exist_ids)
 
@@ -372,7 +372,7 @@ def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
     log.step(f"FRAME for {sentence!r}")
     for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
         print(f"  {k:11}: {frame[k]!r}")
-    client = QdrantClient(path=QDRANT_PATH)
+    client = QdrantClient(path=SrcPaths.QDRANT_DIR)
     try:
         hits = search.search_fused(client, frame, limit=limit,
                                    flt=search.book_filter(book_id))
