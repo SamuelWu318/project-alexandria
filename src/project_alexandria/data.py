@@ -27,8 +27,7 @@ from pathlib import Path
 from datetime import datetime
 from bs4 import BeautifulSoup, Comment, Tag
 
-from project_alexandria.utils import log
-from project_alexandria.utils import SrcPaths, write_json, read_json
+from utils import log, SrcPaths, write_json, read_json
 
 # --- scene parser constants --- #
 
@@ -420,8 +419,8 @@ def parse_rights(file_code: str, folder: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
-def build_library(data_path: str = SrcPaths.DATA_PATH,
-                  recall_path: str = SrcPaths.RECALL_PATH) -> tuple[dict, dict]:
+def build_library(data_path: str = SrcPaths.DATA_DIR,
+                  recall_path: str = SrcPaths.RECALL_DIR) -> tuple[dict, dict]:
     """Load every book's metadata + parsed Book, backed by the recall cache.
 
     metadata.json and books.json under recall_path are code -> data maps: reuse a
@@ -444,10 +443,10 @@ def build_library(data_path: str = SrcPaths.DATA_PATH,
 
     for file in sorted(path.iterdir()):
         if not file.is_file(): 
-            project_alexandria.utils.log.warn(f"build_library: {file} is not a file — skipping")
+            log.warn(f"build_library: {file} is not a file — skipping")
             continue
         if not zipfile.is_zipfile(file):
-            project_alexandria.utils.log.warn(f"build_library: {file} is not a zip — skipping")
+            log.warn(f"build_library: {file} is not a zip — skipping")
             continue
 
         match = re.search(r"pg(\d+)-h.zip", file.name)

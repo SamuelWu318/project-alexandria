@@ -24,7 +24,7 @@ from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
 # vector-store primitives shared with the read path (search.py owns them)
-from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
+from search import VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
 from utils import relational
@@ -485,7 +485,7 @@ def _ensure_collection(client: QdrantClient, dim: int):
         cfg = client.get_collection(COLLECTION).config.params.vectors
         if isinstance(cfg, dict) and set(cfg) == set(VECTOR_NAMES):
             return
-        client.delete_collection(COLLECTION)   # single-vector / stale -> rebuild
+        client.delete_collection(COLLECTIOn)   # single-vector / stale -> rebuild
     client.create_collection(COLLECTION, vectors_config=want)
 
 

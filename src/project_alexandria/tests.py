@@ -13,10 +13,10 @@
 from pathlib import Path
 import subprocess, os, sys, time, re, contextlib
 
-from project_alexandria.data import build_library
-from project_alexandria.process import scenes_to_records, segment_book, presegmentation_gate
-from project_alexandria.embed import enrich_file, index_records
-import project_alexandria.search as search
+from data import build_library
+from process import scenes_to_records, segment_book, presegmentation_gate
+from embed import enrich_file, index_records
+import search
 
 from utils import write_json, read_json, relational, log, SCHEMA_VERSION, SrcPaths
 from qdrant_client import QdrantClient
@@ -330,7 +330,7 @@ def stay_awake():
 def step_one_retrieval(file_ids):
     """Download each book's -h.zip into DATA_PATH. Launches the wgets in parallel,
     then waits for all of them so step two never reads a half-finished download."""
-    Path(DATA_PATH).mkdir(parents=True, exist_ok=True)
+    Path(SrcPaths.DATA_DIR).mkdir(parents=True, exist_ok=True)
     procs = []
 
     for file_id in file_ids:
