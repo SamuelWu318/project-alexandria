@@ -1,10 +1,3 @@
-# log, relation imported in entirety
-# ened to import CheckpointDir class from checkpoint
-# from llm: schema, model, client, classify error
-# from storage: 
-
-import log
-import relational
 from checkpoint import Checkpoint
 from llm import SCHEMA_VERSION, MODEL, CLIENT, classify_llm_error
 from storage import SrcPaths
