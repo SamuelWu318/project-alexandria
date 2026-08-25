@@ -30,7 +30,8 @@ import log
 
 # --- constants --- #
 
-SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads it)
+SCHEMA_VERSION = 2   # bump when the scene-record shape changes (embed.py reads it).
+                     # v2: + decomposed frame fields (subject/verb/object/setting).
 
 # --- model constants --- #
 
@@ -614,6 +615,12 @@ def scenes_to_records(file_code, scenes, book, metadata):
             "intensity": None,
             "arc": None,
             "descriptors": None,
+
+            # --- decomposed frame facets (vector fields, schema v2); enrichment fills --- #
+            "subject": None,      # focal figure (1-3 words)
+            "verb": None,         # its decisive action / fate (1-3 words) — carries the flip
+            "object": None,       # main target, if any (1-3 words; "" when none)
+            "setting": None,      # where / when (1-3 words; low weight in fusion)
 
             # --- transition facets (Mode-2); denormalized at enrichment --- #
             "prev_tone": None,

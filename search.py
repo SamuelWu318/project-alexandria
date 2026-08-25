@@ -14,8 +14,8 @@
 #   * EMBED_MODEL must match the model the index was built with, or scores are junk.
 #   * point_id is a stable uuid5 of scene_id, so re-indexing a scene overwrites its
 #     existing point instead of creating a duplicate.
-#   * bge is asymmetric: only the summary QUERY is prefixed (QUERY_PREFIX); indexed
-#     passages and descriptor queries stay raw.
+#   * bge is asymmetric: the summary and frame-phrase QUERIES are prefixed (QUERY_PREFIX);
+#     indexed passages and descriptor queries stay raw.
 # -----------------------------------------------------------------------------
 import uuid
 import numpy as np
@@ -28,7 +28,8 @@ from fastembed import TextEmbedding
 QDRANT_PATH = "master/qdrant_db"           # local on-disk Qdrant (no server needed)
 COLLECTION = "master/scenes"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
-VECTOR_NAMES = ("summary", "descriptors")  # two named vectors per scene point
+VECTOR_NAMES = ("summary", "descriptors",                    # holistic + flavor
+                "subject", "verb", "object", "setting")  # decomposed frame (v2)
 
 # bge query-side instruction prefix (summary path only). Set to "" to A/B without
 # re-indexing — passages are untouched, so the index stays valid either way.
@@ -270,5 +271,92 @@ def search_combined(
 
     for c in cands:
         c.score = w_summary * c.score + (1 - w_summary) * dscore.get(c.id, 0.0)
+    cands.sort(key=lambda c: c.score, reverse=True)
+    return cands[:limit]
+
+
+# --- fused frame search: weighted cosine over every named vector, no hard filter --- #
+
+# Starting field weights for search_fused. The holistic summary + the decisive `verb`
+# lead; setting is nearly incidental. Query-time, fields ABSENT from the frame are
+# dropped and the rest renormalized, so an unspecified field simply does not vote.
+# Nothing here is a hard filter — a mislabelled scene is penalised, never excluded.
+# Tune these against a retrieval eval.
+DEFAULT_FIELD_WEIGHTS = {
+    "summary": 0.30,
+    "verb": 0.25,        # decisive field — the beat's outcome
+    "descriptors": 0.20,
+    "subject": 0.10,
+    "object": 0.10,
+    "setting": 0.05,
+}
+
+# frame fields that are short descriptive PHRASES — embedded like the summary, so the
+# bge query prefix applies (index raw, query prefixed). `descriptors` is an adjective
+# LIST (weighted centroid, raw); `summary` is the gate.
+_PHRASE_FIELDS = ("subject", "verb", "object", "setting")
+
+
+def search_fused(client: QdrantClient, frame: dict,
+                 weights: dict | None = None, *,
+                 limit: int = 5, flt: models.Filter | None = None):
+    """Fuse EVERY named vector by weighted cosine — the general form of search_combined.
+
+    `frame` is the query distilled into the same shape the index stores: any of
+    {summary, subject, verb, object, setting} as strings + descriptors as a list.
+    The summary GATES the candidate pool (widest recall net) and is required; every
+    other present field is scored over that pool and blended in by weight:
+        score = Σ  w_field * field_cos
+    Only fields actually present in `frame` vote (their weights renormalized to 1.00),
+    so an unspecified setting/subject simply drops out. No field is a hard filter — a
+    wrong label costs a scene rank, never its place in the pool. `weights` overrides
+    DEFAULT_FIELD_WEIGHTS. Returns Qdrant ScoredPoints (payload == record), best-first.
+    """
+    summ = (frame.get("summary") or "").strip()
+    if not summ:
+        raise ValueError("search_fused needs frame['summary'] (the gate)")
+
+    # which fields are present -> value; then weights over them, renormalized to 1.00
+    src = weights or DEFAULT_FIELD_WEIGHTS
+    present = {"summary": summ}
+    for f in _PHRASE_FIELDS:
+        v = (frame.get(f) or "").strip()
+        if v:
+            present[f] = v
+    if frame.get("descriptors"):
+        present["descriptors"] = frame["descriptors"]
+    w = {f: src[f] for f in present if src.get(f, 0) > 0}
+    total = sum(w.values())
+    if total <= 0:
+        raise ValueError("no positive weights over the present frame fields")
+    w = {f: x / total for f, x in w.items()}
+
+    # gate on summary; its cosine is reused as the summary field score
+    sv = embed([QUERY_PREFIX + summ])[0]
+    pool = max(limit * 5, 50)
+    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+                                query_filter=flt, with_payload=True).points
+    if not cands:
+        return cands
+    ids = [c.id for c in cands]
+    id_filter = models.Filter(must=[models.HasIdCondition(has_id=ids)])
+
+    scores = {"summary": {c.id: c.score for c in cands}}   # gate cosine == summary cosine
+    for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
+        if f in w:
+            fv = embed([QUERY_PREFIX + present[f]])[0]
+            hits = client.query_points(COLLECTION, query=fv, using=f, limit=len(ids),
+                                       query_filter=id_filter, with_payload=False).points
+            scores[f] = {h.id: h.score for h in hits}
+    if "descriptors" in w:                                 # adjective centroid (raw)
+        desc = present["descriptors"]
+        dv = weighted_vector(desc, [1.0 / len(desc)] * len(desc)).tolist()
+        hits = client.query_points(COLLECTION, query=dv, using="descriptors", limit=len(ids),
+                                   query_filter=id_filter, with_payload=False).points
+        scores["descriptors"] = {h.id: h.score for h in hits}
+
+    # weighted-sum fuse; every present field votes, none vetoes
+    for c in cands:
+        c.score = sum(wt * scores.get(f, {}).get(c.id, 0.0) for f, wt in w.items())
     cands.sort(key=lambda c: c.score, reverse=True)
     return cands[:limit]
