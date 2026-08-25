@@ -27,6 +27,9 @@ from enum import Enum
 from checkpoint import CheckpointDir
 from storage import read_json, write_json
 import log
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- constants --- #
 

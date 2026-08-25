@@ -22,6 +22,7 @@ import search, relational, subprocess, os, sys, time, re, contextlib
 import log
 
 load_dotenv()
+OPENROUTER_KEY = os.environ["OPENROUTER_KEY"]
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
@@ -366,10 +367,11 @@ def step_three_embedding(file_ids):
         embed_test(exist_ids)
 
 def main():
-    step_one_retrieval(FILE_IDS)
-    step_two_processing(FILE_IDS)
-    step_three_embedding(FILE_IDS)
+    #step_one_retrieval(FILE_IDS)
+    #step_two_processing(FILE_IDS)
+    #step_three_embedding(FILE_IDS)
     #search_test()
+    reconfigure_tags(FILE_IDS)
     pass
 
 
