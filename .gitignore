@@ -5,5 +5,4 @@ __pycache__
 .env
 example html
 master
-test
 _prompts.py
