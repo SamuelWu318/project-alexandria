@@ -13,7 +13,6 @@
 from pathlib import Path
 
 from data import build_library
-from dotenv import load_dotenv
 from process import scenes_to_records, segment_book, presegmentation_gate
 from embed import enrich_file, index_records
 from storage import write_json, read_json
@@ -21,7 +20,6 @@ from qdrant_client import QdrantClient
 import search, relational, subprocess, os, sys, time, re, contextlib
 import log
 
-load_dotenv()
 OPENROUTER_KEY = os.environ["OPENROUTER_KEY"]
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
@@ -218,7 +216,7 @@ def reconfigure_tags(file_ids=None):
     schema_version, and rewrite the file. Structural fields are preserved. Clears each
     book's completed status so embed_test re-enriches it. Prints a per-file tally.
     """
-    from process import SCHEMA_VERSION
+    from storage import SCHEMA_VERSION
     files = ([Path(f"{SCENES_PATH}/pg{c}-s.json") for c in file_ids if c]
              if file_ids else sorted(Path(SCENES_PATH).glob("pg*-s.json")))
     status = _load_status()
@@ -365,6 +363,24 @@ def step_three_embedding(file_ids):
             if not Path(SCENES_PATH + f"/pg{file_id}-s.json").is_file(): continue
             exist_ids.append(file_id)
         embed_test(exist_ids)
+
+
+def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
+    """TEMPORARY Phase-4 driver: distil a raw writer query into a frame, run search_fused,
+    print the frame + hits. Eyeball the whole read path on the test index."""
+    from embed import distill_query
+    frame = distill_query(sentence)
+    log.step(f"FRAME for {sentence!r}")
+    for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
+        print(f"  {k:11}: {frame[k]!r}")
+    client = QdrantClient(path=QDRANT_PATH)
+    try:
+        hits = search.search_fused(client, frame, limit=limit,
+                                   flt=search.book_filter(book_id))
+        _show(hits)
+    finally:
+        client.close()
+
 
 def main():
     #step_one_retrieval(FILE_IDS)
