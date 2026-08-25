@@ -118,7 +118,7 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
 
 # --- weighted + negative descriptor search --- #
 # Per-descriptor weighting is a QUERY-time operation: nothing extra is stored. Instead
-# of embedding one joined "a, b, c" string (search_descriptors above), each descriptor
+# of embedding one joined "a, b, c" string (search_summary above), each descriptor
 # is embedded on its own and combined by weight, so the caller can lean the search
 # ("0.7 melancholy, 0.3 eerie") and push AWAY from anti-descriptors by subtraction.
 

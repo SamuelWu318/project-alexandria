@@ -27,6 +27,9 @@ from enum import Enum
 from checkpoint import CheckpointDir
 from storage import read_json, write_json
 import log
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- constants --- #
 
@@ -36,6 +39,12 @@ SCHEMA_VERSION = 1   # bump when the scene-record shape changes (embed.py reads 
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
+# --- client --- #
+
+CLIENT = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_KEY"],
+)
 SEGMENT_WORKERS = 6   # concurrent chunk-segmentation LLM calls in flight per book
 SYSTEM_PROMPT = ["""
 # ROLE
@@ -202,7 +211,6 @@ class MultiSceneData(BaseModel):
     scenes_data: list[SceneData]
 
 class SceneData(BaseModel):
-    # metadata can be added later.
     start_paragraph_index: int
     end_paragraph_index: int
     paragraph_type: Literal["scene", "noise"]      # noise filter only: "noise" is dropped
@@ -216,6 +224,7 @@ TOOL = pydantic_function_tool(
     name="output_scenes",
     description="Force return of scenes in structure."
 )
+
 
 # --- enrichment classes --- #
 
@@ -568,7 +577,7 @@ def scenes_to_records(file_code, scenes, book, metadata):
         else:
             start = s.start_paragraph_index
             status = "complete"
-            # connect open_start_index with open_end_index, otherwise connect 1 paragraph
+            # unstitched head: pull in one lookback paragraph, mark broken
             if s.open_start_index:
                 start = max(0, start - 1)
                 status = "broken_stitch"       # head with no matching tail
@@ -580,7 +589,7 @@ def scenes_to_records(file_code, scenes, book, metadata):
                 "status": status,
             })
 
-    # no open_start_index; mark as broken
+    # tail still open with no head stitched onto it -> broken
     for m in merged:
         if m["_open_end"]:
             m["status"] = "broken_stitch"

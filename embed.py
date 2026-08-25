@@ -24,7 +24,7 @@ from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
 # reuse the single OpenRouter client, model, tag-vocab enums, error policy
-from process import CLIENT, MODEL, Tone, Intensity, Arc, _classify_error, SCHEMA_VERSION
+from process import Tone, Intensity, Arc, _classify_error, SCHEMA_VERSION, MODEL, CLIENT
 # vector-store primitives shared with the read path (search.py owns them)
 from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
@@ -51,15 +51,15 @@ class SceneEnrichment(BaseModel):
     dominant_tone: Tone
     intensity: Intensity
     arc: Arc
-    descriptors: list[str] = Field(min_length=3, max_length=5)
+    descriptors: list[str] = Field(min_length=5, max_length=5)
     summary: str
 
     @field_validator("descriptors")
     @classmethod
     def _norm_desc(cls, v: list[str]) -> list[str]:
         cleaned = [d.strip().lower() for d in v if d and d.strip()]
-        if not (3 <= len(cleaned) <= 5):
-            raise ValueError("descriptors must have 3-5 non-empty items")
+        if len(cleaned) != 5:
+            raise ValueError("descriptors must have exactly 5 non-empty items")
         return cleaned
 
     @field_validator("summary")
@@ -114,7 +114,7 @@ exactly once — no gaps, no duplicates, and no index that was not in the input.
 - arc: the tone's shape across the scene — rising (builds), falling (subsides),
   steady (holds level), turn (flips to a different feeling by the end). Turns are rare but
   occasionally happen when scenes are not fully isolated in tone.
-- descriptors: 3-5 lowercase MODERN adjectives for the flavor. These MAY be emotional
+- descriptors: EXACTLY 5 lowercase MODERN adjectives for the flavor. These MAY be emotional
   (["creeping","claustrophobic","dreadful"]) — that is their job. Descriptors are the
   ONE place feeling words belong.
 
@@ -142,7 +142,7 @@ grammatical sentence that reads well on its own.
    strongest OR the one blended controlled term — one tone only.
 2. Gauge intensity — background hum, clearly felt, or dominating.
 3. Judge the arc — does the feeling rise, fall, hold steady, or turn by the end?
-4. Pick 3-5 lowercase adjectives for the flavor (emotional words are welcome here).
+4. Pick EXACTLY 5 lowercase adjectives for the flavor (emotional words are welcome here).
 5. Write the summary LAST: general roles + ONE situation + ONE action, present tense,
    NO feeling words, ~10-18 words. Reread it and strip any proper name, second
    situation, or emotion word that slipped in.
@@ -158,7 +158,7 @@ grammatical sentence that reads well on its own.
 # OUTPUT (per item)
 - index: the scene's index from the input.
 - dominant_tone / intensity / arc: from the controlled vocabularies above.
-- descriptors: 3-5 lowercase adjectives.
+- descriptors: EXACTLY 5 lowercase adjectives.
 - summary: the general, one-situation, feeling-free sentence.
 
 # EXAMPLE 1 — a two-scene batch: a tonal contrast, and how descriptors differ from the summary
@@ -423,6 +423,68 @@ def enrich_file(path: Path) -> list[dict]:
     return records
 
 
+# --- field resets (clear one enrichment facet back to its pre-enrich None) --- #
+# Each takes the in-memory records list, nulls one field in place, and returns the count
+# touched. None is the exact unenriched default (see process.py), so a reset restores the
+# pre-enrich state. NOTE: these do NOT clear `summary` or the `enriched` flag, so
+# enrich_file still SKIPS these scenes on a rerun unless those are cleared too.
+
+def reset_tone(records: list[dict]) -> int:
+    """Null each record's dominant_tone."""
+    for r in records: r["dominant_tone"] = None
+    return len(records)
+
+
+def reset_next_tone(records: list[dict]) -> int:
+    """Null each record's next_tone (denormalized neighbor tone)."""
+    for r in records: r["next_tone"] = None
+    return len(records)
+
+
+def reset_prev_tone(records: list[dict]) -> int:
+    """Null each record's prev_tone (denormalized neighbor tone)."""
+    for r in records: r["prev_tone"] = None
+    return len(records)
+
+
+def reset_descriptors(records: list[dict]) -> int:
+    """Null each record's descriptors."""
+    for r in records: r["descriptors"] = None
+    return len(records)
+
+
+def reset_intensity(records: list[dict]) -> int:
+    """Null each record's intensity."""
+    for r in records: r["intensity"] = None
+    return len(records)
+
+
+def reset_arc(records: list[dict]) -> int:
+    """Null each record's arc."""
+    for r in records: r["arc"] = None
+    return len(records)
+
+
+def reset_all(records: list[dict]) -> int:
+    """Run every field reset above (tone, next_tone, prev_tone, descriptors, intensity,
+    arc) on the records in place. Returns the record count."""
+    for fn in (reset_tone, reset_next_tone, reset_prev_tone,
+               reset_descriptors, reset_intensity, reset_arc):
+        fn(records)
+    return len(records)
+
+
+def reset_enriched(records: list[dict]) -> int:
+    """Revert the enrich gate + provenance to pre-enrich: null `summary`, set `enriched`
+    False, null `enrich_model`. Unlike the facet resets, this makes enrich_file RE-RUN
+    these scenes (its skip gate is `enriched and summary`)."""
+    for r in records:
+        r["summary"] = None
+        r["enriched"] = False
+        r["enrich_model"] = None
+    return len(records)
+
+
 # --- qdrant index (write path; config/embedder/id come from search.py) --- #
 
 def _ensure_collection(client: QdrantClient, dim: int):
@@ -457,7 +519,7 @@ def index_records(client: QdrantClient, records: list[dict],
         log.skip("no enriched summaries to index")
         return
     sum_vecs = _embed([r["summary"] for r in ready])
-    # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
+    # descriptors are exactly 5 adjectives (schema-guaranteed); join to a vibe string.
     desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
     _ensure_collection(client, len(sum_vecs[0]))
     points = [
