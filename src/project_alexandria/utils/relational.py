@@ -38,7 +38,7 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 from typing import Any, Iterable
-from utils import SrcPaths
+from project_alexandria.utils import SrcPaths
 
 # --- schema --- #
 # Column order here IS the upsert order (see _COLS). Only the flavour/relational

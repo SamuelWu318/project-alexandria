@@ -27,7 +27,8 @@ from pathlib import Path
 from datetime import datetime
 from bs4 import BeautifulSoup, Comment, Tag
 
-from src.utils import SrcPaths, log, write_json, read_json
+from project_alexandria.utils import log
+from project_alexandria.utils import SrcPaths, write_json, read_json
 
 # --- scene parser constants --- #
 
@@ -443,10 +444,10 @@ def build_library(data_path: str = SrcPaths.DATA_PATH,
 
     for file in sorted(path.iterdir()):
         if not file.is_file(): 
-            log.warn(f"build_library: {file} is not a file — skipping")
+            project_alexandria.utils.log.warn(f"build_library: {file} is not a file — skipping")
             continue
         if not zipfile.is_zipfile(file):
-            log.warn(f"build_library: {file} is not a zip — skipping")
+            project_alexandria.utils.log.warn(f"build_library: {file} is not a zip — skipping")
             continue
 
         match = re.search(r"pg(\d+)-h.zip", file.name)

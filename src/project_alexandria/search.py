@@ -2,11 +2,11 @@
 # -----------------------------------------------------------------------------
 # Import THIS from the app / API. It pulls in only qdrant + fastembed — NO LLM, NO
 # segmentation — so the query path stays light and fast. It also OWNS the
-# vector-store primitives (collection name, vector config, embedder, point id,
+# vector-store primitives (SrcPaths.SCENES_DIR name, vector config, embedder, point id,
 # filters) that the build-once write path (embed.py) imports to index.
 #
 # By design this config lives here, NOT in storage.py: storage.py centralizes
-# plain-JSON file IO, whereas COLLECTION / VECTOR_NAMES / EMBED_MODEL / QDRANT_PATH
+# plain-JSON file IO, whereas SrcPaths.SCENES_DIR / VECTOR_NAMES / EMBED_MODEL / QDRANT_PATH
 # are one cohesive Qdrant contract shared between read and write. Both sides MUST
 # agree on them, so they have a single home.
 #
@@ -21,12 +21,11 @@ import uuid
 import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
+from utils import SrcPaths
 
 
 # --- vector store config (shared with embed.py's indexer) --- #
 
-QDRANT_PATH = "master/qdrant_db"           # local on-disk Qdrant (no server needed)
-COLLECTION = "master/scenes"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
 VECTOR_NAMES = ("summary", "descriptors",                    # holistic + flavor
                 "subject", "verb", "object", "setting")  # decomposed frame (v2)
@@ -65,7 +64,7 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 def open_client() -> QdrantClient:
     """Open the on-disk Qdrant client (first call downloads the embed model)."""
-    return QdrantClient(path=QDRANT_PATH)
+    return QdrantClient(path=SrcPaths.QDRANT_DIR)
 
 
 def book_filter(book_id: str | None) -> models.Filter | None:
@@ -93,11 +92,11 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
     sv = embed([QUERY_PREFIX + summary])[0]   # query-side prefix (index stays raw)
 
     if not descriptors:
-        return client.query_points(COLLECTION, query=sv, using="summary", limit=limit,
+        return client.query_points(SrcPaths.SCENES_DIR, query=sv, using="summary", limit=limit,
                                    query_filter=flt, with_payload=True).points
 
     pool = max(limit * 5, 50)   # summary candidate pool, reranked by descriptors below
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+    cands = client.query_points(SrcPaths.SCENES_DIR, query=sv, using="summary", limit=pool,
                                 query_filter=flt, with_payload=True).points
     if not cands:
         return cands
@@ -106,7 +105,7 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
     dv = embed([descriptors])[0]
     ids = [c.id for c in cands]
     dhits = client.query_points(
-        COLLECTION, query=dv, using="descriptors", limit=len(ids),
+        SrcPaths.SCENES_DIR, query=dv, using="descriptors", limit=len(ids),
         query_filter=models.Filter(must=[models.HasIdCondition(has_id=ids)]),
         with_payload=False,
     ).points
@@ -202,7 +201,7 @@ def search_weighted_descriptors(
         q = _unit(q)
 
     return client.query_points(
-        COLLECTION, query=q.tolist(), using="descriptors",
+        SrcPaths.SCENES_DIR, query=q.tolist(), using="descriptors",
         limit=limit, query_filter=flt, with_payload=True,
     ).points
 
@@ -255,7 +254,7 @@ def search_combined(
     # summary side: gate the candidate pool (query-side prefix; index stays raw)
     sv = embed([QUERY_PREFIX + summary])[0]
     pool = max(limit * 5, 50)
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+    cands = client.query_points(SrcPaths.SCENES_DIR, query=sv, using="summary", limit=pool,
                                 query_filter=flt, with_payload=True).points
     if not cands:
         return cands
@@ -263,7 +262,7 @@ def search_combined(
     # weighted-descriptor cosine for exactly those candidates (restrict by their ids)
     ids = [c.id for c in cands]
     dhits = client.query_points(
-        COLLECTION, query=dv.tolist(), using="descriptors", limit=len(ids),
+        SrcPaths.SCENES_DIR, query=dv.tolist(), using="descriptors", limit=len(ids),
         query_filter=models.Filter(must=[models.HasIdCondition(has_id=ids)]),
         with_payload=False,
     ).points
@@ -334,7 +333,7 @@ def search_fused(client: QdrantClient, frame: dict,
     # gate on summary; its cosine is reused as the summary field score
     sv = embed([QUERY_PREFIX + summ])[0]
     pool = max(limit * 5, 50)
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+    cands = client.query_points(SrcPaths.SCENES_DIR, query=sv, using="summary", limit=pool,
                                 query_filter=flt, with_payload=True).points
     if not cands:
         return cands
@@ -345,13 +344,13 @@ def search_fused(client: QdrantClient, frame: dict,
     for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
         if f in w:
             fv = embed([QUERY_PREFIX + present[f]])[0]
-            hits = client.query_points(COLLECTION, query=fv, using=f, limit=len(ids),
+            hits = client.query_points(SrcPaths.SCENES_DIR, query=fv, using=f, limit=len(ids),
                                        query_filter=id_filter, with_payload=False).points
             scores[f] = {h.id: h.score for h in hits}
     if "descriptors" in w:                                 # adjective centroid (raw)
         desc = present["descriptors"]
         dv = weighted_vector(desc, [1.0 / len(desc)] * len(desc)).tolist()
-        hits = client.query_points(COLLECTION, query=dv, using="descriptors", limit=len(ids),
+        hits = client.query_points(SrcPaths.SCENES_DIR, query=dv, using="descriptors", limit=len(ids),
                                    query_filter=id_filter, with_payload=False).points
         scores["descriptors"] = {h.id: h.score for h in hits}
 

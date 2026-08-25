@@ -26,8 +26,8 @@ from qdrant_client import QdrantClient, models
 # vector-store primitives shared with the read path (search.py owns them)
 from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
-from src.utils import (relational, Checkpoint, SrcPaths, read_json, write_json, log,
-                       Tone, Intensity, Arc, MODEL, CLIENT, SCHEMA_VERSION, classify_llm_error)
+from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
+from utils import relational
 
 
 # --- tuning constants (model/prompt surface — the user's to tune) --- #

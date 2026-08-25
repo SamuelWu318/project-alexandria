@@ -3,7 +3,4 @@ __pycache__
 .remember
 .venv
 .env
-example html
-master
-_prompts.py
-test
+logs

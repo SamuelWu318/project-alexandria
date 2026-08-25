@@ -13,10 +13,10 @@
 from pathlib import Path
 import subprocess, os, sys, time, re, contextlib
 
-from data import build_library
-from process import scenes_to_records, segment_book, presegmentation_gate
-from embed import enrich_file, index_records
-import search
+from project_alexandria.data import build_library
+from project_alexandria.process import scenes_to_records, segment_book, presegmentation_gate
+from project_alexandria.embed import enrich_file, index_records
+import project_alexandria.search as search
 
 from utils import write_json, read_json, relational, log
 from qdrant_client import QdrantClient
@@ -367,7 +367,7 @@ def step_three_embedding(file_ids):
 def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
     """TEMPORARY Phase-4 driver: distil a raw writer query into a frame, run search_fused,
     print the frame + hits. Eyeball the whole read path on the test index."""
-    from src.project_alexandria.embed import distill_query
+    from project_alexandria.embed import distill_query
     frame = distill_query(sentence)
     log.step(f"FRAME for {sentence!r}")
     for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
@@ -382,11 +382,10 @@ def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
 
 
 def main():
-    #step_one_retrieval(FILE_IDS)
-    #step_two_processing(FILE_IDS)
-    #step_three_embedding(FILE_IDS)
-    #search_test()
-    reconfigure_tags(FILE_IDS)
+    step_one_retrieval(FILE_IDS)
+    step_two_processing(FILE_IDS)
+    step_three_embedding(FILE_IDS)
+    search_test()
     pass
 
 
