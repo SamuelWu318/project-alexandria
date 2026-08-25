@@ -33,31 +33,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SrcPaths:
-    ROOT_DIR: Path          = Path(__file__).resolve().parent.parent.parent.parent
-    MASTER_DIR: Path        = ROOT_DIR / "logs" / "test"
-    CATALOG_PATH: Path      = MASTER_DIR / "pg_catalog.csv"            # Gutenberg metadata catalog (CSV)
-    DATA_DIR: Path          = MASTER_DIR / "data"                      # source book archives, pg{code}-h.zip
-    RECALL_DIR: Path        = MASTER_DIR / "recall"                    # parse cache: metadata.json + books.json
-    SCENES_DIR: Path        = MASTER_DIR / "scenes"                    # per-book scene records, pg{code}-s.json
-    CHECKPOINT_DIR: Path    = MASTER_DIR / "checkpoints"               # segmentation checkpoints (resumable)
-    ENRICH_CKPT_DIR: Path   = MASTER_DIR / "checkpoints" / "enrich"        # enrichment checkpoints (resumable)
-    STATUS_PATH: Path       = MASTER_DIR / "checkpoints" / "status.json"   # {book_id: "completed"} -> skip on rerun
-    DB_PATH: Path           = MASTER_DIR / "scenes.db"                 # local on-disk SQLite mirror (no server needed)
-    QDRANT_DIR: Path        = MASTER_DIR / "qdrant_db"                 # local on-disk Qdrant (no server needed)
-    SEGMENTS_DIR: Path      = MASTER_DIR / "segments"                  # to check on books before segmenting if necessary
-
-    @classmethod
-    def ensure_directories(cls) -> None:
-        """Creates required folders if they don't already exist."""
-        directories = [
-            cls.MASTER_DIR,
-            cls.DATA_DIR,
-            cls.RECALL_DIR,
-            cls.SCENES_DIR,
-            cls.CHECKPOINT_DIR,
-            cls.ENRICH_CKPT_DIR,
-            cls.QDRANT_DIR,
-            cls.SEGMENTS_DIR
-        ]
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
+    ROOT_DIR: Path        = Path(__file__).resolve().parent.parent.parent.parent
+    MASTER_DIR: Path      = ROOT_DIR / "logs" / "test"
+    CATALOG_PATH: Path    = MASTER_DIR / "pg_catalog.csv"            # Gutenberg metadata catalog (CSV)
+    DATA_DIR: Path        = MASTER_DIR / "data"                      # source book archives, pg{code}-h.zip
+    RECALL_DIR: Path      = MASTER_DIR / "recall"                    # parse cache: metadata.json + books.json
+    SCENES_DIR: Path      = MASTER_DIR / "scenes"                    # per-book scene records, pg{code}-s.json
+    CHECKPOINT_DIR: Path  = MASTER_DIR / "checkpoints"               # segmentation checkpoints (resumable)
+    ENRICH_CKPT_DIR: Path = MASTER_DIR / "checkpoints" / "enrich"        # enrichment checkpoints (resumable)
+    STATUS_PATH: Path     = MASTER_DIR / "checkpoints" / "status.json"   # {book_id: "completed"} -> skip on rerun
+    DB_PATH: Path         = MASTER_DIR / "scenes.db"                 # local on-disk SQLite mirror (no server needed)
+    QDRANT_DIR: Path      = MASTER_DIR / "qdrant_db"                 # local on-disk Qdrant (no server needed)
+    SEGMENTS_DIR: Path    = MASTER_DIR / "segments"                 # pre-segmentation staging (Book.to_json)

@@ -38,7 +38,7 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 from typing import Any, Iterable
-from project_alexandria.utils import SrcPaths
+from utils import SrcPaths
 
 # --- schema --- #
 # Column order here IS the upsert order (see _COLS). Only the flavour/relational
@@ -54,6 +54,7 @@ _COLS = (
     "word_count", "start_paragraph_index", "end_paragraph_index",
     "scene_title", "chapter_title",
     "descriptors", "summary",
+    "subject", "verb", "object", "setting",
     "enriched", "enrich_model", "schema_version",
 )
 
@@ -87,6 +88,10 @@ CREATE TABLE IF NOT EXISTS scenes (
     chapter_title         TEXT,
     descriptors           TEXT,   -- JSON list, display only (NOT indexed)
     summary               TEXT,
+    subject               TEXT,
+    verb                  TEXT,
+    object                TEXT,
+    setting               TEXT,
     enriched              INTEGER, -- 0 / 1
     enrich_model          TEXT,
     schema_version        TEXT
@@ -157,6 +162,10 @@ def _to_row(rec: dict) -> tuple:
         rec.get("chapter_title"),
         json.dumps(descriptors, ensure_ascii=False),
         rec.get("summary"),
+        rec.get("subject"),
+        rec.get("verb"),
+        rec.get("object"),
+        rec.get("setting"),
         1 if rec.get("enriched") else 0,
         rec.get("enrich_model"),
         rec.get("schema_version"),

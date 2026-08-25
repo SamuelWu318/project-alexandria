@@ -95,7 +95,7 @@ def payload_dump_test():
 def segment_test(metadata: dict, books: dict, desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     # do not segment if a completed scenes file already exists
-    if Path(SrcPaths.SCENES_DIR + f"/pg{desired}-s.json").is_file(): 
+    if (SrcPaths.SCENES_DIR / f"pg{desired}-s.json").is_file(): 
         log.skip(f"book {desired} already in scenes — skip segmentation")
         return
 
@@ -167,7 +167,7 @@ def embed_test(file_ids=None):
     else:
         files = sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json"))
 
-    client = QdrantClient(path=SrcPaths.QDRANT_DIR)   # on-disk local db in the test root, auto-created
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # on-disk local db in the test root, auto-created
     conn = relational.open_db(SrcPaths.DB_PATH)        # test-root SQLite mirror, created/migrated on open
     status = _load_status()
     try:
@@ -257,7 +257,7 @@ def _show(hits):
 
 def search_test(book_id: str = None, limit: int = 2):
     """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
-    client = QdrantClient(path=SrcPaths.QDRANT_DIR)   # read the test db that embed_test wrote
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # read the test db that embed_test wrote
 
     flt = search.book_filter(book_id)
 
@@ -334,7 +334,7 @@ def step_one_retrieval(file_ids):
     procs = []
 
     for file_id in file_ids:
-        if not file_id or Path(SrcPaths.DATA_DIR + f"/pg{file_id}-h.zip").is_file(): continue
+        if not file_id or (SrcPaths.DATA_DIR / f"pg{file_id}-h.zip").is_file(): continue
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
         procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))
@@ -348,7 +348,7 @@ def step_two_processing(file_ids):
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
         for file_id in file_ids:
-            if not Path(SrcPaths.DATA_DIR + f"/pg{file_id}-h.zip").is_file(): 
+            if not (SrcPaths.DATA_DIR / f"pg{file_id}-h.zip").is_file(): 
                 log.warn(f"book {file_id}: download is not a zip")
                 continue
             segment_test(metadata, books, file_id)
@@ -359,7 +359,7 @@ def step_three_embedding(file_ids):
     with stay_awake():   # embed runs long — survive a closed lid
         exist_ids = []
         for file_id in file_ids:
-            if not Path(SrcPaths.SCENES_DIR + f"/pg{file_id}-s.json").is_file(): continue
+            if not (SrcPaths.SCENES_DIR / f"pg{file_id}-s.json").is_file(): continue
             exist_ids.append(file_id)
         embed_test(exist_ids)
 
@@ -372,7 +372,7 @@ def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
     log.step(f"FRAME for {sentence!r}")
     for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
         print(f"  {k:11}: {frame[k]!r}")
-    client = QdrantClient(path=SrcPaths.QDRANT_DIR)
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
     try:
         hits = search.search_fused(client, frame, limit=limit,
                                    flt=search.book_filter(book_id))
