@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alexandria · Retrieval Tester</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --edge:#2a3242; --edge2:#39435a;
+    --ink:#e6edf3; --dim:#8b98a9; --dim2:#647084; --accent:#3fb6b2; --accent2:#7aa2ff;
+    --hit:#3fb6b2; --warn:#e0a458; --card:#12161d;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+  header{padding:12px 16px;border-bottom:1px solid var(--edge);background:var(--panel);display:flex;flex-direction:column;gap:10px;flex:0 0 auto}
+  .titlebar{display:flex;align-items:baseline;gap:12px}
+  .titlebar h1{font-size:15px;margin:0;letter-spacing:.3px}
+  .titlebar .sub{color:var(--dim);font-size:12px}
+  .tabs{display:flex;gap:6px}
+  .tab{padding:6px 12px;border:1px solid var(--edge);background:var(--panel2);color:var(--dim);border-radius:7px;cursor:pointer;font-size:13px}
+  .tab.on{color:var(--ink);border-color:var(--accent);background:#12211f}
+  .panel{display:none;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .panel.on{display:flex}
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dim)}
+  select,input,textarea{background:var(--card);color:var(--ink);border:1px solid var(--edge);border-radius:6px;padding:6px 8px;font-family:var(--sans);font-size:13px}
+  textarea{font-family:var(--sans);resize:vertical;min-width:280px}
+  input.small{width:64px}
+  button.go{background:var(--accent);color:#04120f;border:none;border-radius:7px;padding:8px 16px;font-weight:600;cursor:pointer;font-size:13px}
+  button.go:hover{filter:brightness(1.08)}
+  button.ghost{background:var(--panel2);color:var(--dim);border:1px solid var(--edge);border-radius:7px;padding:8px 12px;cursor:pointer}
+  .hint{color:var(--dim2);font-size:11px;max-width:520px;line-height:1.4}
+
+  #status{font-size:12px;color:var(--dim);min-height:16px}
+
+  /* columns */
+  #board{flex:1 1 auto;display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding:12px 16px}
+  .column{flex:0 0 340px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--edge);border-radius:10px;overflow:hidden;max-height:100%}
+  .col-head{padding:9px 11px;border-bottom:1px solid var(--edge);background:var(--panel2)}
+  .col-head .lbl{font-weight:600;font-size:12px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .col-head .mode{font-family:var(--mono);font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.5px}
+  .col-head .q{color:var(--dim);font-size:11px;margin-top:3px;line-height:1.35}
+  .col-head .stat{font-size:11px;margin-top:4px;color:var(--dim)}
+  .col-head .stat b{color:var(--hit)}
+  .cards{overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+  .card{background:var(--card);border:1px solid var(--edge);border-radius:8px;padding:9px 10px;cursor:pointer;transition:border-color .12s}
+  .card:hover{border-color:var(--edge2)}
+  .card.hit{border-left:3px solid var(--hit)}
+  .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .card .st{font-weight:600;font-size:12.5px;line-height:1.25}
+  .card .score{font-family:var(--mono);font-size:11px;color:var(--accent);flex:0 0 auto}
+  .card .ch{color:var(--dim2);font-size:10.5px;margin-top:2px}
+  .card .pv{color:var(--dim);font-size:11.5px;margin-top:6px;line-height:1.4;max-height:3.9em;overflow:hidden}
+  .chips{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+  .chip{font-size:9.5px;font-family:var(--mono);padding:2px 6px;border-radius:20px;background:#0f1a19;color:var(--accent);border:1px solid #1d3230}
+  .chip.b{background:#141a26;color:var(--accent2);border-color:#233150}
+  .col-err{color:var(--warn);font-size:11.5px;padding:8px}
+
+  /* reader */
+  #reader{position:fixed;inset:0;background:rgba(6,9,13,.72);backdrop-filter:blur(3px);display:none;z-index:50}
+  #reader.on{display:flex}
+  .reader-wrap{margin:auto;width:min(1180px,94vw);height:92vh;background:var(--panel);border:1px solid var(--edge2);border-radius:14px;display:grid;grid-template-columns:1fr 320px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.55)}
+  .rd-main{display:flex;flex-direction:column;overflow:hidden}
+  .rd-top{padding:14px 20px;border-bottom:1px solid var(--edge);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .rd-top h2{margin:0;font-size:17px;line-height:1.3}
+  .rd-top .ch{color:var(--dim);font-size:12px;margin-top:3px}
+  .rd-actions{display:flex;gap:8px;flex:0 0 auto}
+  .rd-body{overflow-y:auto;padding:22px 30px;line-height:1.7;font-size:15.5px}
+  .rd-body p{margin:0 0 1em}
+  .rd-nav{display:flex;gap:8px;padding:10px 20px;border-top:1px solid var(--edge);align-items:center}
+  .rd-nav .pos{color:var(--dim2);font-size:11px;font-family:var(--mono);margin-left:auto}
+
+  /* sidebar / wheel */
+  .rd-side{border-left:1px solid var(--edge);background:var(--panel2);display:flex;flex-direction:column;overflow:hidden}
+  .side-meta{padding:14px 16px;border-bottom:1px solid var(--edge)}
+  .side-meta .k{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.5px;margin-top:10px}
+  .side-meta .k:first-child{margin-top:0}
+  .side-meta .v{font-size:12.5px;color:var(--ink);margin-top:2px;line-height:1.4}
+  .side-meta .frame{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .wheel-h{padding:8px 16px;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--edge)}
+  .wheel{overflow-y:auto;flex:1 1 auto;padding:6px}
+  .wtick{padding:7px 9px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .wtick:hover{background:var(--card)}
+  .wtick.cur{background:#12211f;border-color:var(--accent)}
+  .wtick .wt{font-size:11.5px;font-weight:600;line-height:1.25}
+  .wtick .wc{font-size:10px;color:var(--dim2);margin-top:1px}
+  .wtick .ws{font-size:10.5px;color:var(--dim);margin-top:3px;line-height:1.35;max-height:2.8em;overflow:hidden}
+
+  /* analyze visual toggle */
+  #reader.analyzing .reader-wrap{outline:2px solid var(--accent2);outline-offset:-2px}
+  .analyze-note{display:none;margin:10px 16px 0;padding:8px 10px;border:1px dashed var(--accent2);border-radius:8px;color:var(--accent2);font-size:11.5px;background:#111726}
+  #reader.analyzing .analyze-note{display:block}
+  button.on{background:var(--accent2);color:#05122e}
+  .x{cursor:pointer;color:var(--dim);font-size:20px;line-height:1;padding:0 4px}
+  .x:hover{color:var(--ink)}
+</style>
+</head>
+<body>
+<header>
+  <div class="titlebar">
+    <h1>📜 Alexandria · Retrieval Tester</h1>
+    <span class="sub" id="ds-sub">loading…</span>
+  </div>
+  <div class="tabs">
+    <div class="tab on" data-tab="test">Test Queries</div>
+    <div class="tab" data-tab="desc">Descriptor Queries</div>
+    <div class="tab" data-tab="custom">Custom</div>
+  </div>
+
+  <div class="panel on" id="p-test">
+    <label class="f">Book<select id="t-book"></select></label>
+    <label class="f">Mode<select id="t-mode">
+      <option value="fused">fused (frame)</option>
+      <option value="summary">summary only</option>
+      <option value="combined">summary + descriptors</option>
+      <option value="descriptors">descriptors only</option>
+    </select></label>
+    <label class="f">Limit<input class="small" id="t-limit" type="number" value="8" min="1" max="30"></label>
+    <button class="go" id="t-run">Run 5 (sharp→general)</button>
+    <span class="hint">5 columns for the chosen book, sharpness 1 (unique) → 5 (generic). Cards with a teal edge are on-target (same book). Watch on-target count fall as queries generalize.</span>
+  </div>
+
+  <div class="panel" id="p-desc">
+    <label class="f">Limit<input class="small" id="d-limit" type="number" value="8" min="1" max="30"></label>
+    <button class="go" id="d-run">Run all 10 descriptor probes</button>
+    <span class="hint">Pure descriptor-vector search. Each list was guessed from a target scene's summary; the teal edge marks cards from the target book. Two probes also push away a flavor (anti-descriptors).</span>
+  </div>
+
+  <div class="panel" id="p-custom">
+    <label class="f">Mode<select id="c-mode">
+      <option value="fused">fused (frame)</option>
+      <option value="summary">summary only</option>
+      <option value="combined">summary + descriptors</option>
+      <option value="descriptors">descriptors only</option>
+    </select></label>
+    <label class="f">Summary<textarea id="c-summary" rows="2" placeholder="A mentor sacrifices himself to save his companions."></textarea></label>
+    <label class="f">subject<input id="c-subject" placeholder="a mentor"></label>
+    <label class="f">verb<input id="c-verb" placeholder="sacrifices"></label>
+    <label class="f">object<input id="c-object" placeholder=""></label>
+    <label class="f">setting<input id="c-setting" placeholder="a bridge"></label>
+    <label class="f">descriptors (comma)<input id="c-desc" placeholder="heroic, tragic"></label>
+    <label class="f">Book filter<select id="c-book"></select></label>
+    <label class="f">Limit<input class="small" id="c-limit" type="number" value="10" min="1" max="30"></label>
+    <button class="go" id="c-run">Search</button>
+  </div>
+  <div id="status"></div>
+</header>
+
+<div id="board"></div>
+
+<!-- reader overlay -->
+<div id="reader">
+  <div class="reader-wrap">
+    <div class="rd-main">
+      <div class="rd-top">
+        <div>
+          <h2 id="rd-title">—</h2>
+          <div class="ch" id="rd-chapter"></div>
+        </div>
+        <div class="rd-actions">
+          <button class="ghost" id="rd-analyze">Analyze</button>
+          <span class="x" id="rd-close">✕</span>
+        </div>
+      </div>
+      <div class="analyze-note">Analysis mode (stub) — deeper per-scene analysis will render here later.</div>
+      <div class="rd-body" id="rd-body"></div>
+      <div class="rd-nav">
+        <button class="ghost" id="rd-prev">↑ Prev</button>
+        <button class="ghost" id="rd-next">↓ Next</button>
+        <span class="pos" id="rd-pos"></span>
+      </div>
+    </div>
+    <div class="rd-side">
+      <div class="side-meta" id="rd-meta"></div>
+      <div class="wheel-h">Book wheel — scroll / ↑↓ / click</div>
+      <div class="wheel" id="rd-wheel"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (path, opts) => (await fetch(path, opts)).json();
+const post = (path, body) => api(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+let DATA = {test_queries:[], descriptor_queries:[], books:[]};
+const esc = s => (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+// ---------- boot ----------
+(async function(){
+  DATA = await api("/api/datasets");
+  $("#ds-sub").textContent = `${DATA.books.length} books · ${DATA.test_queries.length} test queries · ${DATA.descriptor_queries.length} descriptor probes`;
+  const bopts = DATA.books.map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join("");
+  $("#t-book").innerHTML = `<option value="">— all books —</option>` + bopts;
+  $("#c-book").innerHTML = `<option value="">— all books —</option>` + bopts;
+  updateTRun();
+})();
+
+const TITLE_OF = () => Object.fromEntries(DATA.books.map(b=>[b.book_id,b.title]));
+const short = s => { s=s||""; return s.length>20 ? s.slice(0,19)+"…" : s; };
+function updateTRun(){
+  const all = !$("#t-book").value;
+  const n = all ? DATA.test_queries.length
+                : DATA.test_queries.filter(q=>q.book_id===$("#t-book").value).length;
+  $("#t-run").textContent = all ? `Run all ${n}` : `Run ${n} (sharp→general)`;
+}
+$("#t-book").onchange = updateTRun;
+
+// ---------- tabs ----------
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
+  t.classList.add("on"); $("#p-"+t.dataset.tab).classList.add("on");
+});
+
+const setStatus = m => $("#status").textContent = m;
+
+// ---------- runners ----------
+$("#t-run").onclick = async ()=>{
+  const book = $("#t-book").value, mode = $("#t-mode").value, limit=+$("#t-limit").value;
+  const titleOf = TITLE_OF();
+  const src = (book ? DATA.test_queries.filter(q=>q.book_id===book) : DATA.test_queries.slice())
+    .sort((a,b)=> a.book_id.localeCompare(b.book_id,undefined,{numeric:true}) || a.sharpness-b.sharpness);
+  // NOTE: no book_id filter is sent — every query searches the WHOLE corpus; target_book_id
+  // only marks which hits are on-target. "all books" just runs all 75 as columns.
+  const qs = src.map(q=>({
+    mode, summary:q.summary, subject:q.subject, verb:q.verb, object:q.object, setting:q.setting,
+    descriptors:q.descriptors,
+    label: book ? `S${q.sharpness}` : `${short(titleOf[q.book_id])} · S${q.sharpness}`,
+    target_book_id:q.book_id, meta:{summary:q.summary}
+  }));
+  const what = book ? `test queries · ${esc($("#t-book").selectedOptions[0].text)} · ${mode}`
+                    : `test queries · ALL ${qs.length} · ${mode}`;
+  await runBatch(qs, {limit}, what);
+};
+$("#d-run").onclick = async ()=>{
+  const limit=+$("#d-limit").value;
+  const qs = DATA.descriptor_queries.map(d=>({
+    mode:"descriptors", descriptors:d.descriptors, anti_descriptors:d.anti_descriptors,
+    label:d.id, target_book_id:d.target_book_id, meta:{note:d.note, descriptors:d.descriptors, anti:d.anti_descriptors}
+  }));
+  await runBatch(qs, {limit}, `descriptor probes · ${qs.length}`);
+};
+$("#c-run").onclick = async ()=>{
+  const mode=$("#c-mode").value, book=$("#c-book").value, limit=+$("#c-limit").value;
+  const descriptors=$("#c-desc").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const q={mode, summary:$("#c-summary").value, subject:$("#c-subject").value, verb:$("#c-verb").value,
+    object:$("#c-object").value, setting:$("#c-setting").value, descriptors, label:"custom",
+    target_book_id:book||null, meta:{summary:$("#c-summary").value, descriptors}};
+  await runBatch([q], {limit, book_id:book||null}, `custom · ${mode}${book?(" · filtered"):""}`);
+};
+
+async function runBatch(queries, extra, what){
+  setStatus(`running ${queries.length} quer${queries.length>1?"ies":"y"} — ${what} …`);
+  const t0=performance.now();
+  const {columns} = await post("/api/search_batch", {queries, ...extra});
+  renderColumns(columns);
+  setStatus(`${what} — ${((performance.now()-t0)/1000).toFixed(1)}s`);
+}
+
+// ---------- render columns ----------
+function renderColumns(cols){
+  const board=$("#board"); board.innerHTML="";
+  for(const col of cols){
+    const el=document.createElement("div"); el.className="column";
+    const tgt=col.target_book_id;
+    const onTarget = tgt ? col.results.filter(r=>String(r.book_id)===String(tgt)).length : null;
+    const qtext = col.meta?.summary || (col.meta?.descriptors ? "["+col.meta.descriptors.join(", ")+"]"+(col.meta.anti?(" ↯ ["+col.meta.anti.join(", ")+"]"):"") : "") ;
+    const note = col.meta?.note ? `<div class="q">${esc(col.meta.note)}</div>` : "";
+    let head=`<div class="col-head">
+      <div class="lbl"><span>${esc(col.label)}</span><span class="mode">${col.mode}</span></div>
+      ${qtext?`<div class="q">${esc(qtext)}</div>`:""}${note}
+      ${onTarget!==null?`<div class="stat">on-target <b>${onTarget}/${col.results.length}</b> · book ${tgt}</div>`:""}
+    </div>`;
+    let body="";
+    if(col.error){ body=`<div class="col-err">⚠ ${esc(col.error)}</div>`; }
+    else if(!col.results.length){ body=`<div class="col-err">no hits</div>`; }
+    else{
+      body=`<div class="cards">`+col.results.map(r=>{
+        const hit = tgt && String(r.book_id)===String(tgt);
+        const chips=[];
+        if(r.dominant_tone) chips.push(`<span class="chip">${esc(r.dominant_tone)}</span>`);
+        chips.push(`<span class="chip b">${esc(r.book_title||("book "+r.book_id))}</span>`);
+        return `<div class="card${hit?" hit":""}" data-sid="${r.scene_id}" data-bid="${r.book_id}">
+          <div class="top"><span class="st">${esc(r.scene_title||r.scene_id)}</span>${r.score!=null?`<span class="score">${r.score.toFixed(3)}</span>`:""}</div>
+          <div class="ch">${esc(r.chapter_title||"")}</div>
+          <div class="pv">${esc(r.preview||"")}</div>
+          <div class="chips">${chips.join("")}</div>
+        </div>`;
+      }).join("")+`</div>`;
+    }
+    el.innerHTML=head+body;
+    board.appendChild(el);
+  }
+  board.querySelectorAll(".card").forEach(c=>c.onclick=()=>openReader(c.dataset.sid, c.dataset.bid));
+}
+
+// ---------- reader + wheel ----------
+let WHEEL=[], WI=0, BOOKCACHE={}, SCENECACHE={};
+async function openReader(sid, bid){
+  if(!BOOKCACHE[bid]){ setStatus("loading book…"); BOOKCACHE[bid]=(await api("/api/book?id="+encodeURIComponent(bid))); setStatus(""); }
+  WHEEL=BOOKCACHE[bid].scenes;
+  WI=Math.max(0, WHEEL.findIndex(s=>s.scene_id===sid));
+  renderWheel(); await showScene(WI, true);
+  $("#reader").classList.add("on");
+}
+function renderWheel(){
+  const w=$("#rd-wheel");
+  w.innerHTML=WHEEL.map((s,i)=>`<div class="wtick${i===WI?" cur":""}" data-i="${i}">
+     <div class="wt">${esc(s.scene_title||s.scene_id)}</div>
+     <div class="wc">${esc(s.chapter_title||"")}</div>
+     <div class="ws">${esc(s.summary||"")}</div></div>`).join("");
+  w.querySelectorAll(".wtick").forEach(t=>t.onclick=()=>showScene(+t.dataset.i,true));
+}
+async function showScene(i, scroll){
+  if(i<0||i>=WHEEL.length) return;
+  WI=i; const sid=WHEEL[i].scene_id;
+  if(!SCENECACHE[sid]) SCENECACHE[sid]=await api("/api/scene?id="+encodeURIComponent(sid));
+  const s=SCENECACHE[sid];
+  $("#rd-title").textContent=s.scene_title||s.scene_id;
+  $("#rd-chapter").textContent=s.chapter_title||"";
+  $("#rd-body").innerHTML=s.text_html||"<p>(no text)</p>";
+  $("#rd-body").scrollTop=0;
+  $("#rd-pos").textContent=`${i+1} / ${WHEEL.length}`;
+  const frame=[["subject",s.subject],["verb",s.verb],["object",s.object],["setting",s.setting]]
+      .filter(x=>x[1]).map(x=>`${x[0]}: ${esc(x[1])}`).join("  ·  ");
+  $("#rd-meta").innerHTML=`
+    <div class="k">summary</div><div class="v">${esc(s.summary||"—")}</div>
+    <div class="k">flavor</div><div class="v">${esc(s.dominant_tone||"—")} · ${esc(s.intensity||"")} · ${esc(s.arc||"")}</div>
+    ${s.descriptors?`<div class="k">descriptors</div><div class="v frame">${esc((s.descriptors||[]).join(", "))}</div>`:""}
+    ${frame?`<div class="k">frame</div><div class="v frame">${frame}</div>`:""}
+    <div class="k">scene</div><div class="v frame">${esc(s.scene_id)} · ${s.word_count||"?"} words</div>`;
+  // highlight + scroll wheel
+  const w=$("#rd-wheel"); w.querySelectorAll(".wtick").forEach((t,j)=>t.classList.toggle("cur",j===WI));
+  if(scroll){ const cur=w.querySelector(".wtick.cur"); if(cur) cur.scrollIntoView({block:"center",behavior:"smooth"}); }
+}
+$("#rd-prev").onclick=()=>showScene(WI-1,true);
+$("#rd-next").onclick=()=>showScene(WI+1,true);
+$("#rd-close").onclick=()=>{ $("#reader").classList.remove("on","analyzing"); $("#rd-analyze").classList.remove("on"); };
+$("#rd-analyze").onclick=()=>{ $("#reader").classList.toggle("analyzing"); $("#rd-analyze").classList.toggle("on"); };
+document.addEventListener("keydown",e=>{
+  if(!$("#reader").classList.contains("on")) return;
+  if(e.key==="ArrowDown"||e.key==="ArrowRight"){e.preventDefault();showScene(WI+1,true);}
+  else if(e.key==="ArrowUp"||e.key==="ArrowLeft"){e.preventDefault();showScene(WI-1,true);}
+  else if(e.key==="Escape"){$("#rd-close").click();}
+});
+</script>
+</body>
+</html>

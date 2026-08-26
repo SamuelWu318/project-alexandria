@@ -42,6 +42,6 @@ class SrcPaths:
     CHECKPOINT_DIR: Path  = MASTER_DIR / "checkpoints"               # segmentation checkpoints (resumable)
     ENRICH_CKPT_DIR: Path = MASTER_DIR / "checkpoints" / "enrich"        # enrichment checkpoints (resumable)
     STATUS_PATH: Path     = MASTER_DIR / "checkpoints" / "status.json"   # {book_id: "completed"} -> skip on rerun
-    DB_PATH: Path         = MASTER_DIR / "scenes.db"                 # local on-disk SQLite mirror (no server needed)
-    QDRANT_DIR: Path      = MASTER_DIR / "qdrant_db"                 # local on-disk Qdrant (no server needed)
+    DB_PATH: Path         = MASTER_DIR / "databases" / "scenes.db"       # local on-disk SQLite mirror (no server needed)
+    QDRANT_DIR: Path      = MASTER_DIR / "databases" / "qdrant_db"       # local on-disk Qdrant (no server needed)
     SEGMENTS_DIR: Path    = MASTER_DIR / "segments"                 # pre-segmentation staging (Book.to_json)

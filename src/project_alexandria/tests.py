@@ -172,11 +172,11 @@ def embed_test(file_ids=None):
     status = _load_status()
     try:
         for f in files:
+            m = re.search(r"pg(\d+)-s\.json$", f.name)
+            code = m.group(1) if m else f.stem
             if not f.exists():
                 log.skip(f"book {code}: skip embedding (missing scenes json)")
                 continue
-            m = re.search(r"pg(\d+)-s\.json$", f.name)
-            code = m.group(1) if m else f.stem
             if status.get(code) == "completed":
                 log.skip(f"book {code}: skip embedding (already completed)")
                 continue
@@ -187,61 +187,6 @@ def embed_test(file_ids=None):
     finally:
         conn.close()
         client.close()
-
-
-# --- TEMPORARY: re-key scene enrichment tags to the current schema --- #
-# One-shot migration. Scenes jsons written under an earlier schema carry stale / old-named
-# enrichment keys (e.g. the pre-rename frame: action/agents/receivers). This scans every
-# pg*-s.json, DROPS the old enrichment keys, and (re)creates every CURRENT enrichment tag
-# empty — a clean, correctly-keyed slate for a fresh embed_test. Structural fields (ids,
-# text_html, paragraph spans, book metadata, neighbours) are left untouched. Also clears
-# each book's "completed" status so embed_test actually re-enriches it. Delete once run.
-
-_STALE_ENRICH_KEYS = ("action", "agents", "receivers")   # pre-rename frame field names
-
-_EMPTY_ENRICH = {          # current enrichment tags -> unenriched default (mirrors scenes_to_records)
-    "dominant_tone": None, "intensity": None, "arc": None, "descriptors": None,
-    "subject": None, "verb": None, "object": None, "setting": None,
-    "prev_tone": None, "next_tone": None,
-    "summary": None, "enriched": False, "enrich_model": None,
-}
-
-
-def reconfigure_tags(file_ids=None):
-    """TEMPORARY one-shot: re-key + blank every scene record's enrichment tags in place.
-
-    For each pg*-s.json under SrcPaths.SCENES_DIR (or just `file_ids`): pop the stale pre-rename
-    frame keys, set every current enrichment tag to its empty default, stamp the current
-    schema_version, and rewrite the file. Structural fields are preserved. Clears each
-    book's completed status so embed_test re-enriches it. Prints a per-file tally.
-    """
-
-    files = ([Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
-             if file_ids else sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json")))
-    status = _load_status()
-    touched = 0
-    for f in files:
-        if not f.is_file():
-            log.skip(f"{f.name}: missing — skip")
-            continue
-        records = read_json(f, [])
-        if not records:
-            log.skip(f"{f.name}: no records — skip")
-            continue
-        for r in records:
-            for k in _STALE_ENRICH_KEYS:
-                r.pop(k, None)          # delete the old-named enrichment keys
-            r.update(_EMPTY_ENRICH)     # (re)create every current tag, empty
-            r["schema_version"] = SCHEMA_VERSION
-        write_json(f, records)
-        m = re.search(r"pg(\d+)-s\.json$", f.name)
-        if m:
-            status.pop(m.group(1), None)   # drop "completed" so embed_test redoes it
-        touched += 1
-        log.done(f"{f.name}: reconfigured {len(records)} records -> schema v{SCHEMA_VERSION}")
-    if touched:
-        write_json(SrcPaths.STATUS_PATH, status)    # persist the cleared statuses once
-    log.info(f"reconfigure_tags: migrated {touched} file(s); statuses cleared")
 
 
 # --- search --- #
@@ -367,7 +312,7 @@ def step_three_embedding(file_ids):
 def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
     """TEMPORARY Phase-4 driver: distil a raw writer query into a frame, run search_fused,
     print the frame + hits. Eyeball the whole read path on the test index."""
-    from project_alexandria.embed import distill_query
+    from embed import distill_query
     frame = distill_query(sentence)
     log.step(f"FRAME for {sentence!r}")
     for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
@@ -385,7 +330,7 @@ def main():
     step_one_retrieval(FILE_IDS)
     step_two_processing(FILE_IDS)
     step_three_embedding(FILE_IDS)
-    search_test()
+    #search_test()
     pass
 
 

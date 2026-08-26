@@ -1,0 +1,15 @@
+{
+  "_about": "Descriptor-only probes for the relational/flavor path. Each list of adjectives was GUESSED from the mapped test_query's summary (never from the index's real embedded descriptors). target_query_id / target_book_id say which scene-type it should surface, so a run can check whether pure-descriptor retrieval lands the same book as the summary query. weights omitted => backend applies equal weights. anti_descriptors (optional) push the search AWAY from a flavor.",
+  "descriptor_queries": [
+    {"id": "d-1", "target_query_id": "q-84-2", "target_book_id": "84", "descriptors": ["lonely", "yearning", "tender", "isolated"], "note": "outcast creature secretly learning language"},
+    {"id": "d-2", "target_query_id": "q-345-1", "target_book_id": "345", "descriptors": ["dreadful", "claustrophobic", "uncanny", "creeping"], "note": "trapped guest realizing his host is a monster"},
+    {"id": "d-3", "target_query_id": "q-2701-1", "target_book_id": "2701", "descriptors": ["obsessive", "fanatical", "vengeful", "fervent"], "note": "captain swearing a crew to a doomed hunt"},
+    {"id": "d-4", "target_query_id": "q-98-1", "target_book_id": "98", "descriptors": ["redemptive", "serene", "selfless", "tragic"], "note": "a man dying willingly in another's place"},
+    {"id": "d-5", "target_query_id": "q-73-1", "target_book_id": "73", "descriptors": ["fearful", "frantic", "ashamed", "panicked"], "note": "raw soldier fleeing his first battle"},
+    {"id": "d-6", "target_query_id": "q-11-1", "target_book_id": "11", "descriptors": ["whimsical", "surreal", "disorienting", "playful"], "note": "a child in a nonsensical dream logic"},
+    {"id": "d-7", "target_query_id": "q-64317-2", "target_book_id": "64317", "descriptors": ["wistful", "yearning", "melancholy", "hopeful"], "note": "longing across dark water toward a distant light"},
+    {"id": "d-8", "target_query_id": "q-215-2", "target_book_id": "215", "descriptors": ["savage", "feral", "primal", "brutal"], "note": "a beast winning dominance by violence"},
+    {"id": "d-9", "target_query_id": "q-71865-2", "target_book_id": "71865", "descriptors": ["anguished", "haunted", "despairing", "hopeless"], "anti_descriptors": ["cheerful", "festive"], "note": "a broken veteran's final act; push away party gaiety"},
+    {"id": "d-10", "target_query_id": "q-1342-1", "target_book_id": "1342", "descriptors": ["proud", "indignant", "cold", "tense"], "anti_descriptors": ["warm", "tender"], "note": "a scornful marriage proposal refused; push away tenderness"}
+  ]
+}

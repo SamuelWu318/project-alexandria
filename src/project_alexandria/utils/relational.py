@@ -109,14 +109,39 @@ CREATE INDEX        IF NOT EXISTS ix_enrich  ON scenes(enriched);
 """
 
 
+# the INTEGER-typed columns (everything else in _COLS is TEXT); used by _migrate to add
+# the right affinity when back-filling a column onto a DB built under an older schema.
+_INT_COLS = frozenset((
+    "pos", "word_count", "start_paragraph_index", "end_paragraph_index", "enriched",
+))
+
+
 # --- connection --- #
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add any _COLS column the existing `scenes` table predates (idempotent ALTER).
+
+    CREATE TABLE IF NOT EXISTS builds a fresh file but leaves an OLDER table untouched —
+    so a DB created before the v2 frame columns (subject/verb/object/setting) would be
+    missing them and every sql_upsert would fail with "no column named subject". This
+    back-fills each missing column with the right type. Column names come from _COLS (our
+    own whitelist), never caller input, so interpolating them is safe. The frame columns
+    are display-only and unindexed, so no index needs rebuilding here.
+    """
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(scenes)")}
+    for col in _COLS:
+        if col not in have:
+            typ = "INTEGER" if col in _INT_COLS else "TEXT"
+            conn.execute(f"ALTER TABLE scenes ADD COLUMN {col} {typ}")
+
 
 def open_db(path: str | Path = SrcPaths.DB_PATH) -> sqlite3.Connection:
     """Open (creating + migrating if needed) the on-disk scene mirror.
 
-    Self-heals like _ensure_collection: the schema is CREATE ... IF NOT EXISTS, so a
-    fresh file gets built and an existing one is left intact. Rows come back as dicts
-    (sqlite3.Row factory). WAL lets a reader query while embed.py is upserting.
+    Self-heals: the schema is CREATE ... IF NOT EXISTS, so a fresh file gets built; then
+    _migrate ALTERs in any column a pre-existing table predates, so an old DB is brought
+    up to the current _COLS without a manual rebuild. Rows come back as dicts (sqlite3.Row
+    factory). WAL lets a reader query while embed.py is upserting.
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -125,6 +150,7 @@ def open_db(path: str | Path = SrcPaths.DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
 
 

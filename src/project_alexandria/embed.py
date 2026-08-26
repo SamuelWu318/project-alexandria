@@ -15,7 +15,7 @@
 # "high" because classifying already-cut scenes is easier than cutting). Paths +
 # atomic JSON IO come from storage.py; the Qdrant contract comes from search.py.
 # -----------------------------------------------------------------------------
-import json, re, time, threading, math, sys
+import json, re, time, threading, math
 from collections import Counter
 from pathlib import Path, PurePath
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +24,7 @@ from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
 # vector-store primitives shared with the read path (search.py owns them)
-from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id, open_client
+from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
 from utils import relational
@@ -210,7 +210,7 @@ grammatical sentence that reads well on its own.
   Coverage: indices 0 and 1, each once.
   -- output_enrichment --
   {"items": [
-    {"index": 0, "dominant_tone": "defiance", "intensity": "high", "arc": "rising", "descriptors": ["cunning","daring","defiant"], "subject": "a captive", "verb": "strikes", "object": "a captor", "setting": "a cave", "summary": "A cornered captive flatters a stronger enemy off his guard, then moves to strike."},
+    {"index": 0, "dominant_tone": "defiance", "intensity": "high", "arc": "rising", "descriptors": ["cunning","daring","defiant"], "subject": "a captive", "verb": "flatters", "object": "a captor", "setting": "a cave", "summary": "A cornered captive flatters a stronger enemy off his guard, then moves to strike."},
     {"index": 1, "dominant_tone": "tenderness", "intensity": "moderate", "arc": "steady", "descriptors": ["warm","intimate","tender"], "subject": "a reunited couple", "verb": "embrace", "object": "", "setting": "a doorway", "summary": "A long-parted husband and wife recognize each other and embrace after years apart."}
   ]}
 
