@@ -174,7 +174,10 @@ def _run_query(q: dict, limit: int, book_id: str | None) -> dict:
         else:  # fused (default)
             frame = {k: q.get(k) for k in ("summary", "subject", "verb", "object", "setting")}
             frame["descriptors"] = q.get("descriptors") or []
-            pts = search.search_fused(_client, frame, limit=limit, flt=flt)
+            # optional per-field weight override from the UI sliders (percentages ->
+            # search_fused renormalizes to 1.0 over the fields actually present in the frame)
+            fw = q.get("field_weights") or None
+            pts = search.search_fused(_client, frame, weights=fw, limit=limit, flt=flt)
         results = [_card(p.payload, p.score) for p in pts]
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "target_book_id": q.get("target_book_id"), "results": results}
