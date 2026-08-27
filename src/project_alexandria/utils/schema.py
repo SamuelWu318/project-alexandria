@@ -27,7 +27,7 @@ from __future__ import annotations
 import json, os, tempfile
 from collections import Counter
 from pathlib import Path
-from utils import SrcPaths
+from storage import SrcPaths
 
 # a hard floor: the master MUST declare these, so a bad edit can never make reconcile
 # strip the columns everything joins on.
