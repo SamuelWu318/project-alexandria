@@ -38,82 +38,20 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 from typing import Any, Iterable
-from utils import SrcPaths
+from utils import SrcPaths, schema   # schema = the scene-record registry (utils/schema.py)
 
-# --- schema --- #
-# Column order here IS the upsert order (see _COLS). Only the flavour/relational
-# levers + light display fields live in SQL; heavy blobs (text_html, book_metadata)
-# stay in the scenes json + Qdrant payload — this is a relational index, not a
-# blob store.
-_COLS = (
-    "scene_id", "book_id", "pos",
-    "prev_scene_id", "next_scene_id",
-    "author", "language",
-    "dominant_tone", "prev_tone", "next_tone",
-    "intensity", "arc", "stitch_status",
-    "word_count", "start_paragraph_index", "end_paragraph_index",
-    "scene_title", "chapter_title",
-    "descriptors", "summary",
-    "subject", "verb", "object", "setting",
-    "enriched", "enrich_model", "schema_version",
-)
-
-# columns find()/count() will filter on; a strict whitelist so a caller-supplied
-# key can never be interpolated into SQL as a column name (injection guard).
-_FILTERABLE = frozenset((
-    "scene_id", "book_id", "author", "language",
-    "dominant_tone", "prev_tone", "next_tone",
-    "intensity", "arc", "stitch_status", "enriched",
-))
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS scenes (
-    scene_id              TEXT PRIMARY KEY,
-    book_id               TEXT,
-    pos                   INTEGER,
-    prev_scene_id         TEXT,
-    next_scene_id         TEXT,
-    author                TEXT,
-    language              TEXT,
-    dominant_tone         TEXT,
-    prev_tone             TEXT,
-    next_tone             TEXT,
-    intensity             TEXT,
-    arc                   TEXT,
-    stitch_status         TEXT,
-    word_count            INTEGER,
-    start_paragraph_index INTEGER,
-    end_paragraph_index   INTEGER,
-    scene_title           TEXT,
-    chapter_title         TEXT,
-    descriptors           TEXT,   -- JSON list, display only (NOT indexed)
-    summary               TEXT,
-    subject               TEXT,
-    verb                  TEXT,
-    object                TEXT,
-    setting               TEXT,
-    enriched              INTEGER, -- 0 / 1
-    enrich_model          TEXT,
-    schema_version        TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_nav     ON scenes(book_id, pos);
-CREATE INDEX        IF NOT EXISTS ix_author  ON scenes(author);
-CREATE INDEX        IF NOT EXISTS ix_lang    ON scenes(language);
-CREATE INDEX        IF NOT EXISTS ix_tone    ON scenes(dominant_tone);
-CREATE INDEX        IF NOT EXISTS ix_prev    ON scenes(prev_tone);
-CREATE INDEX        IF NOT EXISTS ix_next    ON scenes(next_tone);
-CREATE INDEX        IF NOT EXISTS ix_inten   ON scenes(intensity);
-CREATE INDEX        IF NOT EXISTS ix_arc     ON scenes(arc);
-CREATE INDEX        IF NOT EXISTS ix_stitch  ON scenes(stitch_status);
-CREATE INDEX        IF NOT EXISTS ix_enrich  ON scenes(enriched);
-"""
-
-
-# the INTEGER-typed columns (everything else in _COLS is TEXT); used by _migrate to add
-# the right affinity when back-filling a column onto a DB built under an older schema.
-_INT_COLS = frozenset((
-    "pos", "word_count", "start_paragraph_index", "end_paragraph_index", "enriched",
-))
+# --- schema (DERIVED from scene_schema.json via schema.py — the single source of truth) --- #
+# This module owns HOW the relational mirror behaves (upsert, filters, navigation); the
+# FIELD LIST, column types, and indexes all come from the registry so every store stays in
+# lockstep. Edit scene_schema.json (NOT these) to change the schema, then run
+# `python -m schema --check` to confirm parity and `--reconcile` to ripple it.
+#   * heavy blobs (text_html, book_metadata) are declared sql.col=false in the registry, so
+#     they stay out of SQL — this is a relational index, not a blob store.
+#   * descriptors is a sql.store="json" column: a JSON list for display, NOT indexed.
+_COLS = schema.SQL_COLS             # upsert column order == registry order
+_FILTERABLE = schema.FILTERABLE     # find()/count() WHERE + GROUP BY whitelist (injection guard)
+_SCHEMA = schema.create_table_sql()  # CREATE TABLE + indexes, generated from the registry
+_INT_COLS = schema.INT_COLS         # INTEGER-affinity cols; _migrate uses them to back-fill
 
 
 # --- connection --- #
@@ -156,46 +94,10 @@ def open_db(path: str | Path = SrcPaths.DB_PATH) -> sqlite3.Connection:
 
 # --- write --- #
 
-def _pos(scene_id: str) -> int | None:
-    """Dense per-book rank = the integer suffix scenes_to_records assigns (`book-i`)."""
-    try:
-        return int(str(scene_id).rsplit("-", 1)[1])
-    except (IndexError, ValueError):
-        return None
-
-
 def _to_row(rec: dict) -> tuple:
-    """Flatten one scene record into a column tuple in _COLS order."""
-    descriptors = rec.get("descriptors") or []
-    return (
-        rec.get("scene_id"),
-        rec.get("book_id"),
-        _pos(rec.get("scene_id", "")),
-        rec.get("prev_scene_id"),
-        rec.get("next_scene_id"),
-        rec.get("author"),
-        rec.get("language"),
-        rec.get("dominant_tone"),
-        rec.get("prev_tone"),
-        rec.get("next_tone"),
-        rec.get("intensity"),
-        rec.get("arc"),
-        rec.get("stitch_status"),
-        rec.get("word_count"),
-        rec.get("start_paragraph_index"),
-        rec.get("end_paragraph_index"),
-        rec.get("scene_title"),
-        rec.get("chapter_title"),
-        json.dumps(descriptors, ensure_ascii=False),
-        rec.get("summary"),
-        rec.get("subject"),
-        rec.get("verb"),
-        rec.get("object"),
-        rec.get("setting"),
-        1 if rec.get("enriched") else 0,
-        rec.get("enrich_model"),
-        rec.get("schema_version"),
-    )
+    """Flatten one scene record into a column tuple in _COLS order (registry-driven,
+    incl. the pos/bool/json store transforms). See schema.to_row."""
+    return schema.to_row(rec)
 
 
 def sql_upsert(conn: sqlite3.Connection, records: Iterable[dict]) -> int:
@@ -221,10 +123,7 @@ def _row(r: sqlite3.Row | None) -> dict | None:
     """sqlite3.Row -> plain dict, re-inflating the JSON descriptors column."""
     if r is None:
         return None
-    d = dict(r)
-    if d.get("descriptors"):
-        d["descriptors"] = json.loads(d["descriptors"])
-    return d
+    return schema.inflate_row(dict(r))   # re-inflate JSON-store columns (descriptors)
 
 
 def get(conn: sqlite3.Connection, scene_id: str) -> dict | None:

@@ -27,7 +27,7 @@ from qdrant_client import QdrantClient, models
 from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
-from utils import relational
+from utils import relational, schema # scene-record registry: the drift guard below checks the models against it
 
 
 # --- tuning constants (model/prompt surface — the user's to tune) --- #
@@ -569,6 +569,18 @@ class QueryFrame(BaseModel):
     @classmethod
     def _norm_desc(cls, v: list[str]) -> list[str]:
         return [d.strip().lower() for d in (v or []) if d and d.strip()][:5]
+
+
+# --- schema drift guard (import-time) --- #
+# The hand-authored enrichment + query models are the user's tuning surface, so they stay
+# hand-written — but their FIELD SETS must match the registry, or editing scene_schema.json
+# would silently desync what the index stores from what the LLM returns. Fail loudly here.
+assert {n for n in SceneEnrichment.model_fields if n != "index"} == set(schema.LLM_FIELDS), (
+    f"SceneEnrichment fields {sorted(n for n in SceneEnrichment.model_fields if n != 'index')} "
+    f"!= schema LLM_FIELDS {sorted(schema.LLM_FIELDS)} — sync scene_schema.json or the model")
+assert set(QueryFrame.model_fields) == set(schema.QUERY_FIELDS), (
+    f"QueryFrame fields {sorted(QueryFrame.model_fields)} != schema QUERY_FIELDS (vector "
+    f"fields) {sorted(schema.QUERY_FIELDS)} — sync scene_schema.json or the model")
 
 
 QUERY_TOOL = pydantic_function_tool(

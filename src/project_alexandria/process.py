@@ -25,7 +25,7 @@ from typing import Literal
 
 from data import MetadataParser, parse_rights
 from utils import (read_json, write_json, SCHEMA_VERSION, MODEL, CLIENT,
-                   classify_llm_error, Checkpoint, log)
+                   classify_llm_error, Checkpoint, log, schema) # scene-record registry: blank_record() is the null template a scene starts as
 
 # --- constants (MODEL / CLIENT / _classify_error / SCHEMA_VERSION now come from storage) --- #
 
@@ -484,49 +484,27 @@ def scenes_to_records(file_code, scenes, book, metadata):
         # are added at upsert, NOT stored here (keep this file DB-agnostic).
         # neighbor pointers: scenes are contiguous + book-ordered, so prev/next
         # power the small-to-big fetch and the box-to-box sequence walk.
-        records.append({
+        # Start from the registry's null template (all enrichment/frame/transition fields
+        # None, enriched False, schema_version stamped) so the record shape is defined ONCE
+        # in scene_schema.json; here we only fill the fields SEGMENTATION knows. Enrichment
+        # (embed.py) fills the nulls + summary, then denormalizes prev_tone/next_tone.
+        rec = schema.blank_record()
+        rec.update({
             "scene_id": f"{file_code}-{i}",
             "book_id": file_code,
             "prev_scene_id": f"{file_code}-{i-1}" if i > 0 else None,
             "next_scene_id": f"{file_code}-{i+1}" if i < last else None,
-
-            # --- flavor facets (Mode-1 filter); enrichment fills --- #
-            "dominant_tone": None,
-            "intensity": None,
-            "arc": None,
-            "descriptors": None,
-
-            # --- decomposed frame facets (vector fields, schema v2); enrichment fills --- #
-            "subject": None,      # focal figure (1-3 words)
-            "verb": None,         # its decisive action / fate (1-3 words) — carries the flip
-            "object": None,       # main target, if any (1-3 words; "" when none)
-            "setting": None,      # where / when (1-3 words; low weight in fusion)
-
-            # --- transition facets (Mode-2); denormalized at enrichment --- #
-            "prev_tone": None,
-            "next_tone": None,
-
-            # --- display / provenance --- #
             "scene_title": m["title"],
             "chapter_title": chapter_of.get(start),
             "stitch_status": m["status"],   # complete | stitched | broken_stitch
             "start_paragraph_index": start,
             "end_paragraph_index": end,
             "word_count": word_count,
-
-            # --- book facets (flat filters) + full blob for display --- #
             "author": author,
             "language": language,
             "book_metadata": book_metadata,
-
-            # --- content --- #
-            "summary": None,        # flavor summary (embedded), enrichment fills
-            "text_html": text,      # render form; embed source is `summary`
-
-            # --- bookkeeping --- #
-            "schema_version": SCHEMA_VERSION,
-            "enriched": False,
-            "enrich_model": None,
+            "text_html": text,              # render form; embed source is `summary`
         })
+        records.append(rec)
 
     return records

@@ -21,7 +21,7 @@ import uuid
 import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
-from utils import SrcPaths
+from utils import SrcPaths, schema # scene-record registry (single source of truth) — drives the named vectors
 
 
 # --- vector store config (shared with embed.py's indexer) --- #
@@ -32,8 +32,9 @@ from utils import SrcPaths
 COLLECTION = "scenes"
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
-VECTOR_NAMES = ("summary", "descriptors",                    # holistic + flavor
-                "subject", "verb", "object", "setting")  # decomposed frame (v2)
+# named vectors == the registry's vector:true fields (holistic summary + flavor descriptors
+# + the decomposed v2 frame). Edit scene_schema.json to add/drop a vector, then re-index.
+VECTOR_NAMES = schema.VECTOR_NAMES
 
 # bge query-side instruction prefix (summary path only). Set to "" to A/B without
 # re-indexing — passages are untouched, so the index stays valid either way.
@@ -286,14 +287,7 @@ def search_combined(
 # dropped and the rest renormalized, so an unspecified field simply does not vote.
 # Nothing here is a hard filter — a mislabelled scene is penalised, never excluded.
 # Tune these against a retrieval eval.
-DEFAULT_FIELD_WEIGHTS = {
-    "summary": 0.30,
-    "verb": 0.25,        # decisive field — the beat's outcome
-    "descriptors": 0.20,
-    "subject": 0.10,
-    "object": 0.10,
-    "setting": 0.05,
-}
+DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry
 
 # frame fields that are short descriptive PHRASES — embedded like the summary, so the
 # bge query prefix applies (index raw, query prefixed). `descriptors` is an adjective

@@ -35,6 +35,8 @@ from dataclasses import dataclass
 class SrcPaths:
     ROOT_DIR: Path        = Path(__file__).resolve().parent.parent.parent.parent
     MASTER_DIR: Path      = ROOT_DIR / "logs" / "test"
+    SRC_DIR: Path         = ROOT_DIR / "src"
+    UTILS_DIR: Path       = SRC_DIR / "project_alexandria" / "utils"
     CATALOG_PATH: Path    = MASTER_DIR / "pg_catalog.csv"            # Gutenberg metadata catalog (CSV)
     DATA_DIR: Path        = MASTER_DIR / "data"                      # source book archives, pg{code}-h.zip
     RECALL_DIR: Path      = MASTER_DIR / "recall"                    # parse cache: metadata.json + books.json
@@ -45,3 +47,6 @@ class SrcPaths:
     DB_PATH: Path         = MASTER_DIR / "databases" / "scenes.db"       # local on-disk SQLite mirror (no server needed)
     QDRANT_DIR: Path      = MASTER_DIR / "databases" / "qdrant_db"       # local on-disk Qdrant (no server needed)
     SEGMENTS_DIR: Path    = MASTER_DIR / "segments"                 # pre-segmentation staging (Book.to_json)
+    # scene-record registry: a CODE asset shipped with the package (utils/schema/), NOT master
+    # data. schema.py loads it as the single source of truth for the scene schema.
+    SCHEMA_PATH: Path     = UTILS_DIR / "schema" / "scene_schema.json"
