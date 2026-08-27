@@ -211,7 +211,7 @@ const $ = s => document.querySelector(s);
 const api = async (path, opts) => (await fetch(path, opts)).json();
 const post = (path, body) => api(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
 let DATA = {test_queries:[], descriptor_queries:[], books:[]};
-const esc = s => (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 // ---------- boot ----------
 (async function(){
@@ -236,7 +236,7 @@ function updateTRun(){
 $("#t-book").onchange = updateTRun;
 
 // ---------- fused field-weight boxes (must total 100 to run) ----------
-const FW_FIELDS = [["summary",30],["verb",25],["descriptors",20],["subject",10],["object",10],["setting",5]];
+const FW_FIELDS = [["summary",25.7],["verb",11.3],["descriptors",21],["subject",7.5],["object",30],["setting",4.4]];
 function buildWeights(){
   $("#fw-grid").innerHTML = FW_FIELDS.map(([k,v])=>`
     <div class="fw-row">
@@ -392,7 +392,7 @@ async function showScene(i, scroll){
   $("#rd-body").scrollTop=0;
   $("#rd-pos").textContent=`${i+1} / ${WHEEL.length}`;
   const frame=[["subject",s.subject],["verb",s.verb],["object",s.object],["setting",s.setting]]
-      .filter(x=>x[1]).map(x=>`${x[0]}: ${esc(x[1])}`).join("  ·  ");
+      .filter(x=>Array.isArray(x[1])?x[1].length:x[1]).map(x=>`${x[0]}: ${esc(x[1])}`).join("  ·  ");
   $("#rd-meta").innerHTML=`
     <div class="k">summary</div><div class="v">${esc(s.summary||"—")}</div>
     <div class="k">flavor</div><div class="v">${esc(s.dominant_tone||"—")} · ${esc(s.intensity||"")} · ${esc(s.arc||"")}</div>
