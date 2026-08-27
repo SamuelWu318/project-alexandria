@@ -177,7 +177,11 @@ def _run_query(q: dict, limit: int, book_id: str | None) -> dict:
             # optional per-field weight override from the UI sliders (percentages ->
             # search_fused renormalizes to 1.0 over the fields actually present in the frame)
             fw = q.get("field_weights") or None
-            pts = search.search_fused(_client, frame, weights=fw, limit=limit, flt=flt)
+            # per-field score normalization before the weighted-sum fuse; default "zscore",
+            # a query may send "normalize": null to reproduce the old raw-cosine sum for A/B
+            nrm = q.get("normalize", "zscore")
+            pts = search.search_fused(_client, frame, weights=fw, limit=limit, flt=flt,
+                                      normalize=nrm)
         results = [_card(p.payload, p.score) for p in pts]
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "target_book_id": q.get("target_book_id"), "results": results}

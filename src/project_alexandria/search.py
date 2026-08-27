@@ -301,9 +301,117 @@ DEFAULT_FIELD_WEIGHTS = {
 _PHRASE_FIELDS = ("subject", "verb", "object", "setting")
 
 
+def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
+    """Rescale ONE field's cosines across the current candidate pool so its WEIGHT — not
+    its accidental cosine spread — governs how much it moves the fused ranking.
+
+    bge cosines sit in narrow, field-specific bands (a summary field may spread 0.60-0.88,
+    `setting` 0.80-0.86). A raw weighted sum lets the wider-spread field dominate at any
+    weight and the narrow one barely vote, so DEFAULT_FIELD_WEIGHTS don't mean what they
+    say. Normalizing each field over the pool fixes that: weights become the real dial.
+
+    Normalized over `ids` ONLY — ranking is relative to these candidates. A candidate
+    missing from `raw` is imputed to the field mean (neutral), NOT 0.0, so a missing vector
+    doesn't crater a scene the way a raw-0.0 cosine outlier would after scaling. A field
+    with no spread over the pool can't rank anything, so every candidate gets 0.0: it
+    contributes a constant and effectively abstains.
+        method=None -> raw cosines (missing -> 0.0): the pre-norm behavior, kept for A/B.
+        "zscore"    -> (x - mean)/std  (equalizes variance; the recommended default)
+        "minmax"    -> (x - min)/(max - min) into [0,1] (outlier-sensitive)
+    """
+    if method is None:
+        return {i: raw.get(i, 0.0) for i in ids}
+    present = [raw[i] for i in ids if i in raw]
+    if not present:
+        return {i: 0.0 for i in ids}
+    arr = np.asarray(present, dtype=np.float32)
+    mean = float(arr.mean())
+    if method == "zscore":
+        std = float(arr.std())
+        if std < 1e-9:
+            return {i: 0.0 for i in ids}                 # no spread -> abstain
+        return {i: (float(raw.get(i, mean)) - mean) / std for i in ids}
+    if method == "minmax":
+        lo, hi = float(arr.min()), float(arr.max())
+        if hi - lo < 1e-9:
+            return {i: 0.0 for i in ids}                 # no spread -> abstain
+        return {i: (float(raw.get(i, mean)) - lo) / (hi - lo) for i in ids}
+    raise ValueError(f"unknown normalize method {method!r} (use 'zscore', 'minmax', or None)")
+
+
+def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
+                limit: int, flt: models.Filter | None):
+    """Summary-gate the candidate pool and pull every present field's RAW cosines over it.
+
+    The EXPENSIVE half of search_fused (query embeds + Qdrant round-trips); the fuse math
+    on top (_fuse) is pure Python. Split out so a weight sweep can collect each query's
+    pool ONCE and then re-fuse any number of weightings for free (see evals.collect_pools).
+    Only fields present in the frame AND carrying positive weight are scored; summary is
+    always scored (it is the gate). Returns (cands, ids, scores) where scores is
+    {field: {point_id: raw_cosine}}, or ([], [], {}) when the gate pool is empty.
+    """
+    summ = (frame.get("summary") or "").strip()
+    if not summ:
+        raise ValueError("search_fused needs frame['summary'] (the gate)")
+
+    present = {"summary": summ}
+    for f in _PHRASE_FIELDS:
+        v = (frame.get(f) or "").strip()
+        if v:
+            present[f] = v
+    if frame.get("descriptors"):
+        present["descriptors"] = frame["descriptors"]
+    fetch = {f for f in present if weights.get(f, 0) > 0}
+    fetch.add("summary")                                    # the gate always scores
+
+    sv = embed([QUERY_PREFIX + summ])[0]
+    pool = max(limit * 5, 50)
+    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
+                                query_filter=flt, with_payload=True).points
+    if not cands:
+        return [], [], {}
+    ids = [c.id for c in cands]
+    id_filter = models.Filter(must=[models.HasIdCondition(has_id=ids)])
+
+    scores = {"summary": {c.id: c.score for c in cands}}   # gate cosine == summary cosine
+    for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
+        if f in fetch and f in present:
+            fv = embed([QUERY_PREFIX + present[f]])[0]
+            hits = client.query_points(COLLECTION, query=fv, using=f, limit=len(ids),
+                                       query_filter=id_filter, with_payload=False).points
+            scores[f] = {h.id: h.score for h in hits}
+    if "descriptors" in fetch and "descriptors" in present:  # adjective centroid (raw)
+        desc = present["descriptors"]
+        dv = weighted_vector(desc, [1.0 / len(desc)] * len(desc)).tolist()
+        hits = client.query_points(COLLECTION, query=dv, using="descriptors", limit=len(ids),
+                                   query_filter=id_filter, with_payload=False).points
+        scores["descriptors"] = {h.id: h.score for h in hits}
+    return cands, ids, scores
+
+
+def _fuse(ids: list, scores: dict, weights: dict, *,
+          normalize: str | None, limit: int) -> list:
+    """Fuse cached per-field cosines under a weight vector -> ranked [(point_id, score)].
+
+    The pure-math half of search_fused: present fields are those in `scores` carrying
+    positive weight, renormalized to sum 1.00; each is normalized across the pool
+    (_normalize_pool), then weighted-summed. No embeds, no Qdrant — cheap to sweep.
+    """
+    w = {f: weights[f] for f in scores if weights.get(f, 0) > 0}
+    total = sum(w.values())
+    if total <= 0:
+        raise ValueError("no positive weight over the present frame fields")
+    w = {f: x / total for f, x in w.items()}
+    normed = {f: _normalize_pool(scores[f], ids, normalize) for f in w}
+    fused = [(i, sum(wt * normed[f][i] for f, wt in w.items())) for i in ids]
+    fused.sort(key=lambda t: t[1], reverse=True)
+    return fused[:limit]
+
+
 def search_fused(client: QdrantClient, frame: dict,
                  weights: dict | None = None, *,
-                 limit: int = 5, flt: models.Filter | None = None):
+                 limit: int = 5, flt: models.Filter | None = None,
+                 normalize: str | None = "zscore"):
     """Fuse EVERY named vector by weighted cosine — the general form of search_combined.
 
     `frame` is the query distilled into the same shape the index stores: any of
@@ -315,52 +423,23 @@ def search_fused(client: QdrantClient, frame: dict,
     so an unspecified setting/subject simply drops out. No field is a hard filter — a
     wrong label costs a scene rank, never its place in the pool. `weights` overrides
     DEFAULT_FIELD_WEIGHTS. Returns Qdrant ScoredPoints (payload == record), best-first.
+
+    `normalize` rescales each field's cosines ACROSS THE POOL before the weighted sum
+    (see _normalize_pool) so the weights govern influence instead of each field's raw
+    cosine spread; "zscore" (default) is recommended, None reproduces the old raw-cosine
+    sum for A/B. NOTE: with normalization the returned `.score` is a fused, pool-relative
+    score (z-scores can be negative), NOT a cosine — good for ranking within one query,
+    but not comparable across queries or thresholdable as a similarity.
     """
-    summ = (frame.get("summary") or "").strip()
-    if not summ:
-        raise ValueError("search_fused needs frame['summary'] (the gate)")
-
-    # which fields are present -> value; then weights over them, renormalized to 1.00
     src = weights or DEFAULT_FIELD_WEIGHTS
-    present = {"summary": summ}
-    for f in _PHRASE_FIELDS:
-        v = (frame.get(f) or "").strip()
-        if v:
-            present[f] = v
-    if frame.get("descriptors"):
-        present["descriptors"] = frame["descriptors"]
-    w = {f: src[f] for f in present if src.get(f, 0) > 0}
-    total = sum(w.values())
-    if total <= 0:
-        raise ValueError("no positive weights over the present frame fields")
-    w = {f: x / total for f, x in w.items()}
-
-    # gate on summary; its cosine is reused as the summary field score
-    sv = embed([QUERY_PREFIX + summ])[0]
-    pool = max(limit * 5, 50)
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, with_payload=True).points
+    cands, ids, scores = _fused_pool(client, frame, src, limit=limit, flt=flt)
     if not cands:
         return cands
-    ids = [c.id for c in cands]
-    id_filter = models.Filter(must=[models.HasIdCondition(has_id=ids)])
-
-    scores = {"summary": {c.id: c.score for c in cands}}   # gate cosine == summary cosine
-    for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
-        if f in w:
-            fv = embed([QUERY_PREFIX + present[f]])[0]
-            hits = client.query_points(COLLECTION, query=fv, using=f, limit=len(ids),
-                                       query_filter=id_filter, with_payload=False).points
-            scores[f] = {h.id: h.score for h in hits}
-    if "descriptors" in w:                                 # adjective centroid (raw)
-        desc = present["descriptors"]
-        dv = weighted_vector(desc, [1.0 / len(desc)] * len(desc)).tolist()
-        hits = client.query_points(COLLECTION, query=dv, using="descriptors", limit=len(ids),
-                                   query_filter=id_filter, with_payload=False).points
-        scores["descriptors"] = {h.id: h.score for h in hits}
-
-    # weighted-sum fuse; every present field votes, none vetoes
-    for c in cands:
-        c.score = sum(wt * scores.get(f, {}).get(c.id, 0.0) for f, wt in w.items())
-    cands.sort(key=lambda c: c.score, reverse=True)
-    return cands[:limit]
+    ranked = _fuse(ids, scores, src, normalize=normalize, limit=limit)
+    by_id = {c.id: c for c in cands}
+    out = []
+    for i, sc in ranked:                        # reattach fused score, emit in fused order
+        c = by_id[i]
+        c.score = sc
+        out.append(c)
+    return out
