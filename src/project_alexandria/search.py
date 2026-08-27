@@ -33,8 +33,14 @@ COLLECTION = "scenes"
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
 # named vectors == the registry's vector:true fields (holistic summary + flavor descriptors
-# + the decomposed v2 frame). Edit scene_schema.json to add/drop a vector, then re-index.
+# + the decomposed frame). Edit scene_schema.json to add/drop a vector, then re-index.
 VECTOR_NAMES = schema.VECTOR_NAMES
+# multivector:true fields (subject/verb/object) store a LIST of per-term vectors and score
+# by MAX_SIM: for a query term the field's score is the MAX cosine over the scene's terms
+# (max-pooling). A specific query locks onto a specific facet; a general one onto a general
+# facet — neither averaged away. These fields MUST be queried with a matrix (list of
+# vectors), even a 1-row one — a single flat vector is rejected by the multivector index.
+MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
 
 # bge query-side instruction prefix (summary path only). Set to "" to A/B without
 # re-indexing — passages are untouched, so the index stays valid either way.
@@ -291,8 +297,22 @@ DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` fro
 
 # frame fields that are short descriptive PHRASES — embedded like the summary, so the
 # bge query prefix applies (index raw, query prefixed). `descriptors` is an adjective
-# LIST (weighted centroid, raw); `summary` is the gate.
+# LIST (weighted centroid, raw); `summary` is the gate. subject/verb/object are MULTIVECTOR
+# fields (a list of terms, queried as a matrix); `setting` stays single-valued.
 _PHRASE_FIELDS = ("subject", "verb", "object", "setting")
+
+
+def _as_terms(v) -> list[str]:
+    """Normalize a frame field value to a clean list of query terms.
+
+    Accepts either a bare string (legacy / single-valued fields like setting, and gold
+    entries authored before the frame went multi-valued) or a list of strings, and returns
+    the non-empty trimmed terms. An empty/None field yields [] (the field simply abstains).
+    """
+    if v is None:
+        return []
+    items = [v] if isinstance(v, str) else list(v)
+    return [t.strip() for t in items if isinstance(t, str) and t.strip()]
 
 
 def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
@@ -350,9 +370,9 @@ def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
 
     present = {"summary": summ}
     for f in _PHRASE_FIELDS:
-        v = (frame.get(f) or "").strip()
-        if v:
-            present[f] = v
+        terms = _as_terms(frame.get(f))                     # str OR list -> clean term list
+        if terms:
+            present[f] = terms
     if frame.get("descriptors"):
         present["descriptors"] = frame["descriptors"]
     fetch = {f for f in present if weights.get(f, 0) > 0}
@@ -370,8 +390,15 @@ def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
     scores = {"summary": {c.id: c.score for c in cands}}   # gate cosine == summary cosine
     for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
         if f in fetch and f in present:
-            fv = embed([QUERY_PREFIX + present[f]])[0]
-            hits = client.query_points(COLLECTION, query=fv, using=f, limit=len(ids),
+            terms = present[f]
+            if f in MULTIVECTOR_NAMES:
+                # multivector field: query the whole term list as a MATRIX. Qdrant MAX_SIM
+                # then scores each candidate by, per query term, its best-matching stored
+                # term (max-pool) — summed over query terms. One term -> plain max-pool.
+                qv = embed([QUERY_PREFIX + t for t in terms])          # list of vectors
+            else:                                                       # single-valued (setting)
+                qv = embed([QUERY_PREFIX + ", ".join(terms)])[0]        # one flat vector
+            hits = client.query_points(COLLECTION, query=qv, using=f, limit=len(ids),
                                        query_filter=id_filter, with_payload=False).points
             scores[f] = {h.id: h.score for h in hits}
     if "descriptors" in fetch and "descriptors" in present:  # adjective centroid (raw)
@@ -412,7 +439,11 @@ def search_fused(client: QdrantClient, frame: dict,
     {summary, subject, verb, object, setting} as strings + descriptors as a list.
     The summary GATES the candidate pool (widest recall net) and is required; every
     other present field is scored over that pool and blended in by weight:
-        score = Σ  w_field * field_cos
+        score = Σ  w_field * field_score
+    where field_score is a cosine for single vectors and a MAX_SIM max-pool for the
+    multivector frame fields (subject/verb/object) — a list field's query term takes its
+    best-matching stored term, so a specific query matches a specific facet without the
+    other listed terms diluting it. Fields present as lists accept a bare string too.
     Only fields actually present in `frame` vote (their weights renormalized to 1.00),
     so an unspecified setting/subject simply drops out. No field is a hard filter — a
     wrong label costs a scene rank, never its place in the pool. `weights` overrides

@@ -17,7 +17,7 @@ load_dotenv()
 # MODEL and the retry policy stay the user's tuning surface; SCHEMA_VERSION stamps the
 # record shape (embed.py reads it).
 
-SCHEMA_VERSION = 2   # bump when the scene-record shape changes (embed.py reads it).
+SCHEMA_VERSION = 3   # bump when the scene-record shape changes (embed.py reads it).
                      # v2: + decomposed frame fields (subject/verb/object/setting).
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"

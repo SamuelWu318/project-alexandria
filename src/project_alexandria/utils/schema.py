@@ -22,12 +22,15 @@
 # Workflow:  edit scene_schema.json  ->  python -m utils.schema --check     (parity vs stores)
 #                                    ->  python -m utils.schema --reconcile  (dry-run diff)
 #                                    ->  python -m utils.schema --reconcile --apply --db --qdrant
+# Re-enrich a tag: reset its VALUES (reconcile won't — it never overwrites) then re-run:
+#            python -m utils.schema --clear subject,verb,object            (dry-run diff)
+#            python -m utils.schema --clear subject,verb,object --apply     (+ --db to rebuild SQLite)
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 import json, os, tempfile
 from collections import Counter
 from pathlib import Path
-from storage import SrcPaths
+from utils import SrcPaths
 
 # a hard floor: the master MUST declare these, so a bad edit can never make reconcile
 # strip the columns everything joins on.
@@ -61,6 +64,9 @@ QUERY_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("vector"))  # == dis
 # vector store (search.py)
 VECTOR_NAMES = tuple(f for f in FIELDS if FIELDS[f].get("vector"))
 DEFAULT_WEIGHTS = {f: FIELDS[f]["weight"] for f in VECTOR_NAMES}
+# multivector fields: a LIST of per-term vectors scored by MAX_SIM (max-pooling), so the
+# query's best-matching term drives the field's contribution (subject/verb/object).
+MULTIVECTOR_NAMES = tuple(f for f in VECTOR_NAMES if FIELDS[f].get("multivector"))
 
 # relational store (relational.py)
 SQL_COLS = tuple(f for f in FIELDS if FIELDS[f]["sql"].get("col"))
@@ -194,6 +200,57 @@ def reconcile_file(path: str | Path, *, apply: bool = False, backup: bool = True
     return stats, warns, changed
 
 
+# --- clear: reset enrichment values to prepare a re-enrichment --- #
+# Distinct from reconcile: reconcile syncs STRUCTURE and never touches an existing value;
+# clear deliberately RESETS the named enrichment fields to their default (unfilled) and
+# marks the record un-enriched, so the next enrichment pass regenerates them. Only
+# `kind:enrichment` fields may be cleared — core structure is protected.
+
+def _clear_record(rec: dict, cols: tuple) -> bool:
+    """Reset each named field to its default; if anything changed, mark the record
+    un-enriched (enriched=False, enrich_model=null) so the pipeline reprocesses it.
+    Returns True if the record changed."""
+    changed = False
+    for c in cols:
+        d = _default(c)
+        if rec.get(c) != d:
+            rec[c] = d
+            changed = True
+    if changed and rec.get("enriched"):
+        rec["enriched"] = False
+        rec["enrich_model"] = _default("enrich_model")
+    return changed
+
+
+def clear_file(path: str | Path, cols: tuple, *, apply: bool = False, backup: bool = True) -> tuple[int, bool]:
+    """Clear the named enrichment fields in every record of one scenes json (dry-run unless
+    apply). Returns (records changed, changed?). On apply, writes a `<path>.bak` sibling
+    first (unless backup=False) then rewrites atomically."""
+    path = Path(path)
+    raw = path.read_text(encoding="utf-8")
+    recs = json.loads(raw)
+    n = sum(1 for r in recs if _clear_record(r, cols))
+    if n and apply:
+        if backup:
+            (path.parent / (path.name + ".bak")).write_text(raw, encoding="utf-8")
+        _atomic_write_json(path, recs)
+    return n, bool(n)
+
+
+def reset_enrich_state() -> None:
+    """Wipe the enrichment RESUME caches so cleared scenes actually re-run: the per-scene
+    checkpoints (ENRICH_CKPT_DIR) and the book-level completed flags (STATUS_PATH). Without
+    this, enrich_file replays cached results and embed_test skips 'completed' books."""
+    import shutil
+    from utils import SrcPaths
+    ck = Path(SrcPaths.ENRICH_CKPT_DIR)
+    if ck.exists():
+        shutil.rmtree(ck, ignore_errors=True)   # Checkpoint() recreates it on next save
+    st = Path(SrcPaths.STATUS_PATH)
+    if st.exists():
+        st.unlink()
+
+
 # --- ripple: SQLite + Qdrant (lazy heavy imports) --- #
 
 def _scene_files(scenes_dir: Path | None = None) -> list[Path]:
@@ -262,6 +319,7 @@ def _check() -> int:
     eq("INT_COLS", set(INT_COLS), set(relational._INT_COLS))
     eq("FILTERABLE", set(FILTERABLE), set(relational._FILTERABLE))
     eq("VECTOR_NAMES", set(VECTOR_NAMES), set(search.VECTOR_NAMES))
+    eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(search.MULTIVECTOR_NAMES))
     eq("DEFAULT_WEIGHTS", DEFAULT_WEIGHTS, dict(search.DEFAULT_FIELD_WEIGHTS))
     eq("SCHEMA_VERSION", SCHEMA_VERSION, __import__("utils").SCHEMA_VERSION)
     llm = {n for n in embed.SceneEnrichment.model_fields if n != "index"}
@@ -283,6 +341,9 @@ def main():
     ap = argparse.ArgumentParser(description="Scene schema: single source of truth + reconcile tool.")
     ap.add_argument("--check", action="store_true", help="assert derived contract == store constants")
     ap.add_argument("--reconcile", action="store_true", help="reconcile scenes json to the master")
+    ap.add_argument("--clear", metavar="COLS",
+                    help="reset these enrichment fields (comma-separated) to default + mark "
+                         "scenes un-enriched, to prepare a re-enrichment (e.g. subject,verb,object)")
     ap.add_argument("--apply", action="store_true", help="write changes (default is dry-run)")
     ap.add_argument("--db", action="store_true", help="also rebuild the SQLite mirror")
     ap.add_argument("--qdrant", action="store_true", help="also overwrite Qdrant payloads")
@@ -291,6 +352,32 @@ def main():
 
     if args.check:
         raise SystemExit(_check())
+
+    if args.clear:
+        cols = tuple(c.strip() for c in args.clear.split(",") if c.strip())
+        bad = [c for c in cols if c not in ENRICHMENT]
+        if bad:
+            raise SystemExit(f"--clear: {bad} are not clearable enrichment fields "
+                             f"(enrichment fields: {sorted(ENRICHMENT)})")
+        files = _scene_files()
+        print(f"{'APPLY' if args.apply else 'DRY-RUN'} clear {list(cols)} over {len(files)} scene files:")
+        total = 0
+        for f in files:
+            n, changed = clear_file(f, cols, apply=args.apply, backup=not args.no_backup)
+            if changed:
+                total += n
+                print(f"  {f.name}: cleared on {n} recs (enriched -> False)")
+        if not total:
+            print("  (nothing to clear — already at default)")
+        if args.apply:
+            reset_enrich_state()
+            print("  reset enrichment resume state: checkpoints wiped + status.json removed")
+            if args.db:
+                print(f"  rebuilt SQLite mirror: {sync_db()} rows")
+            print("  Qdrant: re-index rebuilds the collection (multivector config) — no --qdrant here")
+        else:
+            print("  (dry-run; add --apply to write, optionally --db to rebuild SQLite)")
+        return
 
     if args.reconcile:
         files = _scene_files()

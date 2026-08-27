@@ -24,7 +24,8 @@ from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
 # vector-store primitives shared with the read path (search.py owns them)
-from search import COLLECTION, VECTOR_NAMES, embed as _embed, point_id as _point_id
+from search import (COLLECTION, VECTOR_NAMES, MULTIVECTOR_NAMES, embed as _embed,
+                    point_id as _point_id, _as_terms)
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
 from utils import relational, schema # scene-record registry: the drift guard below checks the models against it
@@ -48,12 +49,14 @@ class SceneEnrichment(BaseModel):
     descriptors: list[str] = Field(min_length=3, max_length=5)
     summary: str
 
-    # --- decomposed frame fields (schema v2) — enrichment fills them once the batch
-    # prompt describes them; Optional so an un-updated prompt still validates. --- #
-    subject: str | None = None      # focal figure (1-3 words)
-    verb: str | None = None         # its decisive action / fate (1-3 words)
-    object: str | None = None       # main target, if any (1-3 words)
-    setting: str | None = None      # where / when (1-3 words)
+    # --- decomposed frame (schema v3) — subject/verb/object are LISTS of applicable terms
+    # (the literal one + scene-grounded alternate framings), stored as multivector fields
+    # and max-pooled at query time. setting stays single-valued. Defaults empty/None so an
+    # un-updated prompt still validates. --- #
+    subject: list[str] = Field(default_factory=list)   # focal figure + roles it also holds
+    verb: list[str] = Field(default_factory=list)      # decisive action + close framings
+    object: list[str] = Field(default_factory=list)    # target + what it also is (may be [])
+    setting: str | None = None                         # where / when (1-3 words)
 
     @field_validator("descriptors")
     @classmethod
@@ -73,9 +76,30 @@ class SceneEnrichment(BaseModel):
         v = v.rstrip(" .") + "."     # ... and exactly one trailing period
         return v
 
-    @field_validator("subject", "verb", "object", "setting")
+    @field_validator("subject", "verb", "object", mode="before")
     @classmethod
-    def _clean_frame(cls, v: str | None) -> str | None:
+    def _coerce_terms(cls, v):
+        """Accept a bare string (or None) as well as a list — a single term becomes [term]."""
+        if v is None:
+            return []
+        return [v] if isinstance(v, str) else v
+
+    @field_validator("subject", "verb", "object")
+    @classmethod
+    def _clean_terms(cls, v: list[str]) -> list[str]:
+        """Trim, drop empties, de-dupe (case-insensitive, order-preserving), cap at 6."""
+        out, seen = [], set()
+        for t in v or []:
+            t = re.sub(r"\s+", " ", t or "").strip()
+            key = t.lower()
+            if t and key not in seen:
+                seen.add(key)
+                out.append(t)
+        return out[:6]
+
+    @field_validator("setting")
+    @classmethod
+    def _clean_setting(cls, v: str | None) -> str | None:
         """Trim + collapse whitespace; empty becomes None (field simply unfilled)."""
         if v is None:
             return None
@@ -129,26 +153,26 @@ exactly once — no gaps, no duplicates, and no index that was not in the input.
   (["creeping","claustrophobic","dreadful"]) — that is their job. Descriptors are the
   ONE place feeling words belong.
 
-# THE DECOMPOSED FRAME — subject / verb / object / setting
-Compress the ONE decisive beat into four SHORT fields — AIM for 1-3 words each, never a
-clause. Short is the whole point: "saved" vs "dying" is a sharp contrast, but "a child
-saved from a fire" vs "a child dying in a fire" is nearly identical. Squeeze each field
-to the word(s) that carry the difference. Archetypal, NO proper names, NO feeling words
-(those live in descriptors).
-- subject: the scene's FOCAL figure (1-3 words). Keep it the focal figure even when the
-  scene acts upon them, so the outcome lands in the verb: "a child", not "a firefighter".
-- verb: what happens to or with the subject — the ONE decisive action or fate (1-3 words).
-  This field carries the meaning, so pick the word the beat turns on — "saved", "dying",
-  "refuses", "surrenders". Never a conjunction ("draws and fires" -> "fires") and never a
-  vague catch-all ("acts", "does").
-- object: the main target of the verb, if any (1-3 words). Use "" when the beat has no
-  distinct target (an intransitive action like fleeing or weeping).
-- setting: where / when (1-3 words) — "a battlefield", "a lit ballroom". Use "" if the
-  scene gives no clear place.
-These fields are SINGLE-VALUED — the sharp skeleton of ONE beat, not a full parse. When a
-scene has several actors or actions, do NOT list them: fold plurals into a short COLLECTIVE
-("two rivals", "a mob", "mother and son", "both armies") and keep the single decisive verb.
-Everything beyond the one beat is the summary's job, not these fields'.
+# THE FRAME — subject / verb / object are LISTS; setting is ONE phrase
+Compress the ONE decisive beat. For subject, verb, object give a LIST: the literal term
+FIRST, then alternate framings THE SCENE ITSELF supports — other ways a search might name
+the same thing. This widens matching WITHOUT inventing facts.
+- subject: the focal figure + roles it also holds here (keep it focal even when acted upon).
+    a fleeing pregnant wife  ->  ["a woman","a wife","a mother","a runaway"]
+- verb: the decisive action + near framings of what it also IS.
+    slips off with another's spouse  ->  ["steals","takes","betrays","seduces"]
+- object: the target + what it also is here. [] when the beat has no target (fleeing, weeping).
+    the wronged husband  ->  ["a husband","a betrayed man"]
+- setting: ONE phrase, where / when — "a battlefield", "a lit ballroom". "" if none. NOT a list.
+
+Rules:
+- GROUND every term in the prose. Add a term ONLY if the scene supports it. Never guess.
+- Specific beats generic: keep "a pregnant mother", DROP bare "a person" — a term that fits
+  any scene helps no search and dilutes this one.
+- 1-4 terms per list, 1-3 words each, literal first. Archetypal — NO proper names, NO
+  feeling words (those live in descriptors). De-dupe.
+- Fold a crowd into ONE collective ("a mob", "both armies"), then list ITS framings. One
+  decisive beat only; everything else is the summary's job.
 
 # SUMMARY — GENERAL, ONE SITUATION, READABLE SENTENCE
 The summary IS the search target: a writer types a short generic scene description and
@@ -175,9 +199,10 @@ grammatical sentence that reads well on its own.
 2. Gauge intensity — background hum, clearly felt, or dominating.
 3. Judge the arc — does the feeling rise, fall, hold steady, or turn by the end?
 4. Pick 3-5 lowercase adjectives for the flavor (emotional words are welcome here).
-5. Compress the frame: the focal subject, the ONE decisive verb (what happens to it),
-   the object if any, and the setting — AIM for 1-3 words each, archetypal, no feeling
-   words. Fold plurals into a collective; use "" for a missing object or setting.
+5. Build the frame: name the literal subject / verb / object, THEN add only scene-grounded
+   alternate framings for each (roles the figure also holds, near-synonym actions, what the
+   target also is). Literal first, specific over generic, [] for a missing subject/object,
+   ONE phrase for setting. Fold a crowd into one collective.
 6. Write the summary LAST: general roles + ONE situation + ONE action, present tense,
    NO feeling words, ~10-18 words. Reread it and strip any proper name, second
    situation, or emotion word that slipped in.
@@ -194,8 +219,8 @@ grammatical sentence that reads well on its own.
 - index: the scene's index from the input.
 - dominant_tone / intensity / arc: from the controlled vocabularies above.
 - descriptors: 3-5 lowercase adjectives.
-- subject / verb / object / setting: the decomposed frame — 1-3 words each, archetypal,
-  no feeling words ("" for a missing object or setting).
+- subject / verb / object: term LISTS — literal first, then 1-3 grounded framings ([] if
+  none). setting: ONE phrase ("" if none). Archetypal, no feeling words.
 - summary: the general, one-situation, feeling-free sentence.
 
 # EXAMPLE 1 — a two-scene batch: a tonal contrast, and how descriptors differ from the summary
@@ -205,13 +230,13 @@ grammatical sentence that reads well on its own.
     {"index": 1, "scene_title": "At the door", "chapter_title": "Ithaca", "text": "She had waited twenty years, and now the grey-haired man on the threshold named a thing only her husband could know. Her knees loosened; she crossed the floor and put her arms around his neck, and for a long moment neither could speak."}
   ]}
   -- reasoning (think first) --
-  Scene 0: a captive outwits a stronger captor by flattery and patience, then moves to strike. The ruling feeling is bold, cunning nerve = defiance (NOT fear — he is in control). Intensity high; it builds toward the strike, so arc rising. Descriptors may be emotional: ["cunning","daring","defiant"]. Frame (1-3 words each): subject = "a captive", verb = "strikes", object = "a captor", setting = "a cave". Summary stays general and feeling-free — one situation, a smaller figure outwitting a larger one to escape.
-  Scene 1: a long-parted couple recognize each other and embrace. Warm and close = tenderness. Intensity moderate, held level = steady. Descriptors ["warm","intimate","tender"]. Frame: the beat is mutual, so fold the pair into a COLLECTIVE subject and drop the object — subject = "a reunited couple", verb = "embrace", object = "", setting = "a doorway". Summary: one reunion, one action, no feeling words.
+  Scene 0: a captive outwits a stronger captor by flattery and patience, then moves to strike. The ruling feeling is bold, cunning nerve = defiance (NOT fear — he is in control). Intensity high; it builds toward the strike, so arc rising. Descriptors may be emotional: ["cunning","daring","defiant"]. Frame lists (literal first, then grounded framings): subject = ["a captive","a prisoner"], verb = the beat is flattery-to-disarm, so ["flatters","deceives","disarms"], object = the stronger foe ["a captor","a giant"], setting = "a cave". Summary stays general and feeling-free — one situation, a smaller figure outwitting a larger one to escape.
+  Scene 1: a long-parted couple recognize each other and embrace. Warm and close = tenderness. Intensity moderate, held level = steady. Descriptors ["warm","intimate","tender"]. Frame: the beat is mutual, so fold the pair into a COLLECTIVE subject and drop the object — subject = ["a reunited couple","a husband and wife"], verb = ["embrace","reunite"], object = [], setting = "a doorway". Summary: one reunion, one action, no feeling words.
   Coverage: indices 0 and 1, each once.
   -- output_enrichment --
   {"items": [
-    {"index": 0, "dominant_tone": "defiance", "intensity": "high", "arc": "rising", "descriptors": ["cunning","daring","defiant"], "subject": "a captive", "verb": "flatters", "object": "a captor", "setting": "a cave", "summary": "A cornered captive flatters a stronger enemy off his guard, then moves to strike."},
-    {"index": 1, "dominant_tone": "tenderness", "intensity": "moderate", "arc": "steady", "descriptors": ["warm","intimate","tender"], "subject": "a reunited couple", "verb": "embrace", "object": "", "setting": "a doorway", "summary": "A long-parted husband and wife recognize each other and embrace after years apart."}
+    {"index": 0, "dominant_tone": "defiance", "intensity": "high", "arc": "rising", "descriptors": ["cunning","daring","defiant"], "subject": ["a captive","a prisoner"], "verb": ["flatters","deceives","disarms"], "object": ["a captor","a giant"], "setting": "a cave", "summary": "A cornered captive flatters a stronger enemy off his guard, then moves to strike."},
+    {"index": 1, "dominant_tone": "tenderness", "intensity": "moderate", "arc": "steady", "descriptors": ["warm","intimate","tender"], "subject": ["a reunited couple","a husband and wife"], "verb": ["embrace","reunite"], "object": [], "setting": "a doorway", "summary": "A long-parted husband and wife recognize each other and embrace after years apart."}
   ]}
 
 # EXAMPLE 2 — the trap: a mixed feeling (pick ONE blended term) and a summary that smuggles in emotion + a second situation
@@ -222,11 +247,11 @@ grammatical sentence that reads well on its own.
   -- reasoning (think first) --
   Two feelings genuinely coexist — gladness at the reunion and sorrow for lost time. The rule is ONE tone, so do NOT tag both: the controlled vocabulary has a term for exactly this blend = bittersweet. The feeling holds, neither building nor breaking = steady; intensity moderate. Descriptors carry the emotion: ["bittersweet","wistful","nostalgic"].
   Summary trap: the natural sentence "A grieving son joyfully returns home while his weeping mother greets him" breaks TWO rules — feeling words (grieving, joyfully, weeping) AND two stitched situations (his return AND her greeting). Strip the emotion words (they live in the tone/descriptors) and keep ONE situation: the homecoming itself.
-  Frame: two mini-actions here (his return, her greeting) — keep the ONE decisive beat, the return, and let the summary carry the greeting. subject = "a grown child", verb = "returns", object = "" (home is the setting, not a target), setting = "a childhood home".
+  Frame: two mini-actions here (his return, her greeting) — keep the ONE decisive beat, the return, and let the summary carry the greeting. subject = ["a grown child","a returning son"], verb = ["returns","comes home"], object = [] (home is the setting, not a target), setting = "a childhood home". No pure generic like "a person" — it fits any scene.
   Coverage: index 4, once.
   -- output_enrichment --
   {"items": [
-    {"index": 4, "dominant_tone": "bittersweet", "intensity": "moderate", "arc": "steady", "descriptors": ["bittersweet","wistful","nostalgic"], "subject": "a grown child", "verb": "returns", "object": "", "setting": "a childhood home", "summary": "A grown child returns to a childhood home and is met by an aging parent."}
+    {"index": 4, "dominant_tone": "bittersweet", "intensity": "moderate", "arc": "steady", "descriptors": ["bittersweet","wistful","nostalgic"], "subject": ["a grown child","a returning son"], "verb": ["returns","comes home"], "object": [], "setting": "a childhood home", "summary": "A grown child returns to a childhood home and is met by an aging parent."}
   ]}
 
 # EXAMPLE 3 — a single scene whose tone TURNS, and a clean general summary
@@ -236,12 +261,12 @@ grammatical sentence that reads well on its own.
   ]}
   -- reasoning (think first) --
   The scene opens wary and quiet and ends in sharp alarm when the intruder is sensed — the feeling flips, so arc is turn. The ruling tone is the held, listening tension before the break = suspense (dread also fits, but suspense best names the waiting). Intensity high. Descriptors ["creeping","tense","ominous"].
-  Frame: subject = "a lone woman", verb = "climbs", object = "" (she moves toward, not upon, the presence), setting = "a dark stairwell".
+  Frame: subject = ["a lone woman"] (nothing else grounded), verb = ["climbs","ascends"], object = [] (she moves toward, not upon, the presence), setting = "a dark stairwell".
   Summary: general roles, ONE situation, present tense, no feeling words — a lone figure climbing toward an unseen presence.
   Coverage: index 12, once.
   -- output_enrichment --
   {"items": [
-    {"index": 12, "dominant_tone": "suspense", "intensity": "high", "arc": "turn", "descriptors": ["creeping","tense","ominous"], "subject": "a lone woman", "verb": "climbs", "object": "", "setting": "a dark stairwell", "summary": "A lone woman climbs a dark stairwell toward an unseen presence stirring above."}
+    {"index": 12, "dominant_tone": "suspense", "intensity": "high", "arc": "turn", "descriptors": ["creeping","tense","ominous"], "subject": ["a lone woman"], "verb": ["climbs","ascends"], "object": [], "setting": "a dark stairwell", "summary": "A lone woman climbs a dark stairwell toward an unseen presence stirring above."}
   ]}
 """]
 
@@ -477,23 +502,58 @@ def enrich_file(path: Path) -> list[dict]:
 
 # --- qdrant index (write path; config/embedder/id come from search.py) --- #
 
+def _vec_params(name: str, dim: int) -> models.VectorParams:
+    """VectorParams for one named vector — MAX_SIM multivector for the list frame fields."""
+    mv = (models.MultiVectorConfig(comparator=models.MultiVectorComparator.MAX_SIM)
+          if name in MULTIVECTOR_NAMES else None)
+    return models.VectorParams(size=dim, distance=models.Distance.COSINE, multivector_config=mv)
+
+
 def _ensure_collection(client: QdrantClient, dim: int):
-    """Ensure the named-vector collection (summary/descriptors + v2 frame) exists; rebuild if stale."""
-    want = {n: models.VectorParams(size=dim, distance=models.Distance.COSINE)
-            for n in VECTOR_NAMES}
+    """Ensure the named-vector collection (summary/descriptors + frame) exists; rebuild if stale.
+
+    Stale = the vector NAME set differs, OR a field's multivector-ness disagrees with the
+    registry (e.g. subject was single-vector before it became multivector) — either way the
+    stored config can't answer the new queries, so drop and recreate.
+    """
+    want = {n: _vec_params(n, dim) for n in VECTOR_NAMES}
     if client.collection_exists(COLLECTION):
         cfg = client.get_collection(COLLECTION).config.params.vectors
-        if isinstance(cfg, dict) and set(cfg) == set(VECTOR_NAMES):
+        names_ok = isinstance(cfg, dict) and set(cfg) == set(VECTOR_NAMES)
+        mv_ok = names_ok and all(
+            (getattr(cfg[n], "multivector_config", None) is not None) == (n in MULTIVECTOR_NAMES)
+            for n in VECTOR_NAMES)
+        if names_ok and mv_ok:
             return
         client.delete_collection(COLLECTION)   # single-vector / stale -> rebuild
     client.create_collection(COLLECTION, vectors_config=want)
 
 
+def _multivector_field(ready: list[dict], field: str) -> list[list[list[float]]]:
+    """Embed one multivector frame field for every ready scene -> a per-scene MATRIX.
+
+    Each scene's field is a list of terms; every term is embedded (one batched call over
+    all scenes) and the vectors are regrouped per scene. A scene that left the field empty
+    falls back to a 1-term matrix from its summary, so every point carries every vector.
+    """
+    per_terms = [(_as_terms(r.get(field)) or [r["summary"]]) for r in ready]
+    flat = [t for terms in per_terms for t in terms]
+    vecs = _embed(flat) if flat else []
+    out, k = [], 0
+    for terms in per_terms:
+        out.append(vecs[k:k + len(terms)])
+        k += len(terms)
+    return out
+
+
 def index_records(client: QdrantClient, records: list[dict],
                   conn: "relational.sqlite3.Connection | None" = None):
-    """Embed the summary, descriptors, and the four v2 frame fields as named vectors, one point per scene.
+    """Embed the summary, descriptors, and the decomposed frame as named vectors, one point per scene.
 
     payload == the full flat record; id is the stable scene uuid, so re-runs overwrite.
+    subject/verb/object are MULTIVECTOR fields: each term is embedded separately and the
+    scene stores the whole matrix, so query-time MAX_SIM max-pools over a scene's facets.
+    summary/descriptors/setting stay single vectors.
 
     If `conn` (a relational.open_db connection) is given, EVERY record is ALSO mirrored
     into the SQLite relational store first — independent of enrichment, so exact-match
@@ -511,23 +571,19 @@ def index_records(client: QdrantClient, records: list[dict],
     sum_vecs = _embed([r["summary"] for r in ready])
     # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
     desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
-    # decomposed frame (v2): one named vector per field. A field the enrichment left
-    # null/empty falls back to the summary text, so every point carries every vector.
-    frame_vecs = {
-        f: _embed([(r.get(f) or "").strip() or r["summary"] for r in ready])
-        for f in ("subject", "verb", "object", "setting")
-    }
+    # single-valued frame field: one vector per scene (summary fallback when empty).
+    set_vecs = _embed([(r.get("setting") or "").strip() or r["summary"] for r in ready])
+    # multivector frame fields: one MATRIX (list of term vectors) per scene.
+    mv = {f: _multivector_field(ready, f) for f in MULTIVECTOR_NAMES}
     _ensure_collection(client, len(sum_vecs[0]))
     points = [
         models.PointStruct(
             id=_point_id(r["scene_id"]),
-            vector={"summary": s, "descriptors": d,
-                    "subject": frame_vecs["subject"][i],
-                    "verb": frame_vecs["verb"][i],
-                    "object": frame_vecs["object"][i],
-                    "setting": frame_vecs["setting"][i]},
+            vector={"summary": sum_vecs[i], "descriptors": desc_vecs[i],
+                    "setting": set_vecs[i],
+                    **{f: mv[f][i] for f in MULTIVECTOR_NAMES}},
             payload=r)
-        for i, (r, s, d) in enumerate(zip(ready, sum_vecs, desc_vecs))
+        for i, r in enumerate(ready)
     ]
     client.upsert(COLLECTION, points=points)
     log.info(f"indexed {len(ready)} points into '{COLLECTION}'")
@@ -541,17 +597,40 @@ def index_records(client: QdrantClient, records: list[dict],
 # them into one shared constant) if the frame definition changes.
 
 class QueryFrame(BaseModel):
-    """A writer's scene query distilled into the index frame (drives search_fused)."""
+    """A writer's scene query distilled into the index frame (drives search_fused).
+
+    subject/verb/object mirror the index: LISTS of terms (max-pooled at query time), but
+    kept lean on the query side — usually the one literal beat, an alternate only when the
+    query itself is broad. A bare string is coerced to a 1-item list (older gold sets).
+    """
     summary: str
-    subject: str | None = None
-    verb: str | None = None
-    object: str | None = None
+    subject: list[str] = Field(default_factory=list)
+    verb: list[str] = Field(default_factory=list)
+    object: list[str] = Field(default_factory=list)
     setting: str | None = None
     descriptors: list[str] = Field(default_factory=list, max_length=5)
 
-    @field_validator("subject", "verb", "object", "setting")
+    @field_validator("subject", "verb", "object", mode="before")
     @classmethod
-    def _clean_frame(cls, v: str | None) -> str | None:
+    def _coerce_terms(cls, v):
+        if v is None:
+            return []
+        return [v] if isinstance(v, str) else v
+
+    @field_validator("subject", "verb", "object")
+    @classmethod
+    def _clean_terms(cls, v: list[str]) -> list[str]:
+        out, seen = [], set()
+        for t in v or []:
+            t = re.sub(r"\s+", " ", t or "").strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                out.append(t)
+        return out[:6]
+
+    @field_validator("setting")
+    @classmethod
+    def _clean_setting(cls, v: str | None) -> str | None:
         if v is None:
             return None
         v = re.sub(r"\s+", " ", v).strip()
@@ -619,25 +698,28 @@ archetypal roles, NO proper names, NO feeling words in the situation fields.
   situation, present tense, NO proper names, NO feeling words, ~10-18 words. A rewrite, not
   a copy: "Gandalf falls fighting the Balrog" -> "A mentor sacrifices himself against a
   monstrous foe to save his companions." Required.
-- subject / verb / object / setting: the ONE decisive beat, 1-3 words each, archetypal, no
-  feeling words. subject = the focal figure (keep it focal even when acted upon, so the
-  outcome lands in the verb); verb = the decisive action or fate ("saved", "dying",
-  "refuses"); object = the main target if any; setting = where / when.
+- subject / verb / object: term LISTS matching the index, but kept LEAN — the ONE literal
+  beat as a single term. Add a second term ONLY when the query itself is broad (a near-
+  synonym the writer plainly means), never to pad. 1-3 words each, archetypal, no feeling
+  words. subject = the focal figure (keep it focal even when acted upon); verb = the
+  decisive action ("saved", "dying", "refuses"); object = the target, [] if none.
+- setting: ONE phrase, where / when. "" if none.
 - descriptors: 0-5 lowercase adjectives for the vibe, ONLY if the query implies one.
 
 # LEAVE IT EMPTY
-If the query does not imply a field, return "" (or [] for descriptors). NEVER invent a
-setting, object, or vibe the writer did not ask for — an unspecified field is dropped from
-the search, an invented one drags it off course. Fold plurals into a short collective.
+If the query does not imply a field, return [] (subject / verb / object / descriptors) or
+"" (setting). NEVER invent a setting, object, or vibe the writer did not ask for — an
+unspecified field is dropped from the search, an invented one drags it off course. Fold a
+crowd into one collective.
 
 # EXAMPLES
   -- input --  {"query": "a firefighter carries a child out of a burning building"}
   -- output_query_frame --
-  {"summary": "A rescuer carries a helpless victim out of a deadly blaze to safety.", "subject": "a child", "verb": "saved", "object": "", "setting": "a burning building", "descriptors": ["frantic","heroic","relieved"]}
+  {"summary": "A rescuer carries a helpless victim out of a deadly blaze to safety.", "subject": ["a child"], "verb": ["saved","rescued"], "object": [], "setting": "a burning building", "descriptors": ["frantic","heroic","relieved"]}
 
   -- input --  {"query": "a bitter falling-out that ends a long friendship"}
   -- output_query_frame --
-  {"summary": "Two close companions quarrel and sever their long friendship for good.", "subject": "two friends", "verb": "part", "object": "", "setting": "", "descriptors": ["bitter","wounded","final"]}
+  {"summary": "Two close companions quarrel and sever their long friendship for good.", "subject": ["two friends"], "verb": ["part","fall out"], "object": [], "setting": "", "descriptors": ["bitter","wounded","final"]}
 """]
 
 
@@ -645,17 +727,18 @@ def distill_query(text: str) -> dict:
     """Distil a writer's raw scene query into the frame dict search_fused consumes.
 
     One forced output_query_frame call, reusing _run_tool's retry policy. Returns
-    {summary, subject, verb, object, setting, descriptors}; empty fields come back "" / [],
-    which search_fused drops from the fused score. summary is always present (the gate).
+    {summary, subject, verb, object, setting, descriptors}; subject/verb/object are term
+    LISTS (empty [] when unspecified), setting is a string (""); empties are dropped from
+    the fused score by search_fused. summary is always present (the gate).
     """
     payload = json.dumps({"query": (text or "").strip()}, ensure_ascii=False)
     data = _run_tool(payload, system_prompt=QUERY_SYSTEM_PROMPT, tool=QUERY_TOOL,
                      model_cls=QueryFrame, note_fn=_query_retry_note)
     return {
         "summary": data.summary,
-        "subject": data.subject or "",
-        "verb": data.verb or "",
-        "object": data.object or "",
+        "subject": data.subject,
+        "verb": data.verb,
+        "object": data.object,
         "setting": data.setting or "",
         "descriptors": data.descriptors,
     }
