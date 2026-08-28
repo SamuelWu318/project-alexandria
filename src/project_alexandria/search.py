@@ -87,28 +87,12 @@ def book_filter(book_id: str | None) -> models.Filter | None:
         key="book_id", match=models.MatchValue(value=book_id))])
 
 
-def books_filter(book_ids) -> models.Filter | None:
-    """Filter that restricts a search to a SET of books — the subject/folder pre-filter.
-
-    None means "no restriction" (all books). An EMPTY set is NOT "all"; it is "nothing
-    matches", which a filter cannot express, so callers must treat an empty allow-set as
-    a short-circuit (return no results) rather than passing it here. MatchAny is an OR over
-    book_id; at scale a subject payload field on each point is the cheaper equivalent.
-    """
-    ids = [b for b in (book_ids or []) if b]
-    if not ids:
-        return None
-    return models.Filter(must=[models.FieldCondition(
-        key="book_id", match=models.MatchAny(any=ids))])
-
-
 def subject_filter(branch) -> models.Filter | None:
     """Restrict a search to one subject branch via the indexed `subject_paths` payload label.
 
-    The scale replacement for books_filter: instead of an id-set of every book under the
-    branch, one exact keyword term the payload index resolves to its points directly. `branch`
-    is a reversed nav list (["Fiction", "Italy"]) OR the ready suffix ("Italy -- Fiction");
-    None/empty -> no restriction (all books).
+    One exact keyword term the payload index resolves to its points directly — instead of an
+    id-set of every book under the branch. `branch` is a reversed nav list (["Fiction",
+    "Italy"]) OR the ready suffix ("Italy -- Fiction"); None/empty -> no restriction (all books).
     """
     if not branch:
         return None

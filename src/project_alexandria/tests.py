@@ -11,15 +11,15 @@
 # Paths + JSON IO come from storage.py.
 # -----------------------------------------------------------------------------
 from pathlib import Path
-import subprocess, os, sys, time, re, contextlib
+import subprocess, os, sys, time, re, contextlib, zipfile
 
-from data import build_library, SubjectIndex
+from data import build_library, ensure_book
 from process import scenes_to_records, segment_book, presegmentation_gate
 from embed import enrich_file, index_records
 import embed
 import search
 
-from utils import write_json, read_json, relational, subjects, log, SCHEMA_VERSION, SrcPaths
+from utils import write_json, read_json, relational, subjects, log, SCHEMA_VERSION, SrcPaths, llm, llm_ready_up
 from qdrant_client import QdrantClient
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
@@ -52,6 +52,15 @@ FILE_IDS = [
     "1661",     # sherlock holmes
     "345",      # dracula
     "98",       # tale of two cities
+    "43",       # jekyll and hyde
+    "2554",     # crime and punishment
+    "65238",    # the secret of chimneys
+    "8492",     # the king in yellow
+    "2147",     # edgar allan poe 1
+    "2148",     # edgar allan poe 2
+    "175",      # phantom of the opera
+    "68283",    # the call of cthulhu
+    "103"       # around the world in eighty days
 ]
 
 # --- qdrant search test --- #
@@ -81,28 +90,7 @@ DESCRIPTOR_QUERIES = [
     ["chaotic", "terrifying", "cowardly"],          # Red Badge battle-panic (73)
 ]
 
-# --- subject index (built from recall, no library rebuild) --- #
-
-def subject_index_test():
-    """Build the subject trie straight from recall/metadata.json (no build_library, no scene
-    work) and walk it — every path is generated from the tree itself, nothing supplied."""
-    idx = SubjectIndex.from_recall(SrcPaths.RECALL_DIR)
-
-    roots = idx.children_of()
-    log.step(f"{len(roots)} root branches")
-    for r in roots:
-        node = idx.navigate([r])
-        log.info(f"  {r!r}: {len(node.books)} books, {len(node.children)} sub-branches")
-
-    total = deepest = 0
-    example = None
-    for path, subject, codes in idx.walk():         # tree generates its own paths
-        total += 1
-        if len(path) > deepest:
-            deepest, example = len(path), (subject, sorted(codes))
-    log.done(f"{total} branches generated; deepest depth {deepest}: {example}")
-    return idx
-
+# --- subject tree: SQL table + subject_paths payload --- #
 
 def subject_sql_test():
     """Build the subject table in scenes.db from recall/metadata.json, then recall from it —
@@ -170,8 +158,9 @@ def backfill_subject_paths(file_ids=None):
 
 def payload_dump_test():
     """Dump every book's chunk payloads to SEGMENTS_PATH/pg{code}-p.json for inspection."""
-    _, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
-    for book in books.values():
+    metadata, _ = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
+    for code in metadata:                        # books are lazy now — parse/load each shard
+        book = ensure_book(code, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR, metadata[code].get("Title"))
         log.info(f"dumping payloads for book {book.file_code}")
         book.to_json(SrcPaths.SEGMENTS_DIR)
 
@@ -181,14 +170,24 @@ def payload_dump_test():
 def segment_test(metadata: dict, books: dict, desired: str):
     """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     # do not segment if a completed scenes file already exists
-    if (SrcPaths.SCENES_DIR / f"pg{desired}-s.json").is_file(): 
+    if (SrcPaths.SCENES_DIR / f"pg{desired}-s.json").is_file():
         log.skip(f"book {desired} already in scenes — skip segmentation")
         return
+
+    # build_library only carries books with a usable source; a missing/invalid zip is absent
+    # from metadata, so skip rather than KeyError.
+    if desired not in metadata:
+        log.warn(f"book {desired}: no metadata (missing / invalid source) — skip")
 
     log.step(f"segmenting book {desired}")
 
     desired_book = []
-    book, md = books[desired], metadata[desired]
+    md = metadata[desired]
+    # recall is lazy + per-book now: ensure_book checks recall/books/pg{code}.json and parses +
+    # writes the shard if it does not exist, so the book is on disk before we load it.
+    if desired not in books:
+        books[desired] = ensure_book(desired, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR, md.get("Title"))
+    book = books[desired]
 
     # pre-segmentation gates (public-domain + non-prose)
     if presegmentation_gate(desired, md, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR): return
@@ -360,30 +359,48 @@ def stay_awake():
 
 # --- steps --- #
 
-def step_one_retrieval(file_ids):
+def step_one_retrieval(file_ids, force=False):
     """Download each book's -h.zip into DATA_PATH. Launches the wgets in parallel,
     then waits for all of them so step two never reads a half-finished download."""
+    if not file_ids: return
+
     Path(SrcPaths.DATA_DIR).mkdir(parents=True, exist_ok=True)
     procs = []
 
     for file_id in file_ids:
-        if not file_id or (SrcPaths.DATA_DIR / f"pg{file_id}-h.zip").is_file(): continue
+        # skip regardless if file_id does not exist; skip only if file exists and not force
+        if not file_id or ((SrcPaths.DATA_DIR / f"pg{file_id}-h.zip").is_file() and not force): continue
+
+        current_zip = (SrcPaths.DATA_DIR / f"pg{file_id}-h.zip")
+        if current_zip.is_file(): current_zip.unlink()
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
         procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))
         log.info(f"book {file_id}: downloading")
+        time.sleep(2)
+
+    # validation
+    for file_id in file_ids:
+        rebuild = []
+        if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
+            log.warn(f"book {file_id}: missing or invalid zip — rebuild")
+            rebuild.append(file_id)
+    step_one_retrieval(rebuild, force=True)
 
     for p in procs:
         p.wait()
 
 def step_two_processing(file_ids):
     """Segments all files into scenes, creating segment, scenes, and recall folders."""
+    if not llm_ready_up(): sys.exit("LLM issue")
+
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
         for file_id in file_ids:
-            if not (SrcPaths.DATA_DIR / f"pg{file_id}-h.zip").is_file(): 
-                log.warn(f"book {file_id}: download is not a zip")
-                continue
+            # is_zipfile is False for BOTH a missing file and a corrupt one — the same books
+            # build_library skipped, so this keeps segment_test's metadata lookup from KeyError-ing.
+            if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
+                log.warn(f"book {file_id}: missing or invalid zip — skip")
             segment_test(metadata, books, file_id)
 
 def step_three_embedding(file_ids):

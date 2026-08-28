@@ -5,11 +5,10 @@
 # and a different source (catalog metadata, not scene records), so it gets its own
 # module + on-disk contract, exactly as relational.py argues each store should.
 #
-# The in-memory trie (data.py SubjectIndex, persisted to recall/subjects.json) is the
-# DEV form: whole-tree load, whole-file rewrite, book codes duplicated up every ancestor.
-# It does not scale — at ~50k books / ~400k subjects it is a ~100 MB blob reparsed into
-# ~500k objects every startup, rewritten wholesale per book added. This module is the
-# SCALE form: the trie flattened into indexed rows so retrieval is a slice, not a load.
+# A nested in-memory/JSON trie does not scale: at ~50k books / ~400k subjects it is a
+# ~100 MB blob reparsed into ~500k objects every startup, rewritten wholesale per book
+# added, with book codes duplicated up every ancestor. This module is the SCALE form —
+# the trie flattened into indexed rows so retrieval is a slice, not a whole-file load.
 #
 # ONE row per (book, right-anchored subject prefix). The reversed path
 #     "World War, 1914-1918 -- Campaigns -- Italy -- Fiction"
@@ -177,8 +176,8 @@ def build_from_recall(conn: sqlite3.Connection,
                       recall_path: str | Path = SrcPaths.RECALL_DIR) -> int:
     """Populate the table straight from recall/metadata.json — no scene work, no zips.
 
-    The SQL twin of data.py SubjectIndex.from_recall: subjects are a plain list in the
-    cache, which subject_rows consumes directly.
+    Subjects are stored as a plain list in the cache, which subject_rows consumes directly,
+    so this needs neither the zips nor the parsed Books — just the one JSON.
     """
     md_cache = read_json(Path(recall_path) / "metadata.json", {})
     return upsert_many(conn, md_cache)

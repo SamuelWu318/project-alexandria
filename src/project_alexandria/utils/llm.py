@@ -38,3 +38,23 @@ def classify_llm_error(e: Exception) -> str:
     if isinstance(e, openai.APIStatusError):
         return "transient" if (e.status_code == 429 or e.status_code >= 500) else "fatal"
     return "transient"  # unknown network-ish -> limited retry
+
+
+def llm_ready_up():
+    try:
+        messages = [
+        {"role": "system", "content": "respond with 'LLM (model name) from (model provider) is connected and ready with use.' given any message."},
+        {"role": "user", "content": "hello."},
+        ]
+        
+        response = CLIENT.chat.completions.create(
+            model=MODEL, temperature=0,
+            messages=messages,
+        )
+
+        print(f"LLM ready up response: {response.choices[0].message.content}")
+        return True
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
