@@ -111,6 +111,26 @@
   #fused-weights.bad .fw-row input[type=number]{border-color:var(--warn)}
   .x{cursor:pointer;color:var(--dim);font-size:20px;line-height:1;padding:0 4px}
   .x:hover{color:var(--ink)}
+
+  /* subject folder pre-filter */
+  #folder{border-top:1px dashed var(--edge);padding-top:9px;margin-top:2px;display:flex;flex-direction:column;gap:7px}
+  .fld-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+  .fld-ttl{font-weight:600;color:var(--ink)}
+  .crumbs{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--dim)}
+  .crumb{cursor:pointer;color:var(--accent2);padding:1px 5px;border-radius:5px}
+  .crumb:hover{background:var(--panel2)}
+  .crumb.here{color:var(--ink);cursor:default;background:transparent}
+  .crumbs .sep{color:var(--dim2)}
+  .fld-count{color:var(--dim)}
+  .fld-count b{color:var(--accent);font-family:var(--mono)}
+  .fld-list{display:flex;gap:6px;flex-wrap:wrap;max-height:112px;overflow-y:auto}
+  .fitem{font-size:12px;padding:4px 9px;border-radius:7px;border:1px solid var(--edge);background:var(--panel2);cursor:pointer;white-space:nowrap}
+  .fitem:hover{border-color:var(--edge2)}
+  .fitem.fdir{color:var(--accent2)}
+  .fitem.fdir b{color:var(--dim);font-family:var(--mono);font-weight:400;margin-left:3px}
+  .fitem.fbook{color:var(--dim)}
+  .fitem.fbook.on{border-color:var(--accent);color:var(--ink);background:#12211f}
+  .fld-empty{color:var(--dim2);font-size:11.5px;padding:3px 0}
 </style>
 </head>
 <body>
@@ -171,6 +191,18 @@
     </div>
     <div class="fw-grid" id="fw-grid"></div>
   </div>
+
+  <div id="folder">
+    <div class="fld-head">
+      <span class="fld-ttl">📁 Subject filter</span>
+      <span class="crumbs" id="fld-crumbs"></span>
+      <span class="fld-count" id="fld-count"></span>
+      <button class="ghost" id="fld-clear">clear</button>
+      <span class="fw-note">hard pre-filter — only books under the chosen folder (or one pinned book) can surface. Click a 📁 to descend, a 📄 to pin one book, a crumb to go back.</span>
+    </div>
+    <div class="fld-list" id="fld-list"></div>
+  </div>
+
   <div id="status"></div>
 </header>
 
@@ -223,6 +255,7 @@ const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[
   updateTRun();
   buildWeights();
   syncWeightDim();
+  await loadFolder();
 })();
 
 const TITLE_OF = () => Object.fromEntries(DATA.books.map(b=>[b.book_id,b.title]));
@@ -279,6 +312,62 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
 
 const setStatus = m => $("#status").textContent = m;
 
+// ---------- subject folder pre-filter ----------
+// FILTER.path = reversed nav list (["Fiction","Italy"]) sent as the subject_paths label
+// filter; FILTER.count = books in that branch (for the readout); FILTER.bookId = one pinned
+// book that overrides the branch. The branch filter is a single indexed label, not an id-set.
+let FILTER = {path:[], count:0, bookId:null};
+
+async function loadFolder(){
+  const q = FILTER.path.map(p=>"path="+encodeURIComponent(p)).join("&");
+  const data = await api("/api/subject"+(q?("?"+q):""));
+  FILTER.count = data.count;
+  renderFolder(data);
+}
+function renderFolder(data){
+  const crumbs = [`<span class="crumb${FILTER.path.length?"":" here"}" data-i="-1">All</span>`];
+  FILTER.path.forEach((p,i)=>{
+    const here = i===FILTER.path.length-1 && !FILTER.bookId;
+    crumbs.push(`<span class="sep">▸</span><span class="crumb${here?" here":""}" data-i="${i}">${esc(p)}</span>`);
+  });
+  $("#fld-crumbs").innerHTML = crumbs.join("");
+  let cnt;
+  if(FILTER.bookId) cnt = `pinned <b>1</b> book`;
+  else if(FILTER.path.length) cnt = `<b>${data.count}</b> book${data.count===1?"":"s"} in branch`;
+  else cnt = `all <b>${data.count}</b> books`;
+  $("#fld-count").innerHTML = cnt;
+  const folders = data.folders.map(f=>
+     `<span class="fitem fdir" data-term="${esc(f.term)}">📁 ${esc(f.term)}<b>${f.count}</b></span>`).join("");
+  const books = data.books.map(b=>
+     `<span class="fitem fbook${FILTER.bookId===b.book_id?" on":""}" data-bid="${esc(b.book_id)}">📄 ${esc(b.title)}</span>`).join("");
+  $("#fld-list").innerHTML = (folders+books) || `<span class="fld-empty">leaf branch — no sub-folders</span>`;
+  $("#fld-list").querySelectorAll(".fdir").forEach(el=>el.onclick=()=>{
+     FILTER.path.push(el.dataset.term); FILTER.bookId=null; loadFolder();
+  });
+  $("#fld-list").querySelectorAll(".fbook").forEach(el=>el.onclick=()=>{
+     FILTER.bookId = (FILTER.bookId===el.dataset.bid) ? null : el.dataset.bid;
+     renderFolder(data);            // branch unchanged — just repaint the pin
+  });
+  $("#fld-crumbs").querySelectorAll(".crumb").forEach(el=>el.onclick=()=>{
+     const i=+el.dataset.i; FILTER.path = i<0 ? [] : FILTER.path.slice(0,i+1);
+     FILTER.bookId=null; loadFolder();
+  });
+}
+$("#fld-clear").onclick = ()=>{ FILTER={path:[],books:[],bookId:null}; loadFolder(); };
+
+// the hard pre-filter merged into every search batch: a pinned book wins, else the folder
+// branch travels as the subject_paths label (server turns it into one MatchValue term).
+function filterExtra(){
+  if(FILTER.bookId) return {book_id: FILTER.bookId};
+  if(FILTER.path.length) return {subject_path: FILTER.path};
+  return {};
+}
+function filterLabel(){
+  if(FILTER.bookId) return "book "+FILTER.bookId;
+  if(FILTER.path.length) return FILTER.path.join(" ▸ ")+` (${FILTER.count})`;
+  return null;
+}
+
 // ---------- runners ----------
 $("#t-run").onclick = async ()=>{
   const book = $("#t-book").value, mode = $("#t-mode").value, limit=+$("#t-limit").value;
@@ -320,11 +409,14 @@ $("#c-run").onclick = async ()=>{
 };
 
 async function runBatch(queries, extra, what){
-  setStatus(`running ${queries.length} quer${queries.length>1?"ies":"y"} — ${what} …`);
+  const fl = filterLabel();
+  const whatF = fl ? `${what} · 📁 ${fl}` : what;
+  setStatus(`running ${queries.length} quer${queries.length>1?"ies":"y"} — ${whatF} …`);
   const t0=performance.now();
-  const {columns} = await post("/api/search_batch", {queries, ...extra});
+  // filterExtra() spread LAST so an active folder set (book_ids) overrides any per-tab book_id
+  const {columns} = await post("/api/search_batch", {queries, ...extra, ...filterExtra()});
   renderColumns(columns);
-  setStatus(`${what} — ${((performance.now()-t0)/1000).toFixed(1)}s`);
+  setStatus(`${whatF} — ${((performance.now()-t0)/1000).toFixed(1)}s`);
 }
 
 // ---------- render columns ----------

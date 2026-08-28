@@ -98,11 +98,13 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
     { "index": 2, "text": "[Footnote: In the first edition these lines were printed on a separate leaf; later editors restored them to the main text. —Ed.]" },
     { "index": 3, "text": "Then the knock came, hard and twice repeated, and the cup stilled halfway to her lips." },
     { "index": 4, "text": "A boy stood white-faced on the step, holding out a telegram she already dreaded to open." }
+    { "index": 5, "text": "* * * * * * <br></br> * * * * * *" }
+
   ]
   }
   -- reasoning (think first) --
   1. Section 1/1 — a whole unit, nothing cut off at the edges, so no open flags.
-  2. Noise first: index 2 is an editorial footnote (bracketed, "—Ed."), not story, so noise.
+  2. Noise first: index 2 is an editorial footnote (bracketed, "—Ed."), not story, so noise. Index 5 is just astericks, no story, so noise.
   3. Tone: 0-1 is calm and domestic (warm fire, tea, no hurry) = serenity. At 3 the feeling flips hard — the cup stills, the white-faced boy, the dreaded telegram = dread. PRIMARY seam 1: cut where the tone turns.
   4. Two feelings, so two scenes: 0-1 (serenity), then 3-4 (dread). Never one scene holding both.
   5. Coverage: 0,1,2,3,4 each covered once, ascending.
@@ -111,6 +113,7 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
     {"start_paragraph_index": 0, "end_paragraph_index": 1, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": False, "title": "A quiet afternoon tea in the parlour"},
     {"start_paragraph_index": 2, "end_paragraph_index": 2, "paragraph_type": "noise", "content_form": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"},
     {"start_paragraph_index": 3, "end_paragraph_index": 4, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": False, "title": "The dreaded knock at the door"}
+    {"start_paragraph_index": 5, "end_paragraph_index": 5, "paragraph_type": "noise", "content_form": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"},  
   ]}
 
 # EXAMPLE 2 — a poem: non-prose story, kept as a scene but tagged content_form "other"

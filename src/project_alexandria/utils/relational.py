@@ -35,7 +35,7 @@
 #     descriptor filtering + JOIN if ever wanted.)
 # -----------------------------------------------------------------------------
 from __future__ import annotations
-import json, sqlite3
+import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
 from utils import SrcPaths, schema   # schema = the scene-record registry (utils/schema.py)

@@ -87,11 +87,56 @@ def book_filter(book_id: str | None) -> models.Filter | None:
         key="book_id", match=models.MatchValue(value=book_id))])
 
 
+def books_filter(book_ids) -> models.Filter | None:
+    """Filter that restricts a search to a SET of books — the subject/folder pre-filter.
+
+    None means "no restriction" (all books). An EMPTY set is NOT "all"; it is "nothing
+    matches", which a filter cannot express, so callers must treat an empty allow-set as
+    a short-circuit (return no results) rather than passing it here. MatchAny is an OR over
+    book_id; at scale a subject payload field on each point is the cheaper equivalent.
+    """
+    ids = [b for b in (book_ids or []) if b]
+    if not ids:
+        return None
+    return models.Filter(must=[models.FieldCondition(
+        key="book_id", match=models.MatchAny(any=ids))])
+
+
+def subject_filter(branch) -> models.Filter | None:
+    """Restrict a search to one subject branch via the indexed `subject_paths` payload label.
+
+    The scale replacement for books_filter: instead of an id-set of every book under the
+    branch, one exact keyword term the payload index resolves to its points directly. `branch`
+    is a reversed nav list (["Fiction", "Italy"]) OR the ready suffix ("Italy -- Fiction");
+    None/empty -> no restriction (all books).
+    """
+    if not branch:
+        return None
+    suffix = branch if isinstance(branch, str) else " -- ".join(reversed(list(branch)))
+    return models.Filter(must=[models.FieldCondition(
+        key="subject_paths", match=models.MatchValue(value=suffix))])
+
+
+def _search_params(exact: bool):
+    """Pick the retrieval STRATEGY for a filtered search.
+
+    exact=True  -> SearchParams(exact=True): skip the HNSW graph and compare the query
+                   against EVERY point the filter allows (Strategy 2 — brute force over the
+                   isolated set). Fast + exact when that set is small; the caller decides
+                   "small" (few allowed books).
+    exact=False -> None: the normal filtered HNSW walk (Strategy 1) — the graph traversal
+                   that stays efficient when the allowed set is broad.
+    Qdrant makes this same call automatically via full_scan_threshold (measured in POINTS);
+    passing it explicitly lets the caller trip it on a BOOK count it already knows.
+    """
+    return models.SearchParams(exact=True) if exact else None
+
+
 # --- search --- #
 
 def search_summary(client: QdrantClient, summary: str, descriptors: str | None = None,
                    limit: int = 5, flt: models.Filter | None = None,
-                   w_summary: float = 0.7):
+                   w_summary: float = 0.7, exact: bool = False):
     """Search by summary (required); descriptors (optional) only rerank within the summary pool.
 
     Without descriptors: rank by the "summary" vector. With descriptors: summary
@@ -103,13 +148,14 @@ def search_summary(client: QdrantClient, summary: str, descriptors: str | None =
         raise ValueError("search_summary needs a summary")
     sv = embed([QUERY_PREFIX + summary])[0]   # query-side prefix (index stays raw)
 
+    sp = _search_params(exact)   # gate strategy: brute-force the filtered set vs HNSW walk
     if not descriptors:
         return client.query_points(COLLECTION, query=sv, using="summary", limit=limit,
-                                   query_filter=flt, with_payload=True).points
+                                   query_filter=flt, search_params=sp, with_payload=True).points
 
     pool = max(limit * 5, 50)   # summary candidate pool, reranked by descriptors below
     cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, with_payload=True).points
+                                query_filter=flt, search_params=sp, with_payload=True).points
     if not cands:
         return cands
 
@@ -181,6 +227,7 @@ def search_weighted_descriptors(
     anti_strength: float = 1.0,
     limit: int = 5,
     flt: models.Filter | None = None,
+    exact: bool = False,
 ):
     """Descriptor search with per-descriptor weights and optional anti-descriptors.
 
@@ -214,7 +261,7 @@ def search_weighted_descriptors(
 
     return client.query_points(
         COLLECTION, query=q.tolist(), using="descriptors",
-        limit=limit, query_filter=flt, with_payload=True,
+        limit=limit, query_filter=flt, search_params=_search_params(exact), with_payload=True,
     ).points
 
 
@@ -232,6 +279,7 @@ def search_combined(
     limit: int = 5,
     flt: models.Filter | None = None,
     w_summary: float = 0.7,
+    exact: bool = False,
 ):
     """Fused search using BOTH named vectors: the summary GATES + weights the candidate
     pool, and a WEIGHTED-descriptor centroid reranks within it.
@@ -267,7 +315,8 @@ def search_combined(
     sv = embed([QUERY_PREFIX + summary])[0]
     pool = max(limit * 5, 50)
     cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, with_payload=True).points
+                                query_filter=flt, search_params=_search_params(exact),
+                                with_payload=True).points
     if not cands:
         return cands
 
@@ -354,7 +403,7 @@ def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
 
 
 def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
-                limit: int, flt: models.Filter | None):
+                limit: int, flt: models.Filter | None, exact: bool = False):
     """Summary-gate the candidate pool and pull every present field's RAW cosines over it.
 
     The EXPENSIVE half of search_fused (query embeds + Qdrant round-trips); the fuse math
@@ -381,7 +430,8 @@ def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
     sv = embed([QUERY_PREFIX + summ])[0]
     pool = max(limit * 5, 50)
     cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, with_payload=True).points
+                                query_filter=flt, search_params=_search_params(exact),
+                                with_payload=True).points
     if not cands:
         return [], [], {}
     ids = [c.id for c in cands]
@@ -432,7 +482,7 @@ def _fuse(ids: list, scores: dict, weights: dict, *,
 def search_fused(client: QdrantClient, frame: dict,
                  weights: dict | None = None, *,
                  limit: int = 5, flt: models.Filter | None = None,
-                 normalize: str | None = "zscore"):
+                 normalize: str | None = "zscore", exact: bool = False):
     """Fuse EVERY named vector by weighted cosine — the general form of search_combined.
 
     `frame` is the query distilled into the same shape the index stores: any of
@@ -457,7 +507,7 @@ def search_fused(client: QdrantClient, frame: dict,
     but not comparable across queries or thresholdable as a similarity.
     """
     src = weights or DEFAULT_FIELD_WEIGHTS
-    cands, ids, scores = _fused_pool(client, frame, src, limit=limit, flt=flt)
+    cands, ids, scores = _fused_pool(client, frame, src, limit=limit, flt=flt, exact=exact)
     if not cands:
         return cands
     ranked = _fuse(ids, scores, src, normalize=normalize, limit=limit)

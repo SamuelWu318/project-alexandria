@@ -13,12 +13,13 @@
 from pathlib import Path
 import subprocess, os, sys, time, re, contextlib
 
-from data import build_library
+from data import build_library, SubjectIndex
 from process import scenes_to_records, segment_book, presegmentation_gate
 from embed import enrich_file, index_records
+import embed
 import search
 
-from utils import write_json, read_json, relational, log, SCHEMA_VERSION, SrcPaths
+from utils import write_json, read_json, relational, subjects, log, SCHEMA_VERSION, SrcPaths
 from qdrant_client import QdrantClient
 
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
@@ -79,6 +80,91 @@ DESCRIPTOR_QUERIES = [
     ["claustrophobic", "absurd", "dehumanizing"],
     ["chaotic", "terrifying", "cowardly"],          # Red Badge battle-panic (73)
 ]
+
+# --- subject index (built from recall, no library rebuild) --- #
+
+def subject_index_test():
+    """Build the subject trie straight from recall/metadata.json (no build_library, no scene
+    work) and walk it — every path is generated from the tree itself, nothing supplied."""
+    idx = SubjectIndex.from_recall(SrcPaths.RECALL_DIR)
+
+    roots = idx.children_of()
+    log.step(f"{len(roots)} root branches")
+    for r in roots:
+        node = idx.navigate([r])
+        log.info(f"  {r!r}: {len(node.books)} books, {len(node.children)} sub-branches")
+
+    total = deepest = 0
+    example = None
+    for path, subject, codes in idx.walk():         # tree generates its own paths
+        total += 1
+        if len(path) > deepest:
+            deepest, example = len(path), (subject, sorted(codes))
+    log.done(f"{total} branches generated; deepest depth {deepest}: {example}")
+    return idx
+
+
+def subject_sql_test():
+    """Build the subject table in scenes.db from recall/metadata.json, then recall from it —
+    the SCALE path (indexed SQL slices). Drives a path down the tree it discovers itself."""
+    conn = subjects.open_db(SrcPaths.DB_PATH)
+    try:
+        n = subjects.build_from_recall(conn, SrcPaths.RECALL_DIR)
+        log.step(f"built book_subject_path: {n} rows in {SrcPaths.DB_PATH}")
+
+        # walk a path DOWN the tree the table generated — nothing hardcoded
+        path = []
+        while True:
+            kids = subjects.children(conn, path)
+            log.info(f"children of {path or '[root]'}: {kids[:8]}{' ...' if len(kids) > 8 else ''}")
+            if not kids:
+                break
+            path.append("Fiction" if not path and "Fiction" in kids else kids[0])
+
+        # recall at the deepest branch reached
+        parent = path[:-1]                     # last hop had no children; step back to a real branch
+        log.step(f"RECALL  in={parent}")
+        log.done(f"  branch slice -> {subjects.branch(conn, parent)}")
+    finally:
+        conn.close()
+    return
+
+
+def backfill_subject_paths(file_ids=None):
+    """One-off: stamp `subject_paths` onto EXISTING indexed points WITHOUT re-embedding.
+
+    Future books get the label for free — index_records stamps it on every point and ensures
+    the keyword index. This is the migration for books indexed BEFORE the field existed: it
+    reads each book's Subjects from its scenes json, expands the right-anchored prefixes, and
+    set_payloads them onto that book's points (the label is book-level, so one call per book
+    covers all its scenes). Cheap: no vectors are recomputed. file_ids=None does every book.
+    """
+    files = ([Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c] if file_ids
+             else sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json")))
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
+    try:
+        embed._ensure_subject_index(client)          # inert locally, live on server Qdrant
+        total = 0
+        for f in files:
+            if not f.exists():
+                continue
+            recs = read_json(str(f), [])
+            subj = next((r.get("book_metadata") for r in recs if r.get("book_metadata")), None) or {}
+            paths = subjects.suffixes(subj.get("Subjects") or [])
+            ids = [embed._point_id(r["scene_id"]) for r in recs
+                   if r.get("summary") and r.get("scene_id")]     # only enriched scenes are indexed
+            if not ids or not paths:
+                log.skip(f"{f.name}: no indexed points or no subjects — skip")
+                continue
+            client.set_payload(embed.COLLECTION,
+                               payload={embed.SUBJECT_PATHS_FIELD: paths}, points=ids)
+            total += len(ids)
+            log.info(f"{f.name}: stamped {len(ids)} points with {len(paths)} labels")
+        log.done(f"backfilled subject_paths onto {total} points across {len(files)} books")
+    finally:
+        client.close()
+    return
+
 
 # --- payload dump (was data.main) --- #
 
@@ -169,6 +255,8 @@ def embed_test(file_ids=None):
 
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # on-disk local db in the test root, auto-created
     conn = relational.open_db(SrcPaths.DB_PATH)        # test-root SQLite mirror, created/migrated on open
+    subjects.ensure_table(conn)                        # sibling subject table in the same scenes.db
+    subjects.build_from_recall(conn, SrcPaths.RECALL_DIR)  # book-level subject trie, from metadata alone
     status = _load_status()
     try:
         for f in files:
@@ -330,6 +418,7 @@ def main():
     step_one_retrieval(FILE_IDS)
     step_two_processing(FILE_IDS)
     step_three_embedding(FILE_IDS)
+    subject_sql_test()
     #search_test()
     pass
 

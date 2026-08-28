@@ -23,14 +23,21 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from qdrant_client import QdrantClient
-from utils import SrcPaths
+from utils import SrcPaths, read_json
 from utils import relational
+from utils import subjects          # book-level subject trie (the folder pre-filter)
 import search
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 GOLD = HERE / "gold"
 PORT = 8765
+
+# Retrieval-strategy switch for a subject-folder filter: at or below this many allowed
+# books, force exact brute-force over the isolated set (Strategy 2 — fast + exact when few
+# qualify); above it, use the filtered HNSW walk (Strategy 1 — efficient over a broad set).
+# Counted in BOOKS (what the folder knows); the deeper cost is scenes, but books proxy it.
+EXACT_BOOK_THRESHOLD = 10
 
 # --- qdrant lock: last launch wins --- #
 # Local on-disk Qdrant is single-process — a second instance normally errors with
@@ -90,6 +97,7 @@ def _open_qdrant(retries: int = 6) -> QdrantClient:
 # --- shared, opened once --- #
 _client = _open_qdrant()
 _conn = relational.open_db(SrcPaths.DB_PATH)
+subjects.ensure_table(_conn)         # subject folder tree lives as a sibling table in scenes.db
 
 # in-memory scene index: scene_id -> full record (text_html etc.), + book titles
 _scenes: dict[str, dict] = {}
@@ -108,6 +116,21 @@ def _load_scenes() -> None:
             bid = recs[0].get("book_id")
             _book_title[bid] = (recs[0].get("book_metadata") or {}).get("Title") or f"book {bid}"
     print(f"[webtest] loaded {len(_scenes)} scenes across {len(_book_title)} books")
+
+
+def _build_subject_tree() -> int:
+    """Populate the folder tree for the SEARCHABLE books only (those whose scenes loaded).
+
+    The trie derives from catalog subjects, but here we scope it to the books actually in
+    the index so folder navigation never dead-ends on a book with no retrievable scenes.
+    Scoping the TABLE (not just the queries) means count_branch / books_in_branch are
+    inherently searchable-only. Rebuilt each boot — idempotent, cheap at test scale.
+    """
+    md = read_json(Path(SrcPaths.RECALL_DIR) / "metadata.json", {})
+    md = {code: m for code, m in md.items() if code in _book_title}   # searchable subset
+    n = subjects.upsert_many(_conn, md)
+    print(f"[webtest] subject tree: {n} rows across {len(md)} searchable books")
+    return n
 
 
 def _strip(html: str) -> str:
@@ -149,10 +172,15 @@ def _pos(scene_id: str):
 
 # --- search dispatch --- #
 
-def _run_query(q: dict, limit: int, book_id: str | None) -> dict:
-    """Run ONE query object -> a result column. Never raises: errors ride back in-band."""
+def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
+    """Run ONE query object -> a result column. Never raises: errors ride back in-band.
+
+    `flt` is a prebuilt Qdrant filter (single-book, subject-folder set, or None for all
+    books) computed once by the caller — the hard pre-filter that decides which books can
+    surface before the vector search even runs. `exact` picks the retrieval strategy for
+    that filter: brute-force the isolated set (few allowed books) vs the HNSW walk (many).
+    """
     mode = q.get("mode", "fused")
-    flt = search.book_filter(book_id) if book_id else None
     # anti-descriptors need matching weights; fill equal if the query gave only the list
     anti = q.get("anti_descriptors")
     aw = q.get("anti_weights")
@@ -160,17 +188,18 @@ def _run_query(q: dict, limit: int, book_id: str | None) -> dict:
         aw = [1.0 / len(anti)] * len(anti)
     try:
         if mode == "summary":
-            pts = search.search_summary(_client, q.get("summary", ""), limit=limit, flt=flt)
+            pts = search.search_summary(_client, q.get("summary", ""), limit=limit, flt=flt,
+                                        exact=exact)
         elif mode == "combined":
             pts = search.search_combined(
                 _client, q.get("summary", ""), q.get("descriptors") or [],
                 q.get("weights"), anti_descriptors=anti, anti_weights=aw,
-                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt)
+                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt, exact=exact)
         elif mode == "descriptors":
             pts = search.search_weighted_descriptors(
                 _client, q.get("descriptors") or [], q.get("weights"),
                 anti_descriptors=anti, anti_weights=aw,
-                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt)
+                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt, exact=exact)
         else:  # fused (default)
             frame = {k: q.get(k) for k in ("summary", "subject", "verb", "object", "setting")}
             frame["descriptors"] = q.get("descriptors") or []
@@ -181,7 +210,7 @@ def _run_query(q: dict, limit: int, book_id: str | None) -> dict:
             # a query may send "normalize": null to reproduce the old raw-cosine sum for A/B
             nrm = q.get("normalize", "zscore")
             pts = search.search_fused(_client, frame, weights=fw, limit=limit, flt=flt,
-                                      normalize=nrm)
+                                      normalize=nrm, exact=exact)
         results = [_card(p.payload, p.score) for p in pts]
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "target_book_id": q.get("target_book_id"), "results": results}
@@ -237,6 +266,21 @@ class Handler(BaseHTTPRequestHandler):
                 "next_scene_id": rec.get("next_scene_id"),
             })
             return self._json(d)
+        if p == "/api/subject":
+            # folder listing at a subject path: sub-folders (child terms + counts) and the
+            # books in this branch (the "files"). path=Fiction&path=Italy -> ["Fiction","Italy"];
+            # no path -> the roots. This is the pre-retrieval navigator, all from SQL indexes.
+            path = parse_qs(u.query).get("path", [])
+            folders = [{"term": t, "count": subjects.count_branch(_conn, path + [t])}
+                       for t in subjects.children(_conn, path)]
+            if path:
+                bids = subjects.books_in_branch(_conn, path)
+                books = [{"book_id": b, "title": _book_title.get(b, f"book {b}")} for b in bids]
+                subject, count = " -- ".join(reversed(path)), len(bids)
+            else:
+                books, subject, count = [], None, len(_book_title)   # root: browse only
+            return self._json({"path": path, "subject": subject, "folders": folders,
+                               "books": books, "count": count})
         if p == "/api/book":
             bid = (parse_qs(u.query).get("id") or [""])[0]
             # reading order comes from the RELATIONAL store (proves the B-tree nav),
@@ -261,9 +305,29 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(n) or b"{}")
         if u.path == "/api/search_batch":
             limit = int(body.get("limit", 8))
-            book_id = body.get("book_id") or None
             queries = body.get("queries", [])
-            cols = [_run_query(q, limit, book_id) for q in queries]
+            # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a
+            # single pinned book (book_id). The branch filters by the indexed `subject_paths`
+            # label (one term, not an id-set); its book count comes from the SQL tree and drives
+            # the exact-vs-walk switch. A branch with zero searchable books -> every column empty.
+            subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]
+            book_id = body.get("book_id") or None
+            if subject_path:
+                n = subjects.count_branch(_conn, subject_path)
+                if n == 0:
+                    empty = [{"label": q.get("label", ""), "mode": q.get("mode", "fused"),
+                              "meta": q.get("meta", {}), "target_book_id": q.get("target_book_id"),
+                              "results": []} for q in queries]
+                    return self._json({"columns": empty})
+                flt = search.subject_filter(subject_path)
+                exact = n <= EXACT_BOOK_THRESHOLD              # few books -> brute-force the set
+            elif book_id:
+                flt = search.book_filter(book_id)
+                exact = True                                   # one book is maximally selective
+            else:
+                flt = None
+                exact = False
+            cols = [_run_query(q, limit, flt, exact) for q in queries]
             return self._json({"columns": cols})
         return self._json({"error": f"no route {u.path}"}, 404)
 
@@ -277,6 +341,7 @@ def _ctype(path: str) -> str:
 
 def main():
     _load_scenes()
+    _build_subject_tree()            # folder pre-filter tree, scoped to the loaded books
     srv = HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[webtest] serving on http://localhost:{PORT}/  (Ctrl-C to stop)")
     try:

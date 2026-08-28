@@ -128,6 +128,109 @@ class MetadataParser:
         return md
 
 
+# --- SUBJECT INDEX --- #
+
+class SubjectIndex:
+    """A trie over Gutenberg subjects, keyed by the REVERSED component path.
+
+    Each subject string is delimited by " -- ", broadest term rightmost, e.g.
+    "World War, 1914-1918 -- Campaigns -- Italy -- Fiction". Reversed, that is the
+    root-down path [Fiction, Italy, Campaigns, World War, 1914-1918], so a right-anchored
+    "all books ending in `Italy -- Fiction`" query becomes a prefix walk of depth 2.
+
+    Every node aggregates the book codes of the whole subtree beneath it, so branch
+    retrieval is an O(depth) walk + O(1) set return — no subtree traversal at query time.
+    Pure + scene-independent: built from Subjects alone (available before any scene work),
+    persisted to recall/subjects.json, and rebuildable from metadata.json at any time.
+    """
+    __slots__ = ("children", "books")
+
+    def __init__(self):
+        self.children: dict[str, "SubjectIndex"] = {}   # component -> child node
+        self.books: set[str] = set()                    # every book code in this subtree
+
+    def add(self, book_code: str, subjects) -> None:
+        """Thread one book's subjects into the trie, tagging every node on each path."""
+        for subj in subjects:
+            node = self
+            for part in reversed([p.strip() for p in subj.split(" -- ") if p.strip()]):
+                node = node.children.setdefault(part, SubjectIndex())
+                node.books.add(book_code)
+
+    @classmethod
+    def build(cls, metadata: dict) -> "SubjectIndex":
+        """Build the whole tree from a code -> metadata-dict map (each with a Subjects field)."""
+        idx = cls()
+        for code, md in metadata.items():
+            idx.add(code, md.get("Subjects") or ())
+        return idx
+
+    @classmethod
+    def from_recall(cls, recall_path: str = SrcPaths.RECALL_DIR) -> "SubjectIndex":
+        """Build straight from the cached recall/metadata.json — no library rebuild, no scene work.
+
+        Subjects are stored as a plain list in the cache, which `add` consumes directly, so
+        this needs neither the zips nor the parsed Books — just the one JSON.
+        """
+        md_cache = read_json(Path(recall_path) / "metadata.json", {})
+        return cls.build(md_cache)
+
+    def navigate(self, path) -> "SubjectIndex | None":
+        """Walk the reversed path (e.g. ["Fiction", "Italy"]); None if it dead-ends."""
+        node = self
+        for part in path:
+            node = node.children.get(part)
+            if node is None: return None
+        return node
+
+    def lookup(self, path) -> "tuple[str, set[str]] | None":
+        """Return (subject_string, book_codes) for a branch, or None if it does not exist.
+
+        lookup(["Fiction", "Italy"]) -> ("Italy -- Fiction", {codes of every book whose
+        subject ends in "Italy -- Fiction"}).
+        """
+        node = self.navigate(path)
+        if node is None: return None
+        return " -- ".join(reversed(list(path))), node.books
+
+    def children_of(self, path=()) -> list[str]:
+        """The next components branching off a path — the browse/facet view (root = [])."""
+        node = self.navigate(path)
+        return sorted(node.children) if node else []
+
+    def walk(self, _prefix=()):
+        """Generate every branch from the tree itself (depth-first) — nothing supplied.
+
+        Yields (path, subject, book_codes) for each node, e.g.
+        (["Fiction", "Italy"], "Italy -- Fiction", {codes}). The empty-path root is skipped.
+        """
+        for part, child in self.children.items():
+            path = _prefix + (part,)
+            yield list(path), " -- ".join(reversed(path)), child.books
+            yield from child.walk(path)
+
+    # book codes live under the "" key — add() strips empty parts, so no real subject
+    # component is ever "", making it a collision-free slot for a node's own payload.
+    _BOOKS_KEY = ""
+
+    def to_dict(self) -> dict:
+        """Serialize for recall/subjects.json: children ARE the keys; this node's book codes
+        sit under "" (a sorted list). No wrapper keys, so the file mirrors the tree directly."""
+        d = {name: child.to_dict() for name, child in self.children.items()}
+        if self.books:
+            d[self._BOOKS_KEY] = sorted(self.books)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SubjectIndex":
+        """Rehydrate the trie: every key is a child component except "" (this node's books)."""
+        node = cls()
+        node.books = set(d.get(cls._BOOKS_KEY) or [])
+        node.children = {name: cls.from_dict(sub)
+                         for name, sub in d.items() if name != cls._BOOKS_KEY}
+        return node
+
+
 # --- BOOK / CHUNK / PARAGRAPH TREE --- #
 
 @dataclass
@@ -473,5 +576,10 @@ def build_library(data_path: str = SrcPaths.DATA_DIR,
         write_json(md_file, md_cache)
     if books_dirty:
         write_json(books_file, books_cache)
+
+    # derived subject trie — pure metadata, rebuilt whenever metadata changed (or missing)
+    subj_file = recall / "subjects.json"
+    if md_dirty or not subj_file.is_file():
+        write_json(subj_file, SubjectIndex.build(metadata).to_dict())
 
     return metadata, books

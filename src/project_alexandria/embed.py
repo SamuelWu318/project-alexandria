@@ -15,7 +15,7 @@
 # "high" because classifying already-cut scenes is easier than cutting). Paths +
 # atomic JSON IO come from storage.py; the Qdrant contract comes from search.py.
 # -----------------------------------------------------------------------------
-import json, re, time, threading, math
+import json, re, time, threading, math, warnings
 from collections import Counter
 from pathlib import Path, PurePath
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +29,7 @@ from search import (COLLECTION, VECTOR_NAMES, MULTIVECTOR_NAMES, embed as _embed
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, SCHEMA_VERSION, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, log, read_json, write_json
 from utils import relational, schema # scene-record registry: the drift guard below checks the models against it
+from utils import subjects           # subject-path expansion for the filterable payload label
 
 
 # --- tuning constants (model/prompt surface — the user's to tune) --- #
@@ -529,6 +530,29 @@ def _ensure_collection(client: QdrantClient, dim: int):
     client.create_collection(COLLECTION, vectors_config=want)
 
 
+SUBJECT_PATHS_FIELD = "subject_paths"   # payload label filtered by subject branch (search.subject_filter)
+
+
+def _ensure_subject_index(client: QdrantClient) -> None:
+    """Keyword payload index on `subject_paths` so a branch filter is an inverted-index lookup.
+
+    Without it Qdrant scans every point's payload to test the filter; with it, the term maps
+    straight to its points (the matching set) and its count (the cardinality the query planner
+    uses to pick exact-vs-HNSW). Idempotent — re-declaring the same field/schema is a no-op.
+
+    NOTE: payload indexes are inert in LOCAL/embedded Qdrant (filtering still works, just by
+    scan) and only take effect on SERVER Qdrant. We create it regardless so the index is live
+    the moment the store moves to a server; the local "no effect" warning is muted below.
+    """
+    try:
+        with warnings.catch_warnings():          # local Qdrant warns the index is inert — harmless
+            warnings.simplefilter("ignore")
+            client.create_payload_index(COLLECTION, field_name=SUBJECT_PATHS_FIELD,
+                                        field_schema=models.PayloadSchemaType.KEYWORD)
+    except Exception as e:                        # never let index setup break an index run
+        log.warn(f"subject_paths payload index: {type(e).__name__}: {e}")
+
+
 def _multivector_field(ready: list[dict], field: str) -> list[list[list[float]]]:
     """Embed one multivector frame field for every ready scene -> a per-scene MATRIX.
 
@@ -575,7 +599,13 @@ def index_records(client: QdrantClient, records: list[dict],
     set_vecs = _embed([(r.get("setting") or "").strip() or r["summary"] for r in ready])
     # multivector frame fields: one MATRIX (list of term vectors) per scene.
     mv = {f: _multivector_field(ready, f) for f in MULTIVECTOR_NAMES}
+    # stamp the filterable subject label onto each payload (all right-anchored prefixes of the
+    # book's subjects) so a branch filter is one exact keyword match at any depth.
+    for r in ready:
+        subj = (r.get("book_metadata") or {}).get("Subjects") or []
+        r[SUBJECT_PATHS_FIELD] = subjects.suffixes(subj)
     _ensure_collection(client, len(sum_vecs[0]))
+    _ensure_subject_index(client)
     points = [
         models.PointStruct(
             id=_point_id(r["scene_id"]),
