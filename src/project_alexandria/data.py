@@ -12,8 +12,9 @@
 #   * Paragraph.index is GLOBAL and book-wide — it never resets per chapter, and
 #     all_paras[k].index == k. process.py's stitching and context lookback depend
 #     on this contiguity.
-#   * Chunks pack paragraphs up to TARGET_CHARS on paragraph boundaries; a lone
-#     over-budget paragraph is kept whole (never split mid-paragraph).
+#   * Chunks pack paragraphs on paragraph boundaries, flushing at whichever trips
+#     first — TARGET_CHARS or MAX_PARAGRAPHS (the latter bounds dialogue-heavy
+#     chapters); a lone over-budget paragraph is kept whole (never split mid-paragraph).
 #   * Extraction is LOSSLESS: <p> outside every div.chapter is swept up as a
 #     leading "Front Matter" segment rather than silently dropped.
 #   * to_dict/from_dict on Book/Chunk/Paragraph are the lossless recall round-trip;
@@ -36,7 +37,8 @@ BOILERPLATE_SELECTORS = ["#pg-header", "#pg-footer",
 CHAPTER_SELECTOR = "div.chapter"                        # primary chunk boundary
 HEADING_TAGS = ["h1", "h2", "h3", "h4"]                 # mark the start of a segment
 MIN_SEGMENT_CHARS = 200                                 # below this = not prose, drop
-TARGET_CHARS = 30000                                    # ~6k-token chunk budget
+TARGET_CHARS = 25000                                    # ~6k-token chunk budget
+MAX_PARAGRAPHS = 100                                    # per-chunk paragraph cap; bounds dialogue-heavy chapters whose many short paragraphs stay under TARGET_CHARS yet overload the segmenter's per-index coverage
 OVERLAP_PARAGRAPHS = 3                                  # lookback window for scene context
 KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # inline tags kept for rendering
              "u", "small", "br"}
@@ -337,13 +339,19 @@ class SceneParser:
         return [(None, texts)] if texts else []
 
     def _pack(self, paragraphs: list[Paragraph]) -> list[list[Paragraph]]:
-        """Greedily group paragraphs into parts <= TARGET_CHARS, never splitting one."""
+        """Greedily group paragraphs into parts, flushing at whichever budget trips first:
+        TARGET_CHARS (char budget) or MAX_PARAGRAPHS (paragraph count). The paragraph cap
+        bounds dialogue-heavy chapters, whose many short paragraphs stay under the char
+        budget yet overload the segmenter's per-index coverage. A lone paragraph is never
+        split, so a single over-budget paragraph is still kept whole."""
         parts: list[list[Paragraph]] = []
         current: list[Paragraph] = []
         size = 0
 
         for p in paragraphs:
-            if current and size + len(p.text) > TARGET_CHARS:
+            over_chars = size + len(p.text) > TARGET_CHARS
+            over_count = len(current) >= MAX_PARAGRAPHS
+            if current and (over_chars or over_count):
                 parts.append(current)
                 current, size = [], 0
             current.append(p)

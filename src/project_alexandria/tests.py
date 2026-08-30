@@ -54,7 +54,6 @@ FILE_IDS = [
     "98",       # tale of two cities
     "43",       # jekyll and hyde
     "2554",     # crime and punishment
-    "65238",    # the secret of chimneys
     "8492",     # the king in yellow
     "2147",     # edgar allan poe 1
     "2148",     # edgar allan poe 2

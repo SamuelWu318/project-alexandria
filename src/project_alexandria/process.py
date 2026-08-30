@@ -52,7 +52,7 @@ You receive one JSON object (one section) with:
 # TASK
 Call output_scenes with an ordered list of segments covering every paragraph in "indexed_paragraphs" exactly once — ascending, no gaps, no overlaps. Segment only "indexed_paragraphs": the first segment starts at the smallest index, the last ends at the largest.
 """,
-"",
+"""""",
 """
 
 # HOW TO CUT A SCENE
@@ -72,8 +72,8 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
 6. Verify coverage — every index covered exactly once, ascending, no gaps or overlaps.
 
 # RULES
-- Call output_scenes and output nothing else.
-- Cover every index in "indexed_paragraphs" exactly once; never segment "read_only_context_paragraphs".
+- TWO things must always hold: (1) return your answer ONLY by calling output_scenes — never plain text; (2) cover EVERY index in "indexed_paragraphs" exactly once — ascending, no gaps, no overlaps, no index that was not in the input.
+- Never segment "read_only_context_paragraphs" — context only.
 - Group contiguous noise into ONE segment rather than many.
 - The open flags describe ONLY what lies beyond this section — before the first index or after the last.
 
@@ -82,9 +82,9 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
 - paragraph_type: "scene" or "noise".
 - content_form: "prose", "other", or "noise". Use "noise" whenever paragraph_type is "noise"; otherwise "prose" for prose story, "other" for a poem or stage play.
 - title: 4-10 words naming the scene; "NOISE" for noise.
-- open_start_index: True only for the FIRST scene, and only when its opening lies in "read_only_context_paragraphs" (the scene began in an earlier section). Otherwise False.
-- open_end_index: True only for the LAST scene, and only when it clearly continues past the final indexed paragraph (into a later section). Otherwise False.
-- Noise segments and interior scenes (any scene that is neither first nor last) always have both flags False.
+- open_start_index: true only for the FIRST scene, and only when its opening lies in "read_only_context_paragraphs" (the scene began in an earlier section). Otherwise false.
+- open_end_index: true only for the LAST scene, and only when it clearly continues past the final indexed paragraph (into a later section). Otherwise false.
+- Noise segments and interior scenes (any scene that is neither first nor last) always have both flags false.
 
 # EXAMPLE 1 — prose that turns in tone, with an editorial footnote to drop
   -- input --
@@ -97,23 +97,22 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
     { "index": 1, "text": "They spoke of small things — the garden, the weather, a letter from a cousin — and the afternoon seemed in no hurry to end." },
     { "index": 2, "text": "[Footnote: In the first edition these lines were printed on a separate leaf; later editors restored them to the main text. —Ed.]" },
     { "index": 3, "text": "Then the knock came, hard and twice repeated, and the cup stilled halfway to her lips." },
-    { "index": 4, "text": "A boy stood white-faced on the step, holding out a telegram she already dreaded to open." }
+    { "index": 4, "text": "A boy stood white-faced on the step, holding out a telegram she already dreaded to open." },
     { "index": 5, "text": "* * * * * * <br></br> * * * * * *" }
-
   ]
   }
   -- reasoning (think first) --
-  1. Section 1/1 — a whole unit, nothing cut off at the edges, so no open flags.
-  2. Noise first: index 2 is an editorial footnote (bracketed, "—Ed."), not story, so noise. Index 5 is just astericks, no story, so noise.
-  3. Tone: 0-1 is calm and domestic (warm fire, tea, no hurry) = serenity. At 3 the feeling flips hard — the cup stills, the white-faced boy, the dreaded telegram = dread. PRIMARY seam 1: cut where the tone turns.
-  4. Two feelings, so two scenes: 0-1 (serenity), then 3-4 (dread). Never one scene holding both.
-  5. Coverage: 0,1,2,3,4 each covered once, ascending.
+  1. Section 1/1 — whole unit, nothing cut at the edges, so no open flags.
+  2. Noise first: index 2 is an editorial footnote (bracketed, "—Ed."); index 5 is only asterisks. Both noise.
+  3. Tone: 0-1 calm and domestic (fire, tea, no hurry) = serenity. At 3 it flips hard — the stilled cup, white-faced boy, dreaded telegram = dread. PRIMARY seam 1: cut where tone turns.
+  4. Two feelings = two scenes: 0-1 (serenity), 3-4 (dread). Never one scene holding both.
+  5. Coverage: 0,1,2,3,4,5 each covered once, ascending.
   -- output_scenes --
   {"scenes_data": [
-    {"start_paragraph_index": 0, "end_paragraph_index": 1, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": False, "title": "A quiet afternoon tea in the parlour"},
-    {"start_paragraph_index": 2, "end_paragraph_index": 2, "paragraph_type": "noise", "content_form": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"},
-    {"start_paragraph_index": 3, "end_paragraph_index": 4, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": False, "title": "The dreaded knock at the door"}
-    {"start_paragraph_index": 5, "end_paragraph_index": 5, "paragraph_type": "noise", "content_form": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"},  
+    {"start_paragraph_index": 0, "end_paragraph_index": 1, "paragraph_type": "scene", "content_form": "prose", "open_start_index": false, "open_end_index": false, "title": "A quiet afternoon tea in the parlour"},
+    {"start_paragraph_index": 2, "end_paragraph_index": 2, "paragraph_type": "noise", "content_form": "noise", "open_start_index": false, "open_end_index": false, "title": "NOISE"},
+    {"start_paragraph_index": 3, "end_paragraph_index": 4, "paragraph_type": "scene", "content_form": "prose", "open_start_index": false, "open_end_index": false, "title": "The dreaded knock at the door"},
+    {"start_paragraph_index": 5, "end_paragraph_index": 5, "paragraph_type": "noise", "content_form": "noise", "open_start_index": false, "open_end_index": false, "title": "NOISE"}
   ]}
 
 # EXAMPLE 2 — a poem: non-prose story, kept as a scene but tagged content_form "other"
@@ -130,13 +129,13 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
   }
   -- reasoning (think first) --
   1. Section 1/1 — no open flags.
-  2. Noise: none. This is a poem — verse lines and stanzas, a non-prose form. It still carries the story and feeling, so paragraph_type is "scene", NOT noise. Because it is verse, not prose, content_form is "other".
+  2. Noise: none. Verse still carries the story, so paragraph_type "scene", NOT noise. Because it is verse not prose, content_form "other".
   3. Tone: melancholy held across all three stanzas (dark harbour, waiting alone, a tended grave). One flavor, steady.
   4. One scene, 0-2.
   5. Coverage: 0,1,2 each once.
   -- output_scenes --
   {"scenes_data": [
-    {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "content_form": "other", "open_start_index": False, "open_end_index": False, "title": "A woman keeps vigil by the harbour"}
+    {"start_paragraph_index": 0, "end_paragraph_index": 2, "paragraph_type": "scene", "content_form": "other", "open_start_index": false, "open_end_index": false, "title": "A woman keeps vigil by the harbour"}
   ]}
 
 # EXAMPLE 3 — an all-noise section: subtle translator / preface commentary, no story
@@ -155,14 +154,13 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
   }
   -- reasoning (think first) --
   1. Scan for noise first.
-  2. Every paragraph is the translator speaking ABOUT the text — how it was rendered (0), where the manuscript came from (1), a note on the notation (2), an editorial choice on chapter order (3). This is subtle: it reads like flowing first-person prose, but the "I" is the translator, not a character in a story.
-  3. Index 4 is the trap: it names the story's setting ("a winter road outside Vilnius"), but the sentence is biography about the author, not the scene itself. Naming the story is not the same as being the story. Still noise.
-  4. Apparatus talks ABOUT the book; a scene happens INSIDE the story. No scene here, so no seams and no open flags.
-  5. Contiguous noise collapses into ONE segment.
-  6. Coverage: 0-4 covered once.
+  2. Every paragraph is the translator speaking ABOUT the text = noise.
+  3. Index 4 is tricky — sounds like story, but talks about the author, not the novel itself. Still noise.
+  4. No scene, so no seams or open flags.
+  5. Group all noise into one segment, 0-4.
   -- output_scenes --
   {"scenes_data": [
-    {"start_paragraph_index": 0, "end_paragraph_index": 4, "paragraph_type": "noise", "content_form": "noise", "open_start_index": False, "open_end_index": False, "title": "NOISE"}
+    {"start_paragraph_index": 0, "end_paragraph_index": 4, "paragraph_type": "noise", "content_form": "noise", "open_start_index": false, "open_end_index": false, "title": "NOISE"}
   ]}
 
 # EXAMPLE 4 — cross-section scene: open_start and open_end at the edges, with a tonal turn
@@ -183,19 +181,16 @@ Non-story FORMS are still scenes, never noise: a poem/verse or a stage play carr
   -- reasoning (think first) --
   1. Section 2/3 — mid-chapter, so a scene may be cut off at either edge.
   2. Noise: none.
-  3. The first scene's opening lies in read_only_context_paragraphs (the storm now breaking), so open_start_index is True. It runs 9-10 = relief.
-  4. Tone turns at 11: the lookout's cry, the black shape = dread. A new scene starts at 11.
-  5. Scene 11 clearly continues past the last index (the threat is unresolved), so open_end_index is True.
+  3. First scene's opening lies in read_only_context_paragraphs (storm breaking), so open_start_index true. Runs 9-10 = relief.
+  4. Tone turns at 11: the lookout's cry, the black shape = dread. New scene starts at 11.
+  5. Scene 11 continues past the last index (threat unresolved), so open_end_index true.
   6. Coverage: 9,10,11 each once; 7-8 are context, not segmented.
   -- output_scenes --
   {"scenes_data": [
-    {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "content_form": "prose", "open_start_index": True, "open_end_index": False, "title": "The storm breaks and the sea calms"},
-    {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "content_form": "prose", "open_start_index": False, "open_end_index": True, "title": "A black shape dead ahead"}
+    {"start_paragraph_index": 9, "end_paragraph_index": 10, "paragraph_type": "scene", "content_form": "prose", "open_start_index": true, "open_end_index": false, "title": "The storm breaks and the sea calms"},
+    {"start_paragraph_index": 11, "end_paragraph_index": 11, "paragraph_type": "scene", "content_form": "prose", "open_start_index": false, "open_end_index": true, "title": "A black shape dead ahead"}
   ]}
 """]
-
-class MultiSceneData(BaseModel):
-    scenes_data: list[SceneData]
 
 class SceneData(BaseModel):
     # metadata can be added later.
@@ -206,7 +201,12 @@ class SceneData(BaseModel):
     open_start_index: bool
     open_end_index: bool
     title: str
-    
+
+class MultiSceneData(BaseModel):
+    # SceneData defined FIRST: this annotation is evaluated at class-definition time
+    # (no `from __future__ import annotations`), so the forward name must already exist.
+    scenes_data: list[SceneData]
+
 TOOL = pydantic_function_tool(
     MultiSceneData,
     name="output_scenes",
@@ -258,12 +258,10 @@ def _retry_note(notes: list[str]) -> str:
     _inject_retry_notes — placed among the instructions, NOT tacked onto the end."""
     if not notes:
         return ""
-    lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
-    return ("# RETRY — SEGMENT THE PARAGRAPHS YOU MISSED\n"
-            "Earlier attempts on THIS SAME section did not segment every paragraph "
-            "correctly. Cover EVERY indexed paragraph exactly once — ascending, no gaps, "
-            "no overlaps, no indices that were not in the input. Problems from previous "
-            f"attempts:\n{lines}\n")
+    lines = "\n".join(f"- previous attempt error (NEVER DO THIS AGAIN): {n}" for i, n in enumerate(notes))
+    return ("# RETRY — SEGMENT WHILE AVOIDING THESE ERRORS\n"
+            "Earlier attempts on this section had these errors. FIX THIS: "
+            f"\n{lines}\n")
 
 
 def _inject_retry_notes(prompt: list, notes: list[str]) -> str:
@@ -344,6 +342,8 @@ class SceneBreaker:
             validation_tries += 1
             attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
             notes.append(reason)
+            if len(notes) > 4:
+                notes.pop(0)
             log.warn(f"validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:140]}")
 
 

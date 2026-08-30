@@ -269,7 +269,7 @@ function updateTRun(){
 $("#t-book").onchange = updateTRun;
 
 // ---------- fused field-weight boxes (must total 100 to run) ----------
-const FW_FIELDS = [["summary",25.7],["verb",11.3],["descriptors",21],["subject",7.5],["object",30],["setting",4.4]];
+const FW_FIELDS = [["summary",25.9],["verb",0],["descriptors",25.9],["subject",24.9],["object",19.4],["setting",3]];
 function buildWeights(){
   $("#fw-grid").innerHTML = FW_FIELDS.map(([k,v])=>`
     <div class="fw-row">

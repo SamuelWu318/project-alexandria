@@ -10,6 +10,15 @@
     {"id": "d-7", "target_query_id": "q-64317-2", "target_book_id": "64317", "descriptors": ["wistful", "yearning", "melancholy", "hopeful"], "note": "longing across dark water toward a distant light"},
     {"id": "d-8", "target_query_id": "q-215-2", "target_book_id": "215", "descriptors": ["savage", "feral", "primal", "brutal"], "note": "a beast winning dominance by violence"},
     {"id": "d-9", "target_query_id": "q-71865-2", "target_book_id": "71865", "descriptors": ["anguished", "haunted", "despairing", "hopeless"], "anti_descriptors": ["cheerful", "festive"], "note": "a broken veteran's final act; push away party gaiety"},
-    {"id": "d-10", "target_query_id": "q-1342-1", "target_book_id": "1342", "descriptors": ["proud", "indignant", "cold", "tense"], "anti_descriptors": ["warm", "tender"], "note": "a scornful marriage proposal refused; push away tenderness"}
+    {"id": "d-10", "target_query_id": "q-1342-1", "target_book_id": "1342", "descriptors": ["proud", "indignant", "cold", "tense"], "anti_descriptors": ["warm", "tender"], "note": "a scornful marriage proposal refused; push away tenderness"},
+
+    {"id": "d-11", "target_query_id": "q-43-1", "target_book_id": "43", "descriptors": ["sinister", "secretive", "monstrous", "horrified"], "note": "a doctor drinking a draught and becoming his hidden self"},
+    {"id": "d-12", "target_query_id": "q-103-1", "target_book_id": "103", "descriptors": ["bold", "cool", "resolute", "adventurous"], "note": "a man betting his fortune to circle the globe"},
+    {"id": "d-13", "target_query_id": "q-175-1", "target_book_id": "175", "descriptors": ["obsessive", "eerie", "possessive", "yearning"], "note": "a masked tutor haunting a young singer beneath a theatre"},
+    {"id": "d-14", "target_query_id": "q-2554-1", "target_book_id": "2554", "descriptors": ["dreadful", "frantic", "guilty", "cold"], "note": "a destitute student's axe murder"},
+    {"id": "d-15", "target_query_id": "q-2147-1", "target_book_id": "2147", "descriptors": ["obsessive", "clever", "feverish", "driven"], "note": "decoding a cipher to buried treasure"},
+    {"id": "d-16", "target_query_id": "q-2148-1", "target_book_id": "2148", "descriptors": ["paranoid", "frantic", "guilty", "haunted"], "anti_descriptors": ["calm", "serene"], "note": "a killer betrayed by an imagined heartbeat; push away calm"},
+    {"id": "d-17", "target_query_id": "q-8492-1", "target_book_id": "8492", "descriptors": ["maddening", "uncanny", "dreadful", "decadent"], "note": "a forbidden play that drives readers mad"},
+    {"id": "d-18", "target_query_id": "q-68283-1", "target_book_id": "68283", "descriptors": ["foreboding", "alien", "dreadful", "obsessive"], "note": "assembling papers on a sleeping sea-god"}
   ]
 }
