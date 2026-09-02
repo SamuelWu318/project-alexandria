@@ -73,8 +73,8 @@ TEST_QUERIES = [
     "A man experiences a traumatic fight and narrowly wins or escapes."
 ]
 
-# (summary, descriptors-list) pairs for search_combined: the summary gates the pool, the
-# weighted-descriptor centroid reranks within it. descriptors is a LIST (equal-weighted).
+# (summary, descriptors-list) pairs for the flavor merge: search() runs the summary channel
+# and the weighted-descriptor centroid, then RRF-merges them. descriptors is a LIST (equal-weighted).
 COMBINED_QUERIES = [
     ("A crowd of glittering strangers drifts through a wealthy host's extravagant summer party.",
      ["festive", "glamorous", "hollow"]),                       # Gatsby (64317)
@@ -82,7 +82,16 @@ COMBINED_QUERIES = [
      ["tender", "bittersweet", "yearning"]),                    # A Farewell to Arms (75201)
 ]
 
-# pure-descriptor (vibe-only) queries — each a descriptor list for search_weighted_descriptors.
+# (summary, moment-sentence list) pairs for the what-happens two-channel search: the general
+# summary + the stripped svos clause sentences, fused by GREATEST SINGLE MATCH (max).
+MOMENTS_QUERIES = [
+    ("A young soldier breaks and runs from his first battle.",
+     ["A terrified soldier flees the battlefield.", "The soldier throws down his rifle and runs."]),  # Red Badge (73)
+    ("An evil witch is destroyed by water.",
+     ["A girl hurls a bucket of water over a witch.", "The witch melts into nothing."]),              # Wizard of Oz (55)
+]
+
+# pure-descriptor (vibe-only) queries — each a descriptor list.
 DESCRIPTOR_QUERIES = [
     ["festive", "glamorous", "restless"],           # Gatsby-party glitter (64317)
     ["claustrophobic", "absurd", "dehumanizing"],
@@ -287,7 +296,8 @@ def _show(hits):
 
 
 def search_test(book_id: str = None, limit: int = 2):
-    """Run summary-only, summary+descriptors (weighted), then pure-descriptor searches."""
+    """Smoke the unified search(): summary-only, summary+moments (svos), summary+descriptors
+    (RRF), then pure-descriptor — every group through the one search() entry."""
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # read the test db that embed_test wrote
 
     flt = search.book_filter(book_id)
@@ -296,17 +306,22 @@ def search_test(book_id: str = None, limit: int = 2):
         log.step("SUMMARY ONLY")
         for q in TEST_QUERIES:
             print(f"\nQUERY: {q}")
-            _show(search.search_summary(client, q, limit=limit, flt=flt))
+            _show(search.search(client, summary=q, limit=limit, flt=flt))
 
-        log.step("SUMMARY + WEIGHTED DESCRIPTORS (search_combined)")
+        log.step("SUMMARY + MOMENTS (what-happens: summary vs svos, greatest single match)")
+        for summ, moments in MOMENTS_QUERIES:
+            print(f"\nQUERY: {summ!r}  +  moments {moments!r}")
+            _show(search.search(client, summary=summ, moments=moments, limit=limit, flt=flt))
+
+        log.step("SUMMARY + DESCRIPTORS (RRF merge)")
         for summ, desc in COMBINED_QUERIES:
             print(f"\nQUERY: {summ!r}  +  descriptors {desc!r}")
-            _show(search.search_combined(client, summ, desc, limit=limit, flt=flt))
+            _show(search.search(client, summary=summ, descriptors=desc, limit=limit, flt=flt))
 
         log.step("DESCRIPTORS ONLY")
         for descriptors in DESCRIPTOR_QUERIES:
             print(f"\nQUERY: descriptors {descriptors!r}")
-            _show(search.search_weighted_descriptors(client, descriptors))
+            _show(search.search(client, descriptors=descriptors, limit=limit, flt=flt))
     finally:
         client.close()
 
@@ -413,18 +428,21 @@ def step_three_embedding(file_ids):
         embed_test(exist_ids)
 
 
-def distill_and_search(sentence: str, limit: int = 5, book_id: str = None):
-    """TEMPORARY Phase-4 driver: distil a raw writer query into a frame, run search_fused,
-    print the frame + hits. Eyeball the whole read path on the test index."""
-    from embed import distill_query
-    frame = distill_query(sentence)
-    log.step(f"FRAME for {sentence!r}")
-    for k in ("summary", "subject", "verb", "object", "setting", "descriptors"):
-        print(f"  {k:11}: {frame[k]!r}")
+def manual_search(summary: str = "", moments=None, descriptors=None,
+                  limit: int = 5, book_id: str = None):
+    """Manual read-path driver: hand it a summary and/or a list of moment clause SENTENCES
+    (and/or a descriptor list), run the unified search(), print the hits. Query input is
+    manual now — no LLM distiller. Eyeball the whole read path on the test index.
+
+    e.g. manual_search("A soldier flees his first battle.",
+                       moments=["A terrified soldier throws down his rifle and runs."])
+    """
+    log.step(f"SEARCH  summary={summary!r}  moments={moments!r}  descriptors={descriptors!r}")
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
     try:
-        hits = search.search_fused(client, frame, limit=limit,
-                                   flt=search.book_filter(book_id))
+        hits = search.search(client, summary=summary or None, moments=moments,
+                             descriptors=descriptors, limit=limit,
+                             flt=search.book_filter(book_id))
         _show(hits)
     finally:
         client.close()

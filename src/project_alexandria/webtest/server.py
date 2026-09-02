@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # A tiny stdlib HTTP server (zero new deps) that drives the LIVE stores so the
 # gold queries + a browser front end can exercise the whole retrieval path:
-#   * Qdrant  (search.py)      -> vector search: fused / summary / combined / descriptors
+#   * Qdrant  (search.py)      -> unified search(): what-happens (summary + svos) + flavor
 #   * SQLite  (relational.py)  -> reading-order navigation for the book "wheel"
 #   * scenes json (in memory)  -> full text_html + previews (the payload source of truth)
 #
@@ -180,41 +180,32 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
     surface before the vector search even runs. `exact` picks the retrieval strategy for
     that filter: brute-force the isolated set (few allowed books) vs the HNSW walk (many).
     """
-    mode = q.get("mode", "fused")
+    mode = q.get("mode", "search")   # echoed back for the UI column header; not a dispatch key
     # anti-descriptors need matching weights; fill equal if the query gave only the list
     anti = q.get("anti_descriptors")
     aw = q.get("anti_weights")
     if anti and not aw:
         aw = [1.0 / len(anti)] * len(anti)
     try:
-        if mode == "summary":
-            pts = search.search_summary(_client, q.get("summary", ""), limit=limit, flt=flt,
-                                        exact=exact)
-        elif mode == "combined":
-            pts = search.search_combined(
-                _client, q.get("summary", ""), q.get("descriptors") or [],
-                q.get("weights"), anti_descriptors=anti, anti_weights=aw,
-                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt, exact=exact)
-        elif mode == "descriptors":
-            pts = search.search_weighted_descriptors(
-                _client, q.get("descriptors") or [], q.get("weights"),
-                anti_descriptors=anti, anti_weights=aw,
-                anti_strength=q.get("anti_strength", 1.0), limit=limit, flt=flt, exact=exact)
-        else:  # fused (default)
-            frame = {k: q.get(k) for k in ("summary", "subject", "verb", "object", "setting")}
-            frame["descriptors"] = q.get("descriptors") or []
-            # optional per-field weight override from the UI sliders (percentages ->
-            # search_fused renormalizes to 1.0 over the fields actually present in the frame)
-            fw = q.get("field_weights") or None
-            # per-field score normalization before the weighted-sum fuse; default "zscore",
-            # a query may send "normalize": null to reproduce the old raw-cosine sum for A/B
-            nrm = q.get("normalize", "zscore")
-            pts = search.search_fused(_client, frame, weights=fw, limit=limit, flt=flt,
-                                      normalize=nrm, exact=exact)
+        # ONE unified entry: search() activates the what-happens channels (summary + svos
+        # moment sentences) and/or the flavor channel (descriptors), runs them over `flt`,
+        # and merges (weighted RRF) when more than one is active. An empty field abstains.
+        pts = search.search(
+            _client,
+            summary=q.get("summary") or None,
+            moments=q.get("moments") or None,        # manual clause sentence(s) -> svos channel
+            descriptors=q.get("descriptors") or None,
+            weights=q.get("weights"),
+            anti_descriptors=anti, anti_weights=aw,
+            anti_strength=q.get("anti_strength", 1.0),
+            method_weights=q.get("method_weights") or None,
+            normalize=q.get("normalize", "zscore"),
+            flt=flt, exact=exact, limit=limit,
+        )
         results = [_card(p.payload, p.score) for p in pts]
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "target_book_id": q.get("target_book_id"), "results": results}
-    except Exception as e:  # bad weights, empty frame, etc. -> show it, don't 500 the batch
+    except Exception as e:  # bad weights, empty query, etc. -> show it, don't 500 the batch
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "error": f"{type(e).__name__}: {e}", "results": []}
 
@@ -260,8 +251,8 @@ class Handler(BaseHTTPRequestHandler):
             d.update({
                 "text_html": rec.get("text_html", ""),
                 "descriptors": rec.get("descriptors"),
-                "subject": rec.get("subject"), "verb": rec.get("verb"),
-                "object": rec.get("object"), "setting": rec.get("setting"),
+                "moments": rec.get("moments"),        # [{sentence, subject, verb, object, setting}]
+                "svos": rec.get("svos"),              # the embedded clause sentences
                 "prev_scene_id": rec.get("prev_scene_id"),
                 "next_scene_id": rec.get("next_scene_id"),
             })

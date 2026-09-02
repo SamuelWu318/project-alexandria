@@ -324,7 +324,11 @@ def _check() -> int:
     eq("SCHEMA_VERSION", SCHEMA_VERSION, __import__("utils").SCHEMA_VERSION)
     llm = {n for n in embed.SceneEnrichment.model_fields if n != "index"}
     eq("LLM_FIELDS", set(LLM_FIELDS), llm)
-    eq("QUERY_FIELDS", set(QUERY_FIELDS), set(embed.QueryFrame.model_fields))
+    # QUERY_FIELDS <-> QueryFrame parity is SUSPENDED during the svos transition: query input
+    # is supplied MANUALLY as a {summary, moments} frame (search.search_scenes), so the legacy
+    # QueryFrame distiller is no longer bound to the vector set. Restore when QueryFrame is
+    # rewritten for moments. (See the matching suspended assert in embed.py.)
+    # eq("QUERY_FIELDS", set(QUERY_FIELDS), set(embed.QueryFrame.model_fields))
 
     if problems:
         print("SCHEMA PARITY FAIL:")

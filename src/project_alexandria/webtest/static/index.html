@@ -172,10 +172,7 @@
       <option value="descriptors">descriptors only</option>
     </select></label>
     <label class="f">Summary<textarea id="c-summary" rows="2" placeholder="A mentor sacrifices himself to save his companions."></textarea></label>
-    <label class="f">subject<input id="c-subject" placeholder="a mentor"></label>
-    <label class="f">verb<input id="c-verb" placeholder="sacrifices"></label>
-    <label class="f">object<input id="c-object" placeholder=""></label>
-    <label class="f">setting<input id="c-setting" placeholder="a bridge"></label>
+    <label class="f">moments (one clause per line)<textarea id="c-moments" rows="3" placeholder="A mentor blocks a monstrous foe on a narrow bridge.&#10;The mentor falls into the chasm to save his companions."></textarea></label>
     <label class="f">descriptors (comma)<input id="c-desc" placeholder="heroic, tragic"></label>
     <label class="f">Book filter<select id="c-book"></select></label>
     <label class="f">Limit<input class="small" id="c-limit" type="number" value="10" min="1" max="30"></label>
@@ -292,12 +289,9 @@ function paintTotal(){
 $("#fw-reset").onclick = buildWeights;
 // fused mode -> validate weights sum to 100. returns weights object, or false to ABORT the run,
 // or undefined when the mode is not fused (no weights sent).
-function fusedWeightsOrAbort(mode){
-  if(mode!=="fused") return undefined;
-  const t=weightTotal();
-  if(t!==100){ setStatus(`⚠ fused weights must total 100 — currently ${t}. Fix the boxes, then run.`); return false; }
-  return readWeights();
-}
+// Per-field fused weights are RETIRED: search() fuses summary vs svos by MAX (not a weighted
+// sum). Kept as a no-op so existing callers never abort and never send field_weights.
+function fusedWeightsOrAbort(mode){ return undefined; }
 function activeMode(){ const t=document.querySelector(".tab.on").dataset.tab; return t==="test"?$("#t-mode").value:t==="custom"?$("#c-mode").value:null; }
 function syncWeightDim(){ $("#fused-weights").classList.toggle("off", activeMode()!=="fused"); }
 $("#t-mode").onchange = syncWeightDim; $("#c-mode").onchange = syncWeightDim;
@@ -398,13 +392,10 @@ $("#d-run").onclick = async ()=>{
 };
 $("#c-run").onclick = async ()=>{
   const mode=$("#c-mode").value, book=$("#c-book").value, limit=+$("#c-limit").value;
-  const fw = fusedWeightsOrAbort(mode);
-  if(fw===false) return;
   const descriptors=$("#c-desc").value.split(",").map(s=>s.trim()).filter(Boolean);
-  const q={mode, summary:$("#c-summary").value, subject:$("#c-subject").value, verb:$("#c-verb").value,
-    object:$("#c-object").value, setting:$("#c-setting").value, descriptors, label:"custom",
-    field_weights: fw,
-    target_book_id:book||null, meta:{summary:$("#c-summary").value, descriptors}};
+  const moments=$("#c-moments").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const q={mode, summary:$("#c-summary").value, moments, descriptors, label:"custom",
+    target_book_id:book||null, meta:{summary:$("#c-summary").value||moments.join(" / "), descriptors}};
   await runBatch([q], {limit, book_id:book||null}, `custom · ${mode}${book?(" · filtered"):""}`);
 };
 
@@ -483,13 +474,13 @@ async function showScene(i, scroll){
   $("#rd-body").innerHTML=s.text_html||"<p>(no text)</p>";
   $("#rd-body").scrollTop=0;
   $("#rd-pos").textContent=`${i+1} / ${WHEEL.length}`;
-  const frame=[["subject",s.subject],["verb",s.verb],["object",s.object],["setting",s.setting]]
-      .filter(x=>Array.isArray(x[1])?x[1].length:x[1]).map(x=>`${x[0]}: ${esc(x[1])}`).join("  ·  ");
+  const moments=(s.moments||[]).map(m=>esc(m.sentence||"")).filter(Boolean).join("<br>")
+      || (s.svos||[]).map(esc).join("<br>");
   $("#rd-meta").innerHTML=`
     <div class="k">summary</div><div class="v">${esc(s.summary||"—")}</div>
     <div class="k">flavor</div><div class="v">${esc(s.dominant_tone||"—")} · ${esc(s.intensity||"")} · ${esc(s.arc||"")}</div>
     ${s.descriptors?`<div class="k">descriptors</div><div class="v frame">${esc((s.descriptors||[]).join(", "))}</div>`:""}
-    ${frame?`<div class="k">frame</div><div class="v frame">${frame}</div>`:""}
+    ${moments?`<div class="k">moments</div><div class="v frame">${moments}</div>`:""}
     <div class="k">scene</div><div class="v frame">${esc(s.scene_id)} · ${s.word_count||"?"} words</div>`;
   // highlight + scroll wheel
   const w=$("#rd-wheel"); w.querySelectorAll(".wtick").forEach((t,j)=>t.classList.toggle("cur",j===WI));

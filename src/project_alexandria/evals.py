@@ -13,12 +13,13 @@
 #
 # The scorer (`score_run` / `compare_runs`) takes OUTPUTS — a Run is just
 #   {query_id: [ {"scene_id", "book_id", "score"}, ... ]}  ranked best-first
-# so it can grade ANY two result sets (raw-vs-normalized fuse, two weight profiles, a
-# future new vector) without re-running search. `run_fused` is a thin driver that
-# produces a Run from search.search_fused for a given config.
+# so it can grade ANY two result sets without re-running search. `run_search` is a thin
+# driver that produces a Run from the unified search() for a given channel/normalize config.
 #
-# Run:  python -m evals                     (from src/project_alexandria/, venv active)
-#       python -m evals --a none --b zscore  # compare raw-cosine fuse vs z-scored fuse
+# Run:  python -m evals                          (from src/project_alexandria/, venv active)
+#       python -m evals --a none --b zscore       # z-normalize off vs on (what-happens fusion)
+#       python -m evals --mode lift               # summary-only vs summary+svos (needs moments in gold)
+#       python -m evals --mode flavor             # what-happens vs + descriptors RRF merge
 # Stop the webtest server first — both open the same on-disk Qdrant (single-process).
 # -----------------------------------------------------------------------------
 from __future__ import annotations
@@ -38,8 +39,8 @@ DEFAULT_KS = (1, 3, 5, 10)
 def load_gold(path: Path | str | None = None) -> tuple[list[dict], dict]:
     """Load the gold query set. Returns (raw query entries, gold judgments).
 
-    Each raw entry is the distilled frame (summary/subject/verb/object/setting/descriptors)
-    plus id/book_id/sharpness; `gold` maps query id -> {book_id, sharpness} (the judgment).
+    Each raw entry is the query (summary, optional `moments` clause sentences, optional
+    descriptors) plus id/book_id/sharpness; `gold` maps query id -> {book_id, sharpness}.
     """
     data = json.loads(Path(path or GOLD_PATH).read_text(encoding="utf-8"))
     queries = data["test_queries"]
@@ -198,24 +199,28 @@ def format_comparison(cmp: dict) -> str:
     return "\n".join(L)
 
 
-# --- driver: produce a Run from search.search_fused --- #
+# --- driver: produce a Run from the unified search() --- #
 
-def run_fused(client, queries: list[dict], *, normalize: str | None = "zscore",
-              weights: dict | None = None, limit: int = 10) -> dict:
-    """Drive search_fused over the gold queries with one config -> a Run.
+def run_search(client, queries: list[dict], *, use_summary: bool = True,
+               use_moments: bool = True, use_descriptors: bool = False,
+               normalize: str | None = "zscore", limit: int = 10) -> dict:
+    """Drive the unified search() over the gold queries with one config -> a Run.
 
-    `normalize` / `weights` are the knobs under test; everything else is held fixed so a
-    comparison isolates them. Returns {query_id: ranked [{scene_id, book_id, score}]}.
+    Each gold entry supplies `summary` (+ optional `moments` clause sentences, + optional
+    `descriptors`); the flags gate which channels this run may use, so an A/B can isolate one
+    (summary-only vs summary+svos measures the svos lift). `normalize` is the z-norm inside
+    the what-happens max-fusion. Returns {query_id: ranked [{scene_id, book_id, score}]}.
     """
     import search
     run: dict[str, list] = {}
     for e in queries:
-        frame = {k: e.get(k) for k in ("summary", "subject", "verb", "object", "setting")}
-        frame["descriptors"] = e.get("descriptors") or []
+        summary = e.get("summary") if use_summary else None
+        moments = e.get("moments") if use_moments else None
+        descriptors = (e.get("descriptors") or None) if use_descriptors else None
         try:
-            pts = search.search_fused(client, frame, weights=weights,
-                                      limit=limit, normalize=normalize)
-        except Exception as ex:                 # a bad frame shouldn't sink the whole run
+            pts = search.search(client, summary=summary, moments=moments,
+                                descriptors=descriptors, normalize=normalize, limit=limit)
+        except Exception as ex:                 # an empty/invalid query shouldn't sink the run
             print(f"[evals] {e['id']}: {type(ex).__name__}: {ex}")
             run[e["id"]] = []
             continue
@@ -223,118 +228,6 @@ def run_fused(client, queries: list[dict], *, normalize: str | None = "zscore",
                          "book_id": p.payload.get("book_id"),
                          "score": p.score} for p in pts]
     return run
-
-
-# --- weight tuning (collect pools once, sweep weights in pure Python) --- #
-
-def collect_pools(client, queries: list[dict], *, limit: int = 10,
-                  weights: dict | None = None) -> dict:
-    """Retrieve every gold query's pool + per-field raw cosines ONCE (the expensive part).
-
-    Uses DEFAULT_FIELD_WEIGHTS by default so ALL present frame fields are scored — the
-    tuner can then raise or zero any of them for free. Returns
-        {qid: {"ids": [...], "scores": {field: {id: cos}}, "meta": {id: (scene_id, book_id)}}}
-    """
-    import search
-    weights = weights or search.DEFAULT_FIELD_WEIGHTS
-    pools: dict[str, dict] = {}
-    for e in queries:
-        frame = {k: e.get(k) for k in ("summary", "subject", "verb", "object", "setting")}
-        frame["descriptors"] = e.get("descriptors") or []
-        try:
-            cands, ids, scores = search._fused_pool(client, frame, weights, limit=limit, flt=None)
-        except Exception as ex:
-            print(f"[evals] {e['id']}: {type(ex).__name__}: {ex}")
-            pools[e["id"]] = {"ids": [], "scores": {}, "meta": {}}
-            continue
-        meta = {c.id: (c.payload.get("scene_id"), c.payload.get("book_id")) for c in cands}
-        pools[e["id"]] = {"ids": ids, "scores": scores, "meta": meta}
-    return pools
-
-
-def run_from_pools(pools: dict, weights: dict, normalize: str | None = "zscore",
-                   limit: int = 10) -> dict:
-    """Re-fuse cached pools under `weights` -> a Run. Pure math: no embeds, no Qdrant."""
-    import search
-    run: dict[str, list] = {}
-    for qid, cell in pools.items():
-        if not cell["ids"]:
-            run[qid] = []
-            continue
-        ranked = search._fuse(cell["ids"], cell["scores"], weights, normalize=normalize, limit=limit)
-        meta = cell["meta"]
-        run[qid] = [{"scene_id": meta[i][0], "book_id": meta[i][1], "score": s}
-                    for i, s in ranked]
-    return run
-
-
-def _metric_value(agg: dict, metric: str) -> float:
-    """Pull one scalar objective out of a score_run aggregate."""
-    if metric == "mrr":
-        return agg["mrr"]
-    if metric.startswith("hit@"):
-        return agg["hit"][int(metric[4:])]
-    if metric.startswith("p@"):
-        return agg["prec"][int(metric[2:])]
-    raise ValueError(f"unknown metric {metric!r} (use mrr, hit@K, or p@K)")
-
-
-def tune(pools: dict, gold: dict, base: dict, *, normalize: str | None = "zscore",
-         metric: str = "mrr", limit: int = 10,
-         grid: tuple = (0.0, 0.03, 0.06, 0.10, 0.15, 0.20, 0.28, 0.40),
-         passes: int = 4) -> tuple:
-    """Coordinate-ascent the field weights to maximize `metric` on the gold set.
-
-    Only ratios matter (_fuse renormalizes), so each field is swept over `grid` (0.0 lets
-    the tuner drop a field) with the others held, keeping the best value, repeated for up
-    to `passes` sweeps or until a full sweep yields no gain. Cheap because every trial
-    re-fuses the cached pools. Returns (best_weights, best_score, history).
-    """
-    w = dict(base)
-
-    def obj(weights: dict) -> float:
-        run = run_from_pools(pools, weights, normalize, limit)
-        return _metric_value(score_run(run, gold)["aggregate"], metric)
-
-    best = obj(w)
-    history = [("base", dict(w), best)]
-    for _ in range(passes):
-        improved = False
-        for f in list(base.keys()):
-            cur, best_v, best_s = w[f], w[f], best
-            for v in grid:
-                if v == cur:
-                    continue
-                w[f] = v
-                s = obj(w)
-                if s > best_s + 1e-9:
-                    best_s, best_v = s, v
-            w[f] = best_v
-            if best_s > best + 1e-9:
-                best, improved = best_s, True
-                history.append((f, dict(w), best))
-        if not improved:
-            break
-    return w, best, history
-
-
-def _renorm(w: dict) -> dict:
-    """Renormalize positive weights to sum 1.00 (for display); non-positive -> 0."""
-    tot = sum(v for v in w.values() if v > 0) or 1.0
-    return {f: (v / tot if v > 0 else 0.0) for f, v in w.items()}
-
-
-def format_tuning(base: dict, tuned: dict, score: float, history: list, metric: str) -> str:
-    """Render the default -> tuned weight table + the improving moves."""
-    b, t = _renorm(base), _renorm(tuned)
-    L = ["", f"TUNED FIELD WEIGHTS  (coordinate ascent on {metric.upper()})",
-         f"  {'field':<12} {'default':>8} {'tuned':>8}"]
-    for f in base:
-        L.append(f"  {f:<12} {b.get(f,0):>8.3f} {t.get(f,0):>8.3f}")
-    L.append(f"  best {metric} = {score:.4f}   ({len(history)-1} improving moves)")
-    if len(history) > 1:
-        L.append("  moves: " + " -> ".join(h[0] for h in history[1:]))
-    return "\n".join(L)
 
 
 def _norm_arg(s: str) -> str | None:
@@ -346,45 +239,40 @@ def main():
     import argparse
     import search
     ap = argparse.ArgumentParser(
-        description="Compare two fused-search configs on the gold set (book-match accuracy).")
-    ap.add_argument("--a", default="none", help="normalize for approach A: none|zscore|minmax")
-    ap.add_argument("--b", default="zscore", help="normalize for approach B: none|zscore|minmax")
+        description="A/B two read-path configs on the gold set (book-match accuracy).")
+    ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor"),
+                    help="norm: A/B the z-normalize setting (--a vs --b). "
+                         "lift: summary-only (A) vs summary+svos moments (B). "
+                         "flavor: what-happens only (A) vs + descriptors RRF merge (B).")
+    ap.add_argument("--a", default="none", help="normalize for A (mode=norm): none|zscore|minmax")
+    ap.add_argument("--b", default="zscore", help="normalize for B (mode=norm): none|zscore|minmax")
+    ap.add_argument("--normalize", default="zscore",
+                    help="z-norm held fixed for mode=lift/flavor: none|zscore|minmax")
     ap.add_argument("--limit", type=int, default=10, help="results retrieved per query")
     ap.add_argument("--gold", default=None, help="path to a gold query json (default: webtest gold)")
-    ap.add_argument("--tune", action="store_true",
-                    help="coordinate-ascent field weights (uses --b as the normalizer)")
-    ap.add_argument("--metric", default="mrr", help="tuning objective: mrr|hit@K|p@K")
     args = ap.parse_args()
 
     queries, gold = load_gold(args.gold)
-
-    if args.tune:
-        normalize = _norm_arg(args.b)
-        client = search.open_client()
-        try:
-            pools = collect_pools(client, queries, limit=args.limit)   # one expensive pass
-        finally:
-            client.close()
-        base = dict(search.DEFAULT_FIELD_WEIGHTS)
-        best_w, best_s, hist = tune(pools, gold, base, normalize=normalize,
-                                    metric=args.metric, limit=args.limit)
-        base_run = run_from_pools(pools, base, normalize, args.limit)
-        tuned_run = run_from_pools(pools, best_w, normalize, args.limit)
-        cmp = compare_runs(base_run, tuned_run, gold,
-                           label_a="default_w", label_b="tuned_w")
-        print(format_comparison(cmp))
-        print(format_tuning(base, best_w, best_s, hist, args.metric))
-        return
-
     client = search.open_client()
     try:
-        run_a = run_fused(client, queries, normalize=_norm_arg(args.a), limit=args.limit)
-        run_b = run_fused(client, queries, normalize=_norm_arg(args.b), limit=args.limit)
+        if args.mode == "lift":
+            nrm = _norm_arg(args.normalize)
+            run_a = run_search(client, queries, use_moments=False, normalize=nrm, limit=args.limit)
+            run_b = run_search(client, queries, use_moments=True, normalize=nrm, limit=args.limit)
+            la, lb = "summary_only", "summary+svos"
+        elif args.mode == "flavor":
+            nrm = _norm_arg(args.normalize)
+            run_a = run_search(client, queries, use_descriptors=False, normalize=nrm, limit=args.limit)
+            run_b = run_search(client, queries, use_descriptors=True, normalize=nrm, limit=args.limit)
+            la, lb = "what_happens", "+descriptors"
+        else:  # norm
+            run_a = run_search(client, queries, normalize=_norm_arg(args.a), limit=args.limit)
+            run_b = run_search(client, queries, normalize=_norm_arg(args.b), limit=args.limit)
+            la, lb = f"norm={args.a}", f"norm={args.b}"
     finally:
         client.close()
 
-    cmp = compare_runs(run_a, run_b, gold,
-                       label_a=f"norm={args.a}", label_b=f"norm={args.b}")
+    cmp = compare_runs(run_a, run_b, gold, label_a=la, label_b=lb)
     print(format_comparison(cmp))
 
 

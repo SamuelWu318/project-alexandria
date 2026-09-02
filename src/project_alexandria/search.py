@@ -116,48 +116,6 @@ def _search_params(exact: bool):
     return models.SearchParams(exact=True) if exact else None
 
 
-# --- search --- #
-
-def search_summary(client: QdrantClient, summary: str, descriptors: str | None = None,
-                   limit: int = 5, flt: models.Filter | None = None,
-                   w_summary: float = 0.7, exact: bool = False):
-    """Search by summary (required); descriptors (optional) only rerank within the summary pool.
-
-    Without descriptors: rank by the "summary" vector. With descriptors: summary
-    GATES the candidate pool and carries the heavier weight, descriptors rerank
-    inside it — so a descriptor-only match can't inject an off-topic scene.
-        score = w_summary * summary_cos + (1 - w_summary) * descriptor_cos
-    """
-    if not summary:
-        raise ValueError("search_summary needs a summary")
-    sv = embed([QUERY_PREFIX + summary])[0]   # query-side prefix (index stays raw)
-
-    sp = _search_params(exact)   # gate strategy: brute-force the filtered set vs HNSW walk
-    if not descriptors:
-        return client.query_points(COLLECTION, query=sv, using="summary", limit=limit,
-                                   query_filter=flt, search_params=sp, with_payload=True).points
-
-    pool = max(limit * 5, 50)   # summary candidate pool, reranked by descriptors below
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, search_params=sp, with_payload=True).points
-    if not cands:
-        return cands
-
-    # descriptor cosine for exactly those candidates (restrict by their ids)
-    dv = embed([descriptors])[0]
-    ids = [c.id for c in cands]
-    dhits = client.query_points(
-        COLLECTION, query=dv, using="descriptors", limit=len(ids),
-        query_filter=models.Filter(must=[models.HasIdCondition(has_id=ids)]),
-        with_payload=False,
-    ).points
-    dscore = {h.id: h.score for h in dhits}
-
-    for c in cands:
-        c.score = w_summary * c.score + (1 - w_summary) * dscore.get(c.id, 0.0)
-    cands.sort(key=lambda c: c.score, reverse=True)
-    return cands[:limit]
-
 # --- weighted + negative descriptor search --- #
 # Per-descriptor weighting is a QUERY-time operation: nothing extra is stored. Instead
 # of embedding one joined "a, b, c" string (search_descriptors above), each descriptor
@@ -249,90 +207,11 @@ def search_weighted_descriptors(
     ).points
 
 
-# --- combined: summary gate + weighted-descriptor rerank --- #
-
-def search_combined(
-    client: QdrantClient,
-    summary: str,
-    descriptors: list[str],
-    weights: list[float] | None = None,
-    *,
-    anti_descriptors: list[str] | None = None,
-    anti_weights: list[float] | None = None,
-    anti_strength: float = 1.0,
-    limit: int = 5,
-    flt: models.Filter | None = None,
-    w_summary: float = 0.7,
-    exact: bool = False,
-):
-    """Fused search using BOTH named vectors: the summary GATES + weights the candidate
-    pool, and a WEIGHTED-descriptor centroid reranks within it.
-
-    Joins search_summary's precision gate (a stray descriptor can't drag in an off-topic
-    scene) with search_weighted_descriptors' per-term weighting + optional anti-
-    descriptors — instead of the single joined descriptor string that search_summary
-    takes. `descriptors`/`weights` follow the same contract as search_weighted_descriptors
-    (equal length, weights sum to 1.00; equal weights when omitted).
-        score = w_summary * summary_cos + (1 - w_summary) * descriptor_cos
-    Returns Qdrant ScoredPoints (payload == full scene record), best-first.
-    """
-    if not summary:
-        raise ValueError("search_combined needs a summary")
-    if not descriptors:
-        raise ValueError("search_combined needs descriptors")
-
-    # descriptor side: weighted centroid of the INDIVIDUAL descriptor embeddings
-    if not weights:
-        weights = [1.0 / len(descriptors) for _ in descriptors]
-    _check_weights(descriptors, weights, "descriptors")
-    dv = weighted_vector(descriptors, weights)
-    if anti_descriptors or anti_weights:
-        if not (anti_descriptors and anti_weights):
-            raise ValueError("anti_descriptors and anti_weights must be given together")
-        _check_weights(anti_descriptors, anti_weights, "anti_descriptors")
-        dv = dv - anti_strength * weighted_vector(anti_descriptors, anti_weights)
-        if float(np.linalg.norm(dv)) < 1e-8:
-            raise ValueError("positive and anti descriptors cancel out; lower anti_strength")
-        dv = _unit(dv)
-
-    # summary side: gate the candidate pool (query-side prefix; index stays raw)
-    sv = embed([QUERY_PREFIX + summary])[0]
-    pool = max(limit * 5, 50)
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, search_params=_search_params(exact),
-                                with_payload=True).points
-    if not cands:
-        return cands
-
-    # weighted-descriptor cosine for exactly those candidates (restrict by their ids)
-    ids = [c.id for c in cands]
-    dhits = client.query_points(
-        COLLECTION, query=dv.tolist(), using="descriptors", limit=len(ids),
-        query_filter=models.Filter(must=[models.HasIdCondition(has_id=ids)]),
-        with_payload=False,
-    ).points
-    dscore = {h.id: h.score for h in dhits}
-
-    for c in cands:
-        c.score = w_summary * c.score + (1 - w_summary) * dscore.get(c.id, 0.0)
-    cands.sort(key=lambda c: c.score, reverse=True)
-    return cands[:limit]
-
-
-# --- fused frame search: weighted cosine over every named vector, no hard filter --- #
-
-# Starting field weights for search_fused. The holistic summary + the decisive `verb`
-# lead; setting is nearly incidental. Query-time, fields ABSENT from the frame are
-# dropped and the rest renormalized, so an unspecified field simply does not vote.
-# Nothing here is a hard filter — a mislabelled scene is penalised, never excluded.
-# Tune these against a retrieval eval.
+# --- field weights (registry) --- #
+# Per-vector `weight` from scene_schema.json. The two-channel search_scenes fuses summary vs
+# svos by MAX (greatest single match), so it does NOT consume these; they remain the schema's
+# declared field-importance dial and keep the schema<->search drift check meaningful.
 DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry
-
-# frame fields that are short descriptive PHRASES — embedded like the summary, so the
-# bge query prefix applies (index raw, query prefixed). `descriptors` is an adjective
-# LIST (weighted centroid, raw); `summary` is the gate. subject/verb/object are MULTIVECTOR
-# fields (a list of terms, queried as a matrix); `setting` stays single-valued.
-_PHRASE_FIELDS = ("subject", "verb", "object", "setting")
 
 
 def _as_terms(v) -> list[str]:
@@ -386,119 +265,157 @@ def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
     raise ValueError(f"unknown normalize method {method!r} (use 'zscore', 'minmax', or None)")
 
 
-def _fused_pool(client: QdrantClient, frame: dict, weights: dict, *,
-                limit: int, flt: models.Filter | None, exact: bool = False):
-    """Summary-gate the candidate pool and pull every present field's RAW cosines over it.
+# --- unified search: orchestrate the specific retrievers + merge --- #
 
-    The EXPENSIVE half of search_fused (query embeds + Qdrant round-trips); the fuse math
-    on top (_fuse) is pure Python. Split out so a weight sweep can collect each query's
-    pool ONCE and then re-fuse any number of weightings for free (see evals.collect_pools).
-    Only fields present in the frame AND carrying positive weight are scored; summary is
-    always scored (it is the gate). Returns (cands, ids, scores) where scores is
-    {field: {point_id: raw_cosine}}, or ([], [], {}) when the gate pool is empty.
-    """
-    summ = (frame.get("summary") or "").strip()
-    if not summ:
-        raise ValueError("search_fused needs frame['summary'] (the gate)")
-
-    present = {"summary": summ}
-    for f in _PHRASE_FIELDS:
-        terms = _as_terms(frame.get(f))                     # str OR list -> clean term list
-        if terms:
-            present[f] = terms
-    if frame.get("descriptors"):
-        present["descriptors"] = frame["descriptors"]
-    fetch = {f for f in present if weights.get(f, 0) > 0}
-    fetch.add("summary")                                    # the gate always scores
-
-    sv = embed([QUERY_PREFIX + summ])[0]
-    pool = max(limit * 5, 50)
-    cands = client.query_points(COLLECTION, query=sv, using="summary", limit=pool,
-                                query_filter=flt, search_params=_search_params(exact),
-                                with_payload=True).points
-    if not cands:
-        return [], [], {}
-    ids = [c.id for c in cands]
-    id_filter = models.Filter(must=[models.HasIdCondition(has_id=ids)])
-
-    scores = {"summary": {c.id: c.score for c in cands}}   # gate cosine == summary cosine
-    for f in _PHRASE_FIELDS:                                # phrase fields (prefixed query)
-        if f in fetch and f in present:
-            terms = present[f]
-            if f in MULTIVECTOR_NAMES:
-                # multivector field: query the whole term list as a MATRIX. Qdrant MAX_SIM
-                # then scores each candidate by, per query term, its best-matching stored
-                # term (max-pool) — summed over query terms. One term -> plain max-pool.
-                qv = embed([QUERY_PREFIX + t for t in terms])          # list of vectors
-            else:                                                       # single-valued (setting)
-                qv = embed([QUERY_PREFIX + ", ".join(terms)])[0]        # one flat vector
-            hits = client.query_points(COLLECTION, query=qv, using=f, limit=len(ids),
-                                       query_filter=id_filter, with_payload=False).points
-            scores[f] = {h.id: h.score for h in hits}
-    if "descriptors" in fetch and "descriptors" in present:  # adjective centroid (raw)
-        desc = present["descriptors"]
-        dv = weighted_vector(desc, [1.0 / len(desc)] * len(desc)).tolist()
-        hits = client.query_points(COLLECTION, query=dv, using="descriptors", limit=len(ids),
-                                   query_filter=id_filter, with_payload=False).points
-        scores["descriptors"] = {h.id: h.score for h in hits}
-    return cands, ids, scores
+def _and_filters(*filters: models.Filter | None) -> models.Filter | None:
+    """AND several optional filters into one (merge their `must` conditions). None if empty."""
+    musts: list = []
+    for f in filters:
+        if f is not None and f.must:
+            musts.extend(f.must)
+    return models.Filter(must=musts) if musts else None
 
 
-def _fuse(ids: list, scores: dict, weights: dict, *,
-          normalize: str | None, limit: int) -> list:
-    """Fuse cached per-field cosines under a weight vector -> ranked [(point_id, score)].
-
-    The pure-math half of search_fused: present fields are those in `scores` carrying
-    positive weight, renormalized to sum 1.00; each is normalized across the pool
-    (_normalize_pool), then weighted-summed. No embeds, no Qdrant — cheap to sweep.
-    """
-    w = {f: weights[f] for f in scores if weights.get(f, 0) > 0}
-    total = sum(w.values())
-    if total <= 0:
-        raise ValueError("no positive weight over the present frame fields")
-    w = {f: x / total for f, x in w.items()}
-    normed = {f: _normalize_pool(scores[f], ids, normalize) for f in w}
-    fused = [(i, sum(wt * normed[f][i] for f, wt in w.items())) for i in ids]
-    fused.sort(key=lambda t: t[1], reverse=True)
-    return fused[:limit]
-
-
-def search_fused(client: QdrantClient, frame: dict,
-                 weights: dict | None = None, *,
-                 limit: int = 5, flt: models.Filter | None = None,
-                 normalize: str | None = "zscore", exact: bool = False):
-    """Fuse EVERY named vector by weighted cosine — the general form of search_combined.
-
-    `frame` is the query distilled into the same shape the index stores: any of
-    {summary, subject, verb, object, setting} as strings + descriptors as a list.
-    The summary GATES the candidate pool (widest recall net) and is required; every
-    other present field is scored over that pool and blended in by weight:
-        score = Σ  w_field * field_score
-    where field_score is a cosine for single vectors and a MAX_SIM max-pool for the
-    multivector frame fields (subject/verb/object) — a list field's query term takes its
-    best-matching stored term, so a specific query matches a specific facet without the
-    other listed terms diluting it. Fields present as lists accept a bare string too.
-    Only fields actually present in `frame` vote (their weights renormalized to 1.00),
-    so an unspecified setting/subject simply drops out. No field is a hard filter — a
-    wrong label costs a scene rank, never its place in the pool. `weights` overrides
-    DEFAULT_FIELD_WEIGHTS. Returns Qdrant ScoredPoints (payload == record), best-first.
-
-    `normalize` rescales each field's cosines ACROSS THE POOL before the weighted sum
-    (see _normalize_pool) so the weights govern influence instead of each field's raw
-    cosine spread; "zscore" (default) is recommended, None reproduces the old raw-cosine
-    sum for A/B. NOTE: with normalization the returned `.score` is a fused, pool-relative
-    score (z-scores can be negative), NOT a cosine — good for ranking within one query,
-    but not comparable across queries or thresholdable as a similarity.
-    """
-    src = weights or DEFAULT_FIELD_WEIGHTS
-    cands, ids, scores = _fused_pool(client, frame, src, limit=limit, flt=flt, exact=exact)
-    if not cands:
-        return cands
-    ranked = _fuse(ids, scores, src, normalize=normalize, limit=limit)
-    by_id = {c.id: c for c in cands}
+def _moment_sentences(moments) -> list[str]:
+    """Manual query moments -> clean clause SENTENCES. Accepts a single string, a list of
+    strings, or a list of {"sentence": ...} dicts (the enrichment shape). Empties dropped."""
+    if not moments:
+        return []
+    if isinstance(moments, str):
+        moments = [moments]
     out = []
-    for i, sc in ranked:                        # reattach fused score, emit in fused order
-        c = by_id[i]
-        c.score = sc
-        out.append(c)
+    for m in moments:
+        s = m.get("sentence") if isinstance(m, dict) else m
+        if isinstance(s, str) and s.strip():
+            out.append(s.strip())
     return out
+
+
+def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None,
+                  limit: int = 5, flt: models.Filter | None = None,
+                  prefetch: int | None = None, normalize: str | None = "zscore",
+                  exact: bool = False):
+    """What-happens search: the general `summary` and the `svos` moment-clauses fused by the
+    GREATEST SINGLE MATCH. Two channels — summary (one holistic vector) and svos (the scene's
+    moment SENTENCES as a MAX_SIM multivector). The candidate pool is the UNION of each
+    channel's prefetch (either can drive recall), and a scene scores
+        max( z(summary_cos), z(svos_maxsim) )
+    over that pool — each channel z-normalized so "greatest" means greatest RELATIVE strength,
+    not whichever channel sits in the higher cosine band. So a vague/holistic query resolves on
+    summary and a sharp single-action query on a beat, neither diluting the other.
+
+    `moments` is the query's clause sentence(s): a string, a list of strings, or a list of
+    {"sentence": ...} dicts (manual input). At least one of summary/moments is required.
+    Returns Qdrant ScoredPoints (payload == record), best-first; `.score` is pool-relative.
+    """
+    summ = (summary or "").strip()
+    sents = _moment_sentences(moments)
+    if not (summ or sents):
+        raise ValueError("search_scenes needs a summary or at least one moment sentence")
+    prefetch = prefetch or max(limit * 5, 50)
+
+    cand: dict = {}
+    sv = qmat = None
+    if summ:                                                   # summary channel prefetch
+        sv = embed([QUERY_PREFIX + summ])[0]
+        for p in client.query_points(COLLECTION, query=sv, using="summary", limit=prefetch,
+                                     query_filter=flt, search_params=_search_params(exact),
+                                     with_payload=True).points:
+            cand[p.id] = p
+    if sents:                                                  # svos channel prefetch (MAX_SIM)
+        qmat = embed([QUERY_PREFIX + s for s in sents])
+        for p in client.query_points(COLLECTION, query=qmat, using="svos", limit=prefetch,
+                                     query_filter=flt, search_params=_search_params(exact),
+                                     with_payload=True).points:
+            cand.setdefault(p.id, p)
+    if not cand:
+        return []
+    ids = list(cand)
+    idflt = models.Filter(must=[models.HasIdCondition(has_id=ids)])
+
+    scores: dict = {}                                          # score BOTH channels over the union
+    if sv is not None:
+        hits = client.query_points(COLLECTION, query=sv, using="summary", limit=len(ids),
+                                   query_filter=idflt, with_payload=False).points
+        scores["summary"] = {h.id: h.score for h in hits}
+    if qmat is not None:
+        hits = client.query_points(COLLECTION, query=qmat, using="svos", limit=len(ids),
+                                   query_filter=idflt, with_payload=False).points
+        scores["svos"] = {h.id: h.score for h in hits}
+
+    normed = {ch: _normalize_pool(sc, ids, normalize) for ch, sc in scores.items()}
+    fused = sorted(((i, max(n[i] for n in normed.values())) for i in ids),
+                   key=lambda t: t[1], reverse=True)
+    out = []
+    for i, sc in fused[:limit]:
+        p = cand[i]
+        p.score = sc
+        out.append(p)
+    return out
+
+
+def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
+    """Weighted Reciprocal Rank Fusion of several ranked ScoredPoint lists -> one ranking.
+
+    Rank-based, so heterogeneous scores (a z-scored what-happens score, a raw descriptor
+    cosine) reconcile without a shared scale: each method contributes w_m / (k + rank) to a
+    scene's total, best rank first. Returns the top `limit` ScoredPoints, `.score` = RRF total.
+    """
+    total: dict = {}
+    seen: dict = {}
+    for m, pts in rankings.items():
+        w = weights.get(m, 1.0)
+        for rank, p in enumerate(pts):
+            total[p.id] = total.get(p.id, 0.0) + w / (k + rank + 1)
+            seen[p.id] = p
+    ranked = sorted(total, key=lambda i: total[i], reverse=True)[:limit]
+    out = []
+    for i in ranked:
+        p = seen[i]
+        p.score = total[i]
+        out.append(p)
+    return out
+
+
+def search(client: QdrantClient, *, summary: str | None = None, moments=None,
+           descriptors: list[str] | None = None, weights: list[float] | None = None,
+           anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
+           anti_strength: float = 1.0, book_id: str | None = None, subject_branch=None,
+           flt: models.Filter | None = None, limit: int = 5, prefetch: int | None = None,
+           normalize: str | None = "zscore", method_weights: dict | None = None,
+           rrf_k: int = 60, exact: bool = False):
+    """Unified scene search: ONE entry, all configurations. Orchestrates the specific
+    retrievers and MERGES their rankings.
+
+    Retrievers, activated by what you pass:
+      * what-happens -> search_scenes(summary, moments): max(summary, svos) greatest-single-match.
+      * flavor       -> search_weighted_descriptors(descriptors, weights, anti_*): weighted
+                        descriptor centroid, optional anti-descriptors.
+    All active retrievers run over the SAME filter — `flt` if given, else book_id AND
+    subject_branch ANDed together. Exactly one active -> that ranking, untouched. More than
+    one -> their ranked outputs are fused by weighted Reciprocal Rank Fusion (rank-based, so
+    a z-scored what-happens score and a raw descriptor cosine merge without a shared scale);
+    `method_weights` overrides the per-method RRF weight (default {"scenes":0.7,"flavor":0.3}).
+    Each retriever collects `prefetch` candidates before the merge trims to `limit`.
+    Returns Qdrant ScoredPoints (payload == record), best-first.
+    """
+    if flt is None:
+        flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))
+    prefetch = prefetch or max(limit * 5, 50)
+
+    rankings: dict = {}
+    if summary or moments:
+        rankings["scenes"] = search_scenes(
+            client, summary=summary, moments=moments, limit=prefetch, flt=flt,
+            normalize=normalize, exact=exact)
+    if descriptors:
+        rankings["flavor"] = search_weighted_descriptors(
+            client, descriptors, weights, anti_descriptors=anti_descriptors,
+            anti_weights=anti_weights, anti_strength=anti_strength, limit=prefetch,
+            flt=flt, exact=exact)
+    if not rankings:
+        raise ValueError("search needs at least one of: summary, moments, descriptors")
+    if len(rankings) == 1:
+        return next(iter(rankings.values()))[:limit]
+    mw = method_weights or {"scenes": 0.7, "flavor": 0.3}
+    return _rrf(rankings, mw, rrf_k, limit)
