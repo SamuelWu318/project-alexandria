@@ -5,10 +5,11 @@
 #
 # scenes are enriched in BATCHES: several scenes are packed into ONE prompt (up to
 # BATCH_CHAR_LIMIT of paragraph text), and one call returns, per scene and IN ORDER,
-# first the flavor (dominant_tone, intensity, arc, descriptors) then a GENERAL
-# one-sentence summary consistent with it. Then neighbor tones are denormalized
-# (prev_tone/next_tone) for Mode-2 search, and each scene is upserted as one Qdrant
-# point with TWO named vectors (summary, descriptors) — queryable alone or fused.
+# first the flavor (dominant_tone, intensity, arc, descriptors), then a GENERAL rich summary,
+# then the 2-3 pivotal MOMENTS (each a sentence-first SVOS clause). Neighbor tones are
+# denormalized (prev_tone/next_tone) for neighbor-tone filtering, and each scene is upserted as
+# one Qdrant point with THREE named vectors (summary, descriptors, svos) — the read path
+# (search.search) fuses summary vs svos by MAX and blends descriptors by RRF.
 #
 # OWNERSHIP: prompt/model tuning is the user's — edit EMBED_PROMPT (in utils/llm.py) and
 # BATCH_CHAR_LIMIT / BATCH_SCENE_LIMIT to retune; the shared model-call params
@@ -350,7 +351,7 @@ def enrich_file(path: Path) -> list[dict]:
         with ThreadPoolExecutor(max_workers=WORKERS) as ex:
             list(ex.map(work, batches))
 
-    # denormalize neighbor tones now that every dominant_tone is known (Mode-2)
+    # denormalize neighbor tones now that every dominant_tone is known (for neighbor-tone filtering)
     by_id = {r["scene_id"]: r for r in records}
     for r in records:
         p, n = r.get("prev_scene_id"), r.get("next_scene_id")
@@ -363,10 +364,63 @@ def enrich_file(path: Path) -> list[dict]:
     return records
 
 
+# --- svos frame: aggregate moment parts into individual S/V/O/S multivector fields --- #
+# Each enrichment moment carries a subject/verb/object/setting extracted from its SENTENCE.
+# This post-enrichment pass rolls those up, per scene, into the individual `subject` / `verb` /
+# `object` / `setting` term LISTS (the old frame) so each facet is its OWN searchable multivector
+# — queryable alone (search.search_frame), ALONGSIDE the holistic summary and the combined svos
+# sentences. Derived, not LLM-authored: run it AFTER enrichment (it needs `moments`).
+
+def _derive_frame(rec: dict) -> dict:
+    """Aggregate one scene's moment parts -> the individual S/V/O/S multivector fields (deduped
+    case-insensitively, order-preserving; empty -> None). Idempotent; safe to re-run."""
+    moments = rec.get("moments") or []
+    for field in ("subject", "verb", "object", "setting"):
+        seen, out = set(), []
+        for m in moments:
+            t = (m.get(field) or "").strip() if isinstance(m, dict) else ""
+            key = t.lower()
+            if t and key not in seen:
+                seen.add(key)
+                out.append(t)
+        rec[field] = out or None
+    return rec
+
+
+def derive_frame(records: list[dict]) -> list[dict]:
+    """Derive the S/V/O/S frame for every enriched record in a list (in place). Returns it."""
+    for r in records:
+        if r.get("moments"):
+            _derive_frame(r)
+    return records
+
+
+def derive_frame_file(path) -> list[dict]:
+    """Post-enrichment pass over ONE scenes json: roll each scene's moments up into the
+    individual S/V/O/S multivector fields and rewrite in place. Returns the records."""
+    records = read_json(path, [])
+    derive_frame(records)
+    write_json(path, records)
+    log.done(f"derived S/V/O/S frame -> {PurePath(path).name}")
+    return records
+
+
+def derive_frame_scenes(file_ids=None) -> int:
+    """Run derive_frame_file over scene jsons (all pg*-s.json, or the given file_ids) — the
+    standalone 'convert moments -> svos frame lists' step. Returns files processed."""
+    if file_ids:
+        files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
+    else:
+        files = sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json"))
+    n = sum(1 for f in files if f.exists() and derive_frame_file(f) is not None)
+    log.done(f"derived S/V/O/S frame across {n} scene files")
+    return n
+
+
 # --- qdrant index (write path; config/embedder/id come from search.py) --- #
 
 def _vec_params(name: str, dim: int) -> models.VectorParams:
-    """VectorParams for one named vector — MAX_SIM multivector for the list frame fields."""
+    """VectorParams for one named vector — MAX_SIM multivector for the list field (svos)."""
     mv = (models.MultiVectorConfig(comparator=models.MultiVectorComparator.MAX_SIM)
           if name in MULTIVECTOR_NAMES else None)
     return models.VectorParams(size=dim, distance=models.Distance.COSINE, multivector_config=mv)
@@ -388,8 +442,10 @@ def _ensure_collection(client: QdrantClient, dim: int):
             for n in VECTOR_NAMES)
         if names_ok and mv_ok:
             return
+        log.warn(f"'{COLLECTION}' vector config stale (name/multivector mismatch) — dropping + rebuilding")
         client.delete_collection(COLLECTION)   # single-vector / stale -> rebuild
     client.create_collection(COLLECTION, vectors_config=want)
+    log.info(f"built '{COLLECTION}' with {len(want)} vectors: {', '.join(want)}")
 
 
 SUBJECT_PATHS_FIELD = "subject_paths"   # payload label filtered by subject branch (search.subject_filter)
@@ -416,7 +472,7 @@ def _ensure_subject_index(client: QdrantClient) -> None:
 
 
 def _multivector_field(ready: list[dict], field: str) -> list[list[list[float]]]:
-    """Embed one multivector frame field for every ready scene -> a per-scene MATRIX.
+    """Embed one multivector field (svos) for every ready scene -> a per-scene MATRIX.
 
     Each scene's field is a list of terms; every term is embedded (one batched call over
     all scenes) and the vectors are regrouped per scene. A scene that left the field empty
@@ -454,6 +510,8 @@ def index_records(client: QdrantClient, records: list[dict],
     if not ready:
         log.skip("no enriched summaries to index")
         return
+    for r in ready:                    # roll moments -> S/V/O/S facets so they embed even if the
+        _derive_frame(r)               # standalone derive_frame pass was not run (idempotent)
     sum_vecs = _embed([r["summary"] for r in ready])
     # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
     desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
@@ -478,12 +536,60 @@ def index_records(client: QdrantClient, records: list[dict],
     log.info(f"indexed {len(ready)} points into '{COLLECTION}'")
 
 
-# --- query distillation (read-side frame extraction; drives search.search_fused) --- #
-# Symmetric with enrichment: a writer's raw sentence is distilled into the SAME frame the
-# index stores, so query and scene meet in one register (this is what kills phrasing
-# dependence). One forced tool call, reusing _run_tool's retry loop. NOTE: the frame rules
-# below deliberately duplicate EMBED_PROMPT's (in utils/llm.py) — keep the two in sync (or
-# later factor them into one shared constant) if the frame definition changes.
+# --- rebuild driver: (re)build the stores from the enriched scene jsons --- #
+
+def index_scenes(file_ids=None, *, derive=True) -> int:
+    """Rebuild the stores from the enriched scene jsons — the clean 'derive -> json -> db' driver.
+
+    Reads every pg*-s.json under SrcPaths.SCENES_DIR (or just the given `file_ids`); when
+    `derive`, rolls each scene's moments up into the individual S/V/O/S frame fields and
+    REWRITES the json first (so the frame is persisted, not just embedded), then indexes the
+    book with index_records — embedding the named vectors into Qdrant and mirroring every row
+    into SQLite. One Qdrant client + one SQLite connection for the whole run, both closed in
+    finally. Returns the number of book files indexed.
+
+    A FRESH build is automatic: relational.open_db recreates scenes.db from the DDL and
+    _ensure_collection recreates the named-vector collection, so this is the driver to run
+    after deleting scenes.db + the qdrant dir. PREREQUISITE: the jsons must already carry
+    `moments` (new-prompt enrichment) — a pre-moments json has nothing for derive_frame to roll
+    up and indexes only summary/descriptors. Does NOT rebuild the sibling subjects trie table
+    (use tests.embed_test / subjects.build_from_recall for that).
+    """
+    if file_ids:
+        files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
+    else:
+        files = sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json"))
+
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # on-disk local db, auto-created
+    conn = relational.open_db()                            # scenes.db, created/migrated on open
+    n = 0
+    try:
+        for f in files:
+            if not f.exists():
+                log.skip(f"index: skip {PurePath(f).name} (missing)")
+                continue
+            records = read_json(f, [])
+            if not records:
+                log.skip(f"index: skip {PurePath(f).name} (empty)")
+                continue
+            if derive:
+                derive_frame(records)     # roll moments -> S/V/O/S frame fields (in place)
+                write_json(f, records)    # persist the frame back to the json
+            index_records(client, records, conn)   # named vectors + relational mirror, in lockstep
+            n += 1
+        log.done(f"indexed {n} scene files -> '{COLLECTION}' + relational store")
+        return n
+    finally:
+        conn.close()
+        client.close()
+
+
+# --- query distillation (LEGACY — frozen, not on the read path) --- #
+# The QueryFrame / distill_query LLM distiller is RETIRED: query input is manual now (a
+# {summary, moments} frame passed straight to search.search_scenes), so nothing calls this and
+# it no longer drives a live search. Kept intact for reference/reuse. The docstrings + prompt
+# below describe the OLD distilled subject/verb/object/setting frame and its removed
+# search_fused consumer — do NOT wire this back in without porting it to the moments/svos frame.
 
 class QueryFrame(BaseModel):
     """A writer's scene query distilled into the index frame (drives search_fused).
@@ -634,3 +740,5 @@ def distill_query(text: str) -> dict:
         "setting": data.setting or "",
         "descriptors": data.descriptors,
     }
+
+index_scenes()

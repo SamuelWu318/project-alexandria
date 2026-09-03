@@ -8,13 +8,14 @@
 # for embed.py (enrichment fields start null).
 #
 # OWNERSHIP: the prompts (PROCESS_PROMPT, in utils/llm.py) and the retry/temperature policy are the
-# user's tuning surface — do not touch unless asked. Plumbing (IO via storage.py,
-# docstrings, assembly) is fair game. MODEL, the LLM client, the error policy, the
-# tag-vocab enums and SCHEMA_VERSION moved to storage.py (shared) — still the user's to
-# tune there.
+# user's tuning surface — do not touch unless asked. Plumbing (IO via utils, docstrings,
+# assembly) is fair game. MODEL, the LLM client + MODEL_PARAMS, the error policy and
+# SCHEMA_VERSION live in utils/llm.py; the tag-vocab enums in utils/tags.py — still the
+# user's to tune there.
 #
-# Shared foundation: storage.py provides CLIENT, MODEL, _classify_error, SCHEMA_VERSION,
-# Tone / Intensity / Arc, .env loading and paths/IO. This stage imports them from there.
+# Shared foundation (via the utils package): utils/llm.py provides CLIENT, MODEL, MODEL_PARAMS,
+# classify_llm_error, SCHEMA_VERSION, PROCESS_PROMPT, WORKERS; utils/tags.py the Tone /
+# Intensity / Arc enums; utils/storage.py the .env loading + paths/IO. Imported from utils.
 # -----------------------------------------------------------------------------
 import os, json, re, time, math, threading
 from collections import Counter
@@ -54,7 +55,7 @@ TOOL = pydantic_function_tool(
 TOOL["function"]["strict"] = False
 
 # --- enrichment tag vocabulary ---
-# Tone / Intensity / Arc moved to storage.py (the shared foundation); both this
+# Tone / Intensity / Arc live in utils/tags.py (the shared foundation); both this
 # stage and embed.py import them from there. Still the user's to tune — see storage.py.
 
 

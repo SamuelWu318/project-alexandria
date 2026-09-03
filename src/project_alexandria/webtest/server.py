@@ -32,6 +32,7 @@ HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 GOLD = HERE / "gold"
 PORT = 8765
+WEIGHTS = {"scenes":0.4, "flavor":0.6}
 
 # Retrieval-strategy switch for a subject-folder filter: at or below this many allowed
 # books, force exact brute-force over the isolated set (Strategy 2 — fast + exact when few
@@ -155,6 +156,7 @@ def _card(rec: dict, score: float | None = None) -> dict:
         "scene_title": rec.get("scene_title"),
         "chapter_title": rec.get("chapter_title"),
         "summary": rec.get("summary"),
+        "moments": [m.get("sentence") for m in (rec.get("moments") or []) if isinstance(m, dict)],
         "dominant_tone": rec.get("dominant_tone"),
         "intensity": rec.get("intensity"),
         "arc": rec.get("arc"),
@@ -198,7 +200,7 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
             weights=q.get("weights"),
             anti_descriptors=anti, anti_weights=aw,
             anti_strength=q.get("anti_strength", 1.0),
-            method_weights=q.get("method_weights") or None,
+            method_weights=WEIGHTS,
             normalize=q.get("normalize", "zscore"),
             flt=flt, exact=exact, limit=limit,
         )
@@ -306,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
             if subject_path:
                 n = subjects.count_branch(_conn, subject_path)
                 if n == 0:
-                    empty = [{"label": q.get("label", ""), "mode": q.get("mode", "fused"),
+                    empty = [{"label": q.get("label", ""), "mode": q.get("mode", "search"),
                               "meta": q.get("meta", {}), "target_book_id": q.get("target_book_id"),
                               "results": []} for q in queries]
                     return self._json({"columns": empty})

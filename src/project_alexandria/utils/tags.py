@@ -9,7 +9,7 @@ from enum import Enum
 
 class Tone(str, Enum):
     # CONTROLLED VOCABULARY — the single dominant feeling of a scene, and the rigid
-    # facet Mode-1 search filters on (Mode-2 transition pairs are built from it too).
+    # facet the relational store filters on (neighbor prev/next-tone pairs are built from it too).
     #
     # Laid out on the empirically-derived 4-D affective space of Fontaine, Scherer,
     # Roesch & Ellsworth (2007), "The World of Emotions is not Two-Dimensional"

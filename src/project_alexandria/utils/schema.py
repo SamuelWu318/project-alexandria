@@ -64,8 +64,8 @@ QUERY_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("vector"))  # == dis
 # vector store (search.py)
 VECTOR_NAMES = tuple(f for f in FIELDS if FIELDS[f].get("vector"))
 DEFAULT_WEIGHTS = {f: FIELDS[f]["weight"] for f in VECTOR_NAMES}
-# multivector fields: a LIST of per-term vectors scored by MAX_SIM (max-pooling), so the
-# query's best-matching term drives the field's contribution (subject/verb/object).
+# multivector fields: a LIST of per-item vectors scored by MAX_SIM (max-pooling), so the
+# query's best-matching clause drives the field's contribution (svos).
 MULTIVECTOR_NAMES = tuple(f for f in VECTOR_NAMES if FIELDS[f].get("multivector"))
 
 # relational store (relational.py)

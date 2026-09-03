@@ -16,10 +16,16 @@
 # so it can grade ANY two result sets without re-running search. `run_search` is a thin
 # driver that produces a Run from the unified search() for a given channel/normalize config.
 #
+# WEIGHTS: the only search weight is search()'s `method_weights` (the RRF what-happens-vs-flavor
+# balance). `--tune` sweeps its scenes:flavor ratio on the gold set (collect channels once,
+# re-RRF for free). The A/B modes hold it at the default and vary `normalize` / channels instead.
+# The schema per-field `weight` is LEGACY and drives nothing.
+#
 # Run:  python -m evals                          (from src/project_alexandria/, venv active)
 #       python -m evals --a none --b zscore       # z-normalize off vs on (what-happens fusion)
 #       python -m evals --mode lift               # summary-only vs summary+svos (needs moments in gold)
 #       python -m evals --mode flavor             # what-happens vs + descriptors RRF merge
+#       python -m evals --tune                    # sweep scenes:flavor RRF ratio -> best method_weights
 # Stop the webtest server first — both open the same on-disk Qdrant (single-process).
 # -----------------------------------------------------------------------------
 from __future__ import annotations
@@ -230,6 +236,101 @@ def run_search(client, queries: list[dict], *, use_summary: bool = True,
     return run
 
 
+# --- weight tuning: sweep the scenes:flavor RRF ratio (the only search weight) --- #
+# method_weights is the ONE search weight (summary-vs-svos is a MAX, no weight). RRF is
+# rank-based, so only the scenes:flavor RATIO matters: collect each gold query's TWO channel
+# rankings ONCE (the expensive part), then re-RRF under any ratio for free and keep the best.
+# `normalize` is held fixed across the sweep (it lives inside the scenes channel's MAX).
+
+def collect_channels(client, queries: list[dict], *, normalize: str | None = "zscore",
+                     limit: int = 10) -> dict:
+    """Run each gold query's what-happens + flavor channels SEPARATELY, once, and cache their
+    ranked (scene_id, book_id) lists. Returns {qid: {"scenes": [...], "flavor": [...]}}."""
+    import search
+    out: dict[str, dict] = {}
+    for e in queries:
+        qid = e["id"]
+        scenes, flavor = [], []
+        if e.get("summary") or e.get("moments"):
+            try:
+                pts = search.search_scenes(client, summary=e.get("summary"),
+                                           moments=e.get("moments"), normalize=normalize, limit=limit)
+                scenes = [(p.payload.get("scene_id"), p.payload.get("book_id")) for p in pts]
+            except Exception as ex:
+                print(f"[evals] {qid} scenes: {type(ex).__name__}: {ex}")
+        if e.get("descriptors"):
+            try:
+                pts = search.search_weighted_descriptors(client, e["descriptors"], limit=limit)
+                flavor = [(p.payload.get("scene_id"), p.payload.get("book_id")) for p in pts]
+            except Exception as ex:
+                print(f"[evals] {qid} flavor: {type(ex).__name__}: {ex}")
+        out[qid] = {"scenes": scenes, "flavor": flavor}
+    return out
+
+
+def rrf_from_channels(channels: dict, method_weights: dict, *, k: int = 60, limit: int = 10) -> dict:
+    """Re-RRF the cached channel rankings under `method_weights` -> a Run. Pure math, no search.
+    Mirrors search._rrf but over cached (scene_id, book_id) lists keyed by scene_id."""
+    run: dict[str, list] = {}
+    for qid, ch in channels.items():
+        total: dict = {}
+        book: dict = {}
+        for m, ranked in ch.items():
+            w = method_weights.get(m, 0.0)
+            if w <= 0:
+                continue
+            for rank, (sid, bid) in enumerate(ranked):
+                if not sid:
+                    continue
+                total[sid] = total.get(sid, 0.0) + w / (k + rank + 1)
+                book[sid] = bid
+        order = sorted(total, key=lambda s: total[s], reverse=True)[:limit]
+        run[qid] = [{"scene_id": sid, "book_id": book[sid], "score": total[sid]} for sid in order]
+    return run
+
+
+def _metric_value(agg: dict, metric: str) -> float:
+    """Pull one scalar objective out of a score_run aggregate (mrr | hit@K | p@K)."""
+    if metric == "mrr":
+        return agg["mrr"]
+    if metric.startswith("hit@"):
+        return agg["hit"][int(metric[4:])]
+    if metric.startswith("p@"):
+        return agg["prec"][int(metric[2:])]
+    raise ValueError(f"unknown metric {metric!r} (use mrr, hit@K, or p@K)")
+
+
+def tune_method_weights(channels: dict, gold: dict, *, metric: str = "mrr", k: int = 60,
+                        limit: int = 10,
+                        grid: tuple = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) -> tuple:
+    """Sweep the scenes:flavor RRF ratio (scenes=s, flavor=1-s) over `grid` to maximize `metric`
+    on the gold set. Re-RRFs the cached channels for each s (free). Ties keep the LOWER scenes
+    weight. Returns (best_weights, best_score, history[(s, score)])."""
+    history, best_s, best_score = [], grid[0], -1.0
+    for s in grid:
+        mw = {"scenes": round(s, 3), "flavor": round(1.0 - s, 3)}
+        run = rrf_from_channels(channels, mw, k=k, limit=limit)
+        sc = _metric_value(score_run(run, gold)["aggregate"], metric)
+        history.append((s, sc))
+        if sc > best_score + 1e-9:
+            best_score, best_s = sc, s
+    best = {"scenes": round(best_s, 3), "flavor": round(1.0 - best_s, 3)}
+    return best, best_score, history
+
+
+def format_tuning(history: list, best: dict, best_score: float, metric: str, n_flavor: int) -> str:
+    """Render the scenes:flavor sweep table + the winning method_weights."""
+    L = ["", f"METHOD_WEIGHTS SWEEP  (scenes:flavor RRF ratio, objective {metric.upper()})",
+         f"  {n_flavor} gold queries have a flavor channel — only those move under the ratio",
+         f"    {'scenes':>7} {'flavor':>7}   {metric:>8}"]
+    for s, sc in history:
+        mark = "  <- best" if abs(s - best["scenes"]) < 1e-9 else ""
+        L.append(f"    {s:>7.2f} {1 - s:>7.2f}   {sc:>8.4f}{mark}")
+    L.append(f"  best method_weights = {{'scenes': {best['scenes']}, 'flavor': {best['flavor']}}}"
+             f"   ({metric} {best_score:.4f})")
+    return "\n".join(L)
+
+
 def _norm_arg(s: str) -> str | None:
     """CLI string -> normalize value ('none'/'raw'/'null' -> None)."""
     return None if s.lower() in ("none", "raw", "null", "") else s.lower()
@@ -250,9 +351,32 @@ def main():
                     help="z-norm held fixed for mode=lift/flavor: none|zscore|minmax")
     ap.add_argument("--limit", type=int, default=10, help="results retrieved per query")
     ap.add_argument("--gold", default=None, help="path to a gold query json (default: webtest gold)")
+    ap.add_argument("--tune", action="store_true",
+                    help="sweep the scenes:flavor RRF ratio (method_weights) for best --metric")
+    ap.add_argument("--metric", default="mrr", help="tune objective: mrr | hit@K | p@K")
     args = ap.parse_args()
 
     queries, gold = load_gold(args.gold)
+
+    if args.tune:
+        nrm = _norm_arg(args.normalize)
+        client = search.open_client()
+        try:
+            channels = collect_channels(client, queries, normalize=nrm, limit=args.limit)  # one expensive pass
+        finally:
+            client.close()
+        n_flavor = sum(1 for ch in channels.values() if ch["flavor"])
+        best, best_score, hist = tune_method_weights(channels, gold, metric=args.metric, limit=args.limit)
+        base = search.DEFAULT_METHOD_WEIGHTS
+        base_run = rrf_from_channels(channels, base, limit=args.limit)
+        best_run = rrf_from_channels(channels, best, limit=args.limit)
+        cmp = compare_runs(base_run, best_run, gold,
+                           label_a=f"default {base['scenes']}/{base['flavor']}",
+                           label_b=f"tuned {best['scenes']}/{best['flavor']}")
+        print(format_comparison(cmp))
+        print(format_tuning(hist, best, best_score, args.metric, n_flavor))
+        return
+
     client = search.open_client()
     try:
         if args.mode == "lift":

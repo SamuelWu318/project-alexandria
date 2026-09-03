@@ -95,20 +95,10 @@
   #reader.analyzing .analyze-note{display:block}
   button.on{background:var(--accent2);color:#05122e}
 
-  /* fused field-weight boxes */
-  #fused-weights{border-top:1px dashed var(--edge);padding-top:9px;margin-top:2px;display:flex;flex-direction:column;gap:8px}
-  #fused-weights.off{opacity:.4}
-  .fw-head{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:14px}
-  .fw-head .ttl{font-weight:600;color:var(--ink)}
-  .fw-head b{color:var(--accent);font-family:var(--mono)}
-  #fused-weights.bad .fw-head b#fw-total{color:var(--warn)}
-  .fw-note{color:var(--dim2)}
-  .fw-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px 16px}
-  @media(max-width:920px){.fw-grid{grid-template-columns:repeat(3,1fr)}}
-  .fw-row{display:flex;flex-direction:column;gap:3px}
-  .fw-k{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.5px}
-  .fw-row input[type=number]{width:100%;font-family:var(--mono)}
-  #fused-weights.bad .fw-row input[type=number]{border-color:var(--warn)}
+  /* card svos moments (the beat sentences a scene matched on) */
+  .card .mom{margin-top:6px;display:flex;flex-direction:column;gap:2px}
+  .card .mom .m{font-size:10.5px;color:var(--accent);font-family:var(--mono);line-height:1.3}
+  .fw-note{color:var(--dim2)}   /* shared hint text — folder pre-filter */
   .x{cursor:pointer;color:var(--dim);font-size:20px;line-height:1;padding:0 4px}
   .x:hover{color:var(--ink)}
 
@@ -147,12 +137,6 @@
 
   <div class="panel on" id="p-test">
     <label class="f">Book<select id="t-book"></select></label>
-    <label class="f">Mode<select id="t-mode">
-      <option value="fused">fused (frame)</option>
-      <option value="summary">summary only</option>
-      <option value="combined">summary + descriptors</option>
-      <option value="descriptors">descriptors only</option>
-    </select></label>
     <label class="f">Limit<input class="small" id="t-limit" type="number" value="8" min="1" max="30"></label>
     <button class="go" id="t-run">Run 5 (sharp→general)</button>
     <span class="hint">5 columns for the chosen book, sharpness 1 (unique) → 5 (generic). Cards with a teal edge are on-target (same book). Watch on-target count fall as queries generalize.</span>
@@ -165,28 +149,12 @@
   </div>
 
   <div class="panel" id="p-custom">
-    <label class="f">Mode<select id="c-mode">
-      <option value="fused">fused (frame)</option>
-      <option value="summary">summary only</option>
-      <option value="combined">summary + descriptors</option>
-      <option value="descriptors">descriptors only</option>
-    </select></label>
-    <label class="f">Summary<textarea id="c-summary" rows="2" placeholder="A mentor sacrifices himself to save his companions."></textarea></label>
-    <label class="f">moments (one clause per line)<textarea id="c-moments" rows="3" placeholder="A mentor blocks a monstrous foe on a narrow bridge.&#10;The mentor falls into the chasm to save his companions."></textarea></label>
+    <label class="f">Summary — rich, one sentence<textarea id="c-summary" rows="2" placeholder="A mentor sacrifices himself on a narrow bridge to hold back a monstrous foe so his companions can escape."></textarea></label>
+    <label class="f">SVOS moments — one stripped clause per line<textarea id="c-moments" rows="3" placeholder="Mentor blocks monstrous foe on bridge.&#10;Mentor falls into chasm to save companions."></textarea></label>
     <label class="f">descriptors (comma)<input id="c-desc" placeholder="heroic, tragic"></label>
     <label class="f">Book filter<select id="c-book"></select></label>
     <label class="f">Limit<input class="small" id="c-limit" type="number" value="10" min="1" max="30"></label>
     <button class="go" id="c-run">Search</button>
-  </div>
-
-  <div id="fused-weights">
-    <div class="fw-head">
-      <span class="ttl">Fused field weights</span>
-      <span>total <b id="fw-total">100</b>%</span>
-      <button class="ghost" id="fw-reset">reset</button>
-      <span class="fw-note">type weights — must total 100 to run. applies to <b>fused</b> mode.</span>
-    </div>
-    <div class="fw-grid" id="fw-grid"></div>
   </div>
 
   <div id="folder">
@@ -250,8 +218,6 @@ const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[
   $("#t-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   $("#c-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   updateTRun();
-  buildWeights();
-  syncWeightDim();
   await loadFolder();
 })();
 
@@ -265,43 +231,11 @@ function updateTRun(){
 }
 $("#t-book").onchange = updateTRun;
 
-// ---------- fused field-weight boxes (must total 100 to run) ----------
-const FW_FIELDS = [["summary",25.9],["verb",0],["descriptors",25.9],["subject",24.9],["object",19.4],["setting",3]];
-function buildWeights(){
-  $("#fw-grid").innerHTML = FW_FIELDS.map(([k,v])=>`
-    <div class="fw-row">
-      <span class="fw-k">${k}</span>
-      <input type="number" min="0" max="100" step="1" id="fw-${k}" value="${v}">
-    </div>`).join("");
-  FW_FIELDS.forEach(([k])=>{ $("#fw-"+k).oninput = paintTotal; });
-  paintTotal();
-}
-function readWeights(){
-  const w={}; FW_FIELDS.forEach(([k])=>{ w[k]=Math.max(0, Math.round(+$("#fw-"+k).value||0)); });
-  return w;
-}
-function weightTotal(){ return Object.values(readWeights()).reduce((s,v)=>s+v,0); }
-function paintTotal(){
-  const t=weightTotal();
-  $("#fw-total").textContent = t;
-  $("#fused-weights").classList.toggle("bad", t!==100);
-}
-$("#fw-reset").onclick = buildWeights;
-// fused mode -> validate weights sum to 100. returns weights object, or false to ABORT the run,
-// or undefined when the mode is not fused (no weights sent).
-// Per-field fused weights are RETIRED: search() fuses summary vs svos by MAX (not a weighted
-// sum). Kept as a no-op so existing callers never abort and never send field_weights.
-function fusedWeightsOrAbort(mode){ return undefined; }
-function activeMode(){ const t=document.querySelector(".tab.on").dataset.tab; return t==="test"?$("#t-mode").value:t==="custom"?$("#c-mode").value:null; }
-function syncWeightDim(){ $("#fused-weights").classList.toggle("off", activeMode()!=="fused"); }
-$("#t-mode").onchange = syncWeightDim; $("#c-mode").onchange = syncWeightDim;
-
 // ---------- tabs ----------
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
   t.classList.add("on"); $("#p-"+t.dataset.tab).classList.add("on");
-  syncWeightDim();
 });
 
 const setStatus = m => $("#status").textContent = m;
@@ -364,22 +298,20 @@ function filterLabel(){
 
 // ---------- runners ----------
 $("#t-run").onclick = async ()=>{
-  const book = $("#t-book").value, mode = $("#t-mode").value, limit=+$("#t-limit").value;
+  const book = $("#t-book").value, limit=+$("#t-limit").value;
   const titleOf = TITLE_OF();
   const src = (book ? DATA.test_queries.filter(q=>q.book_id===book) : DATA.test_queries.slice())
     .sort((a,b)=> a.book_id.localeCompare(b.book_id,undefined,{numeric:true}) || a.sharpness-b.sharpness);
   // NOTE: no book_id filter is sent — every query searches the WHOLE corpus; target_book_id
-  // only marks which hits are on-target. "all books" just runs all 75 as columns.
-  const fw = fusedWeightsOrAbort(mode);
-  if(fw===false) return;
+  // only marks which hits are on-target. Each gold query drives search() by its summary
+  // (+ moments clause sentences + descriptors when the gold entry carries them).
   const qs = src.map(q=>({
-    mode, summary:q.summary, subject:q.subject, verb:q.verb, object:q.object, setting:q.setting,
-    descriptors:q.descriptors, field_weights:fw,
+    summary:q.summary, moments:q.moments, descriptors:q.descriptors,
     label: book ? `S${q.sharpness}` : `${short(titleOf[q.book_id])} · S${q.sharpness}`,
     target_book_id:q.book_id, meta:{summary:q.summary}
   }));
-  const what = book ? `test queries · ${esc($("#t-book").selectedOptions[0].text)} · ${mode}`
-                    : `test queries · ALL ${qs.length} · ${mode}`;
+  const what = book ? `test queries · ${esc($("#t-book").selectedOptions[0].text)}`
+                    : `test queries · ALL ${qs.length}`;
   await runBatch(qs, {limit}, what);
 };
 $("#d-run").onclick = async ()=>{
@@ -391,12 +323,12 @@ $("#d-run").onclick = async ()=>{
   await runBatch(qs, {limit}, `descriptor probes · ${qs.length}`);
 };
 $("#c-run").onclick = async ()=>{
-  const mode=$("#c-mode").value, book=$("#c-book").value, limit=+$("#c-limit").value;
+  const book=$("#c-book").value, limit=+$("#c-limit").value;
   const descriptors=$("#c-desc").value.split(",").map(s=>s.trim()).filter(Boolean);
   const moments=$("#c-moments").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  const q={mode, summary:$("#c-summary").value, moments, descriptors, label:"custom",
+  const q={summary:$("#c-summary").value, moments, descriptors, label:"custom",
     target_book_id:book||null, meta:{summary:$("#c-summary").value||moments.join(" / "), descriptors}};
-  await runBatch([q], {limit, book_id:book||null}, `custom · ${mode}${book?(" · filtered"):""}`);
+  await runBatch([q], {limit, book_id:book||null}, `custom${book?(" · filtered"):""}`);
 };
 
 async function runBatch(queries, extra, what){
@@ -433,10 +365,14 @@ function renderColumns(cols){
         const chips=[];
         if(r.dominant_tone) chips.push(`<span class="chip">${esc(r.dominant_tone)}</span>`);
         chips.push(`<span class="chip b">${esc(r.book_title||("book "+r.book_id))}</span>`);
+        const moms=(r.moments||[]).filter(Boolean);
+        const momHtml = moms.length
+          ? `<div class="mom">${moms.map(m=>`<span class="m">▸ ${esc(m)}</span>`).join("")}</div>` : "";
         return `<div class="card${hit?" hit":""}" data-sid="${r.scene_id}" data-bid="${r.book_id}">
           <div class="top"><span class="st">${esc(r.scene_title||r.scene_id)}</span>${r.score!=null?`<span class="score">${r.score.toFixed(3)}</span>`:""}</div>
           <div class="ch">${esc(r.chapter_title||"")}</div>
           <div class="pv">${esc(r.preview||"")}</div>
+          ${momHtml}
           <div class="chips">${chips.join("")}</div>
         </div>`;
       }).join("")+`</div>`;

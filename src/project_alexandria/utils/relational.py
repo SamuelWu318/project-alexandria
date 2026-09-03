@@ -9,7 +9,7 @@
 # This module IS that engine: a plain SQLite file (`master/scenes.db`) holding one
 # row per scene, mirrored from the SAME record list that embed.py indexes into
 # Qdrant. The two stores join on `scene_id`:
-#     Qdrant   = vector source of truth (summary + descriptors)   -> ORDER BY similarity
+#     Qdrant   = vector source of truth (summary + descriptors + svos)  -> ORDER BY similarity
 #     SQLite   = relational mirror (this file)                    -> WHERE / JOIN / COUNT
 #
 # By design the DB path + schema live HERE, not in storage.py — exactly as the
@@ -60,11 +60,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Add any _COLS column the existing `scenes` table predates (idempotent ALTER).
 
     CREATE TABLE IF NOT EXISTS builds a fresh file but leaves an OLDER table untouched —
-    so a DB created before the v2 frame columns (subject/verb/object/setting) would be
-    missing them and every sql_upsert would fail with "no column named subject". This
-    back-fills each missing column with the right type. Column names come from _COLS (our
-    own whitelist), never caller input, so interpolating them is safe. The frame columns
-    are display-only and unindexed, so no index needs rebuilding here.
+    so a DB created before a later column (e.g. moments / svos) would be missing it and every
+    sql_upsert would fail with "no column named moments". This back-fills each missing column
+    with the right type. Column names come from _COLS (our own whitelist), never caller input,
+    so interpolating them is safe. These enrichment columns are display/JSON only and
+    unindexed, so no index needs rebuilding here.
     """
     have = {r["name"] for r in conn.execute("PRAGMA table_info(scenes)")}
     for col in _COLS:

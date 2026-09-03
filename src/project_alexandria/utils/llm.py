@@ -18,7 +18,7 @@ load_dotenv()
 # record shape (embed.py reads it).
 
 SCHEMA_VERSION = 3   # bump when the scene-record shape changes (embed.py reads it).
-                     # v2: + decomposed frame fields (subject/verb/object/setting).
+                     # history: decomposed frame (subject/verb/object/setting) -> moments + svos multivector.
 
 #MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 MODEL = "minimax/minimax-m3:free"

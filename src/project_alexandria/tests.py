@@ -38,27 +38,27 @@ OTHER_SKIP_RATIO = 0.70
 
 FILE_IDS = [
     "64317",    # great gatsby
-    "71865",    # mrs dalloway
+    #"71865",    # mrs dalloway
     "4300",     # ulysses
-    "2814",     # dubliners
+    #"2814",     # dubliners
     "215",      # call of the wild
-    "55",       # wizard of oz
-    "73",       # red badge of courage
-    "75201",    # a farewell to arms
+    #"55",       # wizard of oz
+    #"73",       # red badge of courage
+    #"75201",    # a farewell to arms
     "2701",     # moby dick
     "1342",     # pride and prejudice
     "84",       # frankenstein
-    "11",       # alice in wonderland
+    #"11",       # alice in wonderland
     "1661",     # sherlock holmes
-    "345",      # dracula
+    #"345",      # dracula
     "98",       # tale of two cities
-    "43",       # jekyll and hyde
-    "2554",     # crime and punishment
-    "8492",     # the king in yellow
+    #"43",       # jekyll and hyde
+    #"2554",     # crime and punishment
+    #"8492",     # the king in yellow
     "2147",     # edgar allan poe 1
-    "2148",     # edgar allan poe 2
-    "175",      # phantom of the opera
-    "68283",    # the call of cthulhu
+    #"2148",     # edgar allan poe 2
+    #"175",      # phantom of the opera
+    #"68283",    # the call of cthulhu
     "103"       # around the world in eighty days
 ]
 

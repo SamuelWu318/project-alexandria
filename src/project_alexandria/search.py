@@ -33,13 +33,13 @@ COLLECTION = "scenes"
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
 # named vectors == the registry's vector:true fields (holistic summary + flavor descriptors
-# + the decomposed frame). Edit scene_schema.json to add/drop a vector, then re-index.
+# + the svos moment-clause multivector). Edit scene_schema.json to add/drop a vector, then re-index.
 VECTOR_NAMES = schema.VECTOR_NAMES
-# multivector:true fields (subject/verb/object) store a LIST of per-term vectors and score
-# by MAX_SIM: for a query term the field's score is the MAX cosine over the scene's terms
-# (max-pooling). A specific query locks onto a specific facet; a general one onto a general
-# facet — neither averaged away. These fields MUST be queried with a matrix (list of
-# vectors), even a 1-row one — a single flat vector is rejected by the multivector index.
+# multivector:true fields (svos) store a LIST of per-item vectors and score by MAX_SIM: for a
+# query clause the field's score is the MAX cosine over the scene's stored clauses (max-pool).
+# A specific query locks onto a specific beat; a general one onto a general beat — neither
+# averaged away. These fields MUST be queried with a matrix (list of vectors), even a 1-row
+# one — a single flat vector is rejected by the multivector index.
 MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
 
 # bge query-side instruction prefix (summary path only). Set to "" to A/B without
@@ -207,19 +207,24 @@ def search_weighted_descriptors(
     ).points
 
 
-# --- field weights (registry) --- #
-# Per-vector `weight` from scene_schema.json. The two-channel search_scenes fuses summary vs
-# svos by MAX (greatest single match), so it does NOT consume these; they remain the schema's
-# declared field-importance dial and keep the schema<->search drift check meaningful.
-DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry
+# --- field weights (registry) — LEGACY, not a search knob --- #
+# Per-vector `weight` from scene_schema.json. NOTHING in the read path consumes these anymore:
+# search_scenes fuses summary vs svos by MAX (greatest single match — no weights), and search()
+# blends what-happens vs flavor by weighted RRF via its `method_weights` arg (NOT these). Kept
+# only so the schema<->search drift check stays meaningful. TO TUNE retrieval, use search()'s
+# knobs, NOT these:
+#   * method_weights={"scenes":.., "flavor":..}  — balance what-happens vs descriptor flavor (RRF)
+#   * normalize="zscore"|"minmax"|None            — how each channel is scaled before the MAX
+# summary-vs-svos has NO weight by design (it is a max). Editing the per-field weights below
+# does nothing to search; it only keeps this constant in sync with the registry.
+DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry (legacy)
 
 
 def _as_terms(v) -> list[str]:
-    """Normalize a frame field value to a clean list of query terms.
+    """Normalize a multivector field value to a clean list of items (e.g. svos clauses).
 
-    Accepts either a bare string (legacy / single-valued fields like setting, and gold
-    entries authored before the frame went multi-valued) or a list of strings, and returns
-    the non-empty trimmed terms. An empty/None field yields [] (the field simply abstains).
+    Accepts either a bare string (single value) or a list of strings, and returns the
+    non-empty trimmed items. An empty/None field yields [] (the field simply abstains).
     """
     if v is None:
         return []
@@ -228,17 +233,19 @@ def _as_terms(v) -> list[str]:
 
 
 def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
-    """Rescale ONE field's cosines across the current candidate pool so its WEIGHT — not
-    its accidental cosine spread — governs how much it moves the fused ranking.
+    """Rescale ONE channel's cosines across the current candidate pool so a cross-channel MAX
+    compares RELATIVE strength, not raw cosine band.
 
-    bge cosines sit in narrow, field-specific bands (a summary field may spread 0.60-0.88,
-    `setting` 0.80-0.86). A raw weighted sum lets the wider-spread field dominate at any
-    weight and the narrow one barely vote, so DEFAULT_FIELD_WEIGHTS don't mean what they
-    say. Normalizing each field over the pool fixes that: weights become the real dial.
+    bge cosines sit in narrow, channel-specific bands (the summary channel may spread
+    0.60-0.88, a short svos clause tighter). search_scenes ranks by max(z(summary), z(svos));
+    on RAW cosines the higher/wider-band channel would win regardless of relevance. Normalizing
+    each channel over the pool first makes "greatest" mean greatest relative to that channel's
+    own spread — the fair max the greatest-single-match design needs. (This is a scaling step,
+    NOT a weighting one: there is no per-channel weight in the max.)
 
     Normalized over `ids` ONLY — ranking is relative to these candidates. A candidate
-    missing from `raw` is imputed to the field mean (neutral), NOT 0.0, so a missing vector
-    doesn't crater a scene the way a raw-0.0 cosine outlier would after scaling. A field
+    missing from `raw` is imputed to the channel mean (neutral), NOT 0.0, so a missing vector
+    doesn't crater a scene the way a raw-0.0 cosine outlier would after scaling. A channel
     with no spread over the pool can't rank anything, so every candidate gets 0.0: it
     contributes a constant and effectively abstains.
         method=None -> raw cosines (missing -> 0.0): the pre-norm behavior, kept for A/B.
@@ -266,6 +273,13 @@ def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
 
 
 # --- unified search: orchestrate the specific retrievers + merge --- #
+
+# Default RRF balance of the what-happens (scenes) vs flavor (descriptors) channels when
+# search() fuses both. RRF is rank-based, so only the scenes:flavor RATIO matters. search()
+# falls back to this when `method_weights` is not passed, and evals `--tune` uses it as the
+# sweep baseline — so changing the default retrieval balance is editing this one line.
+DEFAULT_METHOD_WEIGHTS = {"scenes": 0.7, "flavor": 0.3}
+
 
 def _and_filters(*filters: models.Filter | None) -> models.Filter | None:
     """AND several optional filters into one (merge their `must` conditions). None if empty."""
@@ -354,6 +368,25 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
     return out
 
 
+def search_frame(client: QdrantClient, field: str, terms, *, limit: int = 5,
+                 flt: models.Filter | None = None, exact: bool = False):
+    """Per-facet 'S V O S individual' search: query ONE frame multivector on its own.
+
+    `field` is subject / verb / object / setting (or svos) — a multivector field; `terms` is a
+    query string or list of terms, queried as a MAX_SIM matrix against that field alone, so a
+    scene's score is its best-matching stored facet term. Returns Qdrant ScoredPoints, best-first.
+    """
+    if field not in MULTIVECTOR_NAMES:
+        raise ValueError(f"{field!r} is not a multivector field (have {sorted(MULTIVECTOR_NAMES)})")
+    items = _as_terms(terms)
+    if not items:
+        raise ValueError("search_frame needs at least one term")
+    qmat = embed([QUERY_PREFIX + t for t in items])
+    return client.query_points(COLLECTION, query=qmat, using=field, limit=limit,
+                               query_filter=flt, search_params=_search_params(exact),
+                               with_payload=True).points
+
+
 def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
     """Weighted Reciprocal Rank Fusion of several ranked ScoredPoint lists -> one ranking.
 
@@ -395,9 +428,19 @@ def search(client: QdrantClient, *, summary: str | None = None, moments=None,
     subject_branch ANDed together. Exactly one active -> that ranking, untouched. More than
     one -> their ranked outputs are fused by weighted Reciprocal Rank Fusion (rank-based, so
     a z-scored what-happens score and a raw descriptor cosine merge without a shared scale);
-    `method_weights` overrides the per-method RRF weight (default {"scenes":0.7,"flavor":0.3}).
+    `method_weights` overrides the per-method RRF weight (default DEFAULT_METHOD_WEIGHTS,
+    {"scenes":0.7,"flavor":0.3}).
     Each retriever collects `prefetch` candidates before the merge trims to `limit`.
     Returns Qdrant ScoredPoints (payload == record), best-first.
+
+    TUNING — the search has exactly TWO knobs, both here (NOT the schema per-field weights):
+      * method_weights — the RRF balance of what-happens vs flavor. Pass it per call (the
+        webtest query forwards a per-query `method_weights`); raise "scenes" to favor the
+        beats/summary, "flavor" to lean on descriptors.
+      * normalize — how each channel is scaled before the what-happens MAX ("zscore" default;
+        evals `--mode norm` A/Bs it). summary-vs-svos itself is a MAX and has NO weight.
+    The per-field `weight` in scene_schema.json / DEFAULT_FIELD_WEIGHTS is LEGACY — it does not
+    affect this function at all.
     """
     if flt is None:
         flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))
@@ -417,5 +460,5 @@ def search(client: QdrantClient, *, summary: str | None = None, moments=None,
         raise ValueError("search needs at least one of: summary, moments, descriptors")
     if len(rankings) == 1:
         return next(iter(rankings.values()))[:limit]
-    mw = method_weights or {"scenes": 0.7, "flavor": 0.3}
+    mw = method_weights or DEFAULT_METHOD_WEIGHTS
     return _rrf(rankings, mw, rrf_k, limit)
