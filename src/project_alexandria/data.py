@@ -1,26 +1,3 @@
-# FOR CLAUDE — Stage 1: parse + recall (the read-from-Gutenberg layer).
-# -----------------------------------------------------------------------------
-# Turns raw Project Gutenberg files into in-memory objects the rest of the
-# pipeline consumes. Two halves:
-#   * MetadataParser — pulls one book's metadata row out of pg_catalog.csv.
-#   * SceneParser    — unzips a book's HTML, strips boilerplate, and cuts the body
-#                      into a Book -> Chunks -> Paragraphs tree.
-# build_library() ties them together behind the RECALL cache (master/recall):
-# parse each .zip once, then reload from JSON forever after.
-#
-# Key invariants (do not break):
-#   * Paragraph.index is GLOBAL and book-wide — it never resets per chapter, and
-#     all_paras[k].index == k. process.py's stitching and context lookback depend
-#     on this contiguity.
-#   * Chunks pack paragraphs on paragraph boundaries, flushing at whichever trips
-#     first — TARGET_CHARS or MAX_PARAGRAPHS (the latter bounds dialogue-heavy
-#     chapters); a lone over-budget paragraph is kept whole (never split mid-paragraph).
-#   * Extraction is LOSSLESS: <p> outside every div.chapter is swept up as a
-#     leading "Front Matter" segment rather than silently dropped.
-#   * to_dict/from_dict on Book/Chunk/Paragraph are the lossless recall round-trip;
-#     payload()/scene_payload() are lossy views for dumps / the LLM.
-# All path constants + JSON IO come from storage.py.
-# -----------------------------------------------------------------------------
 from __future__ import annotations
 import re, csv, json, zipfile
 from dataclasses import dataclass, field, asdict
@@ -30,7 +7,13 @@ from bs4 import BeautifulSoup, Comment, Tag
 
 from utils import log, SrcPaths, write_json, read_json
 
-# --- scene parser constants --- #
+# ---- Stage 1: parse + recall (raw Project Gutenberg files -> in-memory objects) ----
+# MetadataParser pulls one book's catalog row; SceneParser strips a book's HTML and cuts the body
+# into a Book -> Chunks -> Paragraphs tree. build_library / ensure_book tie them behind the recall
+# cache (parse each zip once, reload from JSON forever after). See CLAUDE.md for the invariants
+# (global paragraph index, lossless extraction, chunk-packing budgets) this stage must not break.
+
+# ---- scene parser constants ----
 
 BOILERPLATE_SELECTORS = ["#pg-header", "#pg-footer",
                          "#project-gutenberg-license"]  # boilerplate to strip out
@@ -38,15 +21,17 @@ CHAPTER_SELECTOR = "div.chapter"                        # primary chunk boundary
 HEADING_TAGS = ["h1", "h2", "h3", "h4"]                 # mark the start of a segment
 MIN_SEGMENT_CHARS = 200                                 # below this = not prose, drop
 TARGET_CHARS = 25000                                    # ~6k-token chunk budget
-MAX_PARAGRAPHS = 100                                    # per-chunk paragraph cap; bounds dialogue-heavy chapters whose many short paragraphs stay under TARGET_CHARS yet overload the segmenter's per-index coverage
+MAX_PARAGRAPHS = 100                                    # per-chunk paragraph cap; bounds dialogue-heavy chapters whose many short paragraphs stay under TARGET_CHARS yet overload the segmenter
 OVERLAP_PARAGRAPHS = 3                                  # lookback window for scene context
 KEEP_TAGS = {"i", "b", "em", "strong", "sub",           # inline tags kept for rendering
              "u", "small", "br"}
 
 
-# --- METADATA PARSER --- #
+# ---- metadata parser: one book's pg_catalog.csv row -> metadata dict ----
 
 class MetadataParser:
+
+    # Load the catalog into a Text# -> row map, seeding an empty metadata dict.
     def __init__(self, catalog_path: str = SrcPaths.CATALOG_PATH):
         self.metadata = {
             "ID": None,
@@ -60,17 +45,19 @@ class MetadataParser:
         }
         self._catalog = self._load_catalog(Path(catalog_path))
 
+    # ** LOCKED **
+    # Load pg_catalog.csv into a Text# -> row dict.
     @staticmethod
     def _load_catalog(path: Path) -> dict:
-        """Load pg_catalog.csv into a Text# -> row dict."""
         catalog = {}
         with path.open(newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f): catalog[row["Text#"]] = row
         return catalog
 
+    # ** LOCKED **
+    # Flip a "Last, First" catalog name into "First Last" (drops [notes]/dates).
     @staticmethod
     def _parse_name(entry: str) -> str | None:
-        """Flip a "Last, First" catalog name into "First Last" (drops [notes]/dates)."""
         entry = re.sub(r"\[.*?\]", "", entry).strip()
         if not entry: return None
 
@@ -82,8 +69,8 @@ class MetadataParser:
         if parts: return parts[0]
         return None
 
+    # Build the metadata dict for one book from its catalog row (author/translator/date parsed out).
     def feed(self, file_code: str) -> dict:
-        """Build the metadata dict for one book from its catalog row."""
         row = self._catalog.get(file_code)
         if row is None:
             raise KeyError(f"Text# {file_code} not found in {SrcPaths.CATALOG_PATH}")
@@ -100,7 +87,7 @@ class MetadataParser:
         }
 
         authors = [a.strip() for a in row["Authors"].split(";") if a.strip()]
-        if authors: metadata["Author"] = self._parse_name(authors[0])
+        if authors: metadata["Author"] = self._parse_name(authors[0])   # "Last, First" -> "First Last"
 
         for entry in authors:
             if "[translator]" in entry.lower():
@@ -114,23 +101,25 @@ class MetadataParser:
         self.metadata = metadata
         return metadata
 
+    # ** LOCKED **  ** MAIN ** — process.scenes_to_records serializes metadata for the sink through here
+    # Serialize metadata for JSON/Qdrant: the Subjects set becomes a sorted list.
     @staticmethod
     def to_dict(md: dict) -> dict:
-        """Serialize metadata for JSON/Qdrant: the Subjects set becomes a sorted list."""
         d = dict(md)
         subj = d.get("Subjects")
         if isinstance(subj, set): d["Subjects"] = sorted(subj)
         return d
 
+    # ** LOCKED **
+    # Rehydrate metadata from JSON: Subjects list becomes a set again.
     @staticmethod
     def from_dict(d: dict) -> dict:
-        """Rehydrate metadata from JSON: Subjects list becomes a set again."""
         md = dict(d)
         md["Subjects"] = set(md.get("Subjects") or [])
         return md
 
 
-# --- BOOK / CHUNK / PARAGRAPH TREE --- #
+# ---- Book / Chunk / Paragraph tree ----
 
 @dataclass
 class Book:
@@ -138,21 +127,24 @@ class Book:
     title: str | None
     chunks: list[Chunk] = field(default_factory=list)
 
+    # ** MAIN ** — tests.payload_dump_test dumps every book through here
+    # Dump this book's chunk payloads (lossy view) to folder/pg{code}-p.json.
     def to_json(self, folder) -> None:
-        """Dump this book's chunk payloads (lossy view) to folder/pg{code}-p.json."""
         write_json(f"{folder}/pg{self.file_code}-p.json", [c.payload() for c in self.chunks])
 
+    # ** LOCKED **
+    # Lossless dict for the recall cache (round-trips via from_dict).
     def to_dict(self) -> dict:
-        """Lossless dict for the recall cache (round-trips via from_dict)."""
         return {
             "file_code": self.file_code,
             "title": self.title,
             "chunks": [c.to_dict() for c in self.chunks],
         }
 
+    # ** LOCKED **  ** MAIN ** — data.ensure_book rebuilds a cached book through here
+    # Rebuild a Book from its recall-cache dict.
     @classmethod
     def from_dict(cls, d: dict) -> Book:
-        """Rebuild a Book from its recall-cache dict."""
         return cls(
             file_code=d["file_code"],
             title=d["title"],
@@ -171,8 +163,8 @@ class Chunk:
     context: list[Paragraph] = field(default_factory=list)     # read-only lookback paragraphs
     paragraphs: list[Paragraph] = field(default_factory=list)  # the chunk's own paragraphs
 
+    # Full inspection view of the chunk (used by payload dumps).
     def payload(self) -> dict:
-        """Full inspection view of the chunk (used by payload dumps)."""
         return {
             "chunk_index": self.chunk_index,
             "chapter_index": self.chapter_index,
@@ -185,8 +177,9 @@ class Chunk:
             "paragraphs": [asdict(p) for p in self.paragraphs],
         }
 
+    # ** MAIN ** — process.segment_book feeds this compact JSON to the segmenter LLM
+    # Compact JSON string for one section the segmenter must split (context + indexed paragraphs).
     def scene_payload(self) -> dict:
-        """Compact JSON string fed to the segmenter LLM (one section to split)."""
         return json.dumps({
             "chapter_title": self.chapter_heading,
             "section_within_chunk": f"{self.part}/{self.part_count}",
@@ -195,12 +188,14 @@ class Chunk:
             "indexed_paragraphs": [asdict(p) for p in self.paragraphs],
         }, ensure_ascii=False)
 
+    # ** LOCKED **
+    # Pretty-print any payload dict as indented JSON.
     def json(self, payload) -> str:
-        """Pretty-print any payload dict as indented JSON."""
         return json.dumps(payload, ensure_ascii=False, indent=4)
 
+    # ** LOCKED **
+    # Lossless dict for the recall cache (round-trips via from_dict).
     def to_dict(self) -> dict:
-        """Lossless dict for the recall cache (round-trips via from_dict)."""
         return {
             "chunk_index": self.chunk_index,
             "chapter_index": self.chapter_index,
@@ -211,9 +206,10 @@ class Chunk:
             "paragraphs": [p.to_dict() for p in self.paragraphs],
         }
 
+    # ** LOCKED **
+    # Rebuild a Chunk from its recall-cache dict.
     @classmethod
     def from_dict(cls, d: dict) -> Chunk:
-        """Rebuild a Chunk from its recall-cache dict."""
         return cls(
             chunk_index=d["chunk_index"],
             chapter_index=d["chapter_index"],
@@ -227,24 +223,27 @@ class Chunk:
 
 @dataclass
 class Paragraph:
-    index: int  # global, book-wide paragraph index (never resets per chapter)
+    index: int  # global, book-wide paragraph index (never resets per chapter — see parse_book)
     text: str
 
+    # ** LOCKED **
+    # Serialize to a plain {index, text} dict.
     def to_dict(self) -> dict:
-        """Serialize to a plain {index, text} dict."""
         return {"index": self.index, "text": self.text}
 
+    # ** LOCKED **
+    # Rebuild a Paragraph from its dict.
     @classmethod
     def from_dict(cls, d: dict) -> Paragraph:
-        """Rebuild a Paragraph from its dict."""
         return cls(index=d["index"], text=d["text"])
 
 
-# --- SCENE PARSER --- #
+# ---- scene parser: book HTML -> Book(Chunks(Paragraphs)) ----
 
 class SceneParser:
+
+    # Open a book's -h.zip, sniff its encoding, decode the HTML, return the stripped body.
     def parse_file(self, file_code: str, folder: str) -> Tag:
-        """Open a book's -h.zip, decode its HTML, and return the stripped body."""
         with zipfile.ZipFile(folder + '/pg' + file_code + "-h.zip", 'r') as z:
             file_name = ""
             for name in z.namelist():
@@ -262,10 +261,10 @@ class SceneParser:
             with z.open(file_name, 'r') as h:
                 raw_html = h.read().decode(method)
 
-        return self.parse_html(raw_html)
+        return self.parse_html(raw_html)      # strip comments/boilerplate, return body
 
+    # Parse HTML and remove comments, headers, footers, and the license; return the body.
     def parse_html(self, raw_html: str) -> Tag:
-        """Parse HTML and remove comments, headers, footers, and the license."""
         soup = BeautifulSoup(raw_html, "html.parser")
 
         for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
@@ -277,28 +276,30 @@ class SceneParser:
 
         return soup.body or soup
 
+    # Return the stripped body as newline-joined plain text.
     def get_text(self, raw_html: str) -> str:
-        """Return the stripped body as newline-joined plain text."""
         body = self.parse_html(raw_html)
         return body.get_text(separator="\n", strip=True)
 
+    # ** LOCKED **
+    # Keep inline formatting (KEEP_TAGS), unwrap everything else, collapse whitespace.
     @staticmethod
     def _clean_html(tag: Tag) -> str:
-        """Keep inline formatting (KEEP_TAGS), unwrap everything else, collapse whitespace."""
         s = BeautifulSoup(tag.decode_contents(), "html.parser")
         for e in s.find_all(True):
             if e.name in KEEP_TAGS: e.attrs = {}
             else: e.unwrap()
         return re.sub(r"\s+", " ", s.decode()).strip()
 
+    # ** LOCKED **
+    # First heading text inside `tag`, whitespace-normalized, or None.
     @staticmethod
     def _heading(tag: Tag) -> str | None:
-        """First heading text inside `tag`, whitespace-normalized, or None."""
         heading = tag.find(HEADING_TAGS)
         return " ".join(heading.get_text(separator=" ").split()) if heading else None
 
+    # Chapterless fallback: split into (heading, paragraphs) at each heading.
     def _get_segments_fallback(self, body: Tag) -> list[tuple[str | None, list[str]]]:
-        """Chapterless fallback: split into (heading, paragraphs) at each heading."""
         segments: list[tuple[str | None, list[str]]] = []
         heading: str | None = None
         texts: list[str] = []
@@ -314,8 +315,8 @@ class SceneParser:
         if texts: segments.append((heading, texts))
         return segments
 
+    # Cut the body into ordered (heading, paragraphs) segments (chapters > headings > whole); loose <p> swept up losslessly.
     def get_segments(self, body: Tag) -> list[tuple[str | None, list[str]]]:
-        """Cut the body into ordered (heading, paragraphs) segments (chapters > headings > whole)."""
         chapters = body.select(CHAPTER_SELECTOR)
         if chapters:
             segments: list[tuple[str | None, list[str]]] = []
@@ -338,12 +339,8 @@ class SceneParser:
         texts = [t for t in (self._clean_html(p) for p in body.find_all("p")) if t]
         return [(None, texts)] if texts else []
 
+    # Greedily pack paragraphs into parts, flushing at whichever trips first: TARGET_CHARS or MAX_PARAGRAPHS (a lone over-budget paragraph is kept whole).
     def _pack(self, paragraphs: list[Paragraph]) -> list[list[Paragraph]]:
-        """Greedily group paragraphs into parts, flushing at whichever budget trips first:
-        TARGET_CHARS (char budget) or MAX_PARAGRAPHS (paragraph count). The paragraph cap
-        bounds dialogue-heavy chapters, whose many short paragraphs stay under the char
-        budget yet overload the segmenter's per-index coverage. A lone paragraph is never
-        split, so a single over-budget paragraph is still kept whole."""
         parts: list[list[Paragraph]] = []
         current: list[Paragraph] = []
         size = 0
@@ -361,15 +358,10 @@ class SceneParser:
             parts.append(current)
         return parts
 
+    # Segment -> drop tiny segments -> assign GLOBAL paragraph indices -> pack into Chunks (each with OVERLAP lookback context).
     def parse_book(self, body: Tag, file_code: str = "", title: str | None = None) -> Book:
-        """Segment -> drop tiny segments -> assign global indices -> pack into Chunks.
-
-        Each chunk's context reaches back OVERLAP_PARAGRAPHS in global order (across
-        the chapter boundary for a chapter's first part) so cross-chunk scene
-        continuations can be caught during segmentation.
-        """
         segments = [(h, ts) for h, ts in self.get_segments(body)
-                    if sum(len(t) for t in ts) >= MIN_SEGMENT_CHARS]
+                    if sum(len(t) for t in ts) >= MIN_SEGMENT_CHARS]   # drop sub-prose segments
 
         all_paras: list[Paragraph] = []   # every kept paragraph, global order
         chunks: list[Chunk] = []
@@ -380,9 +372,9 @@ class SceneParser:
             gi += len(chapter_paras)
             all_paras.extend(chapter_paras)
 
-            parts = self._pack(chapter_paras)
+            parts = self._pack(chapter_paras)   # char/count budget split
             for part_no, owned in enumerate(parts):
-                # lookback = OVERLAP paragraphs preceding this chunk's first paragraph (all_paras[k].index == k)
+                # lookback = OVERLAP paragraphs preceding this chunk's first (all_paras[k].index == k)
                 start = owned[0].index
                 context = all_paras[max(0, start - OVERLAP_PARAGRAPHS):start]
                 chunks.append(Chunk(
@@ -397,23 +389,20 @@ class SceneParser:
 
         return Book(file_code=file_code, title=title, chunks=chunks)
 
+    # ** MAIN ** — data.ensure_book parses a book through here (zip -> chunked Book)
+    # Convenience entry: zip -> stripped body -> chunked Book.
     def parse(self, file_code: str, folder: str, title: str | None = None) -> Book:
-        """Convenience entry point: zip -> stripped body -> chunked Book."""
-        return self.parse_book(self.parse_file(file_code, folder), file_code, title)
+        return self.parse_book(self.parse_file(file_code, folder), file_code, title)   # read zip, then chunk
 
 
-# --- RECALL CACHE --- #
+# ---- recall cache: parse each book once, reload from JSON after ----
 
 _RIGHTS_RE = re.compile(r'name="dc\.rights"\s+content="([^"]*)"', re.I)
 
 
+# ** MAIN ** — process.presegmentation_gate reads the US public-domain gate through here
+# Search a book's HTML head for the dc.rights <meta> and return its content (opens the -h.zip directly), or None.
 def parse_rights(file_code: str, folder: str) -> str | None:
-    """Search a book's HTML head for the dc.rights <meta> and return its content, or None.
-
-    Gutenberg stamps every book with <meta name="dc.rights" content="..."> — the US
-    public-domain gate reads this. Opens the -h.zip directly, independent of the
-    body-stripping parse, so the value is available even for books we never segment.
-    """
     try:
         with zipfile.ZipFile(f"{folder}/pg{file_code}-h.zip", "r") as z:
             name = next((n for n in z.namelist() if n.endswith((".htm", ".html"))), None)
@@ -427,43 +416,29 @@ def parse_rights(file_code: str, folder: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+# ** LOCKED **
+# Per-book recall shard path: recall/books/pg{code}.json (one parsed Book per file — sharded, not monolithic).
 def book_file(recall_path: str | Path, file_code: str) -> Path:
-    """Per-book recall shard: recall/books/pg{code}.json — one parsed Book per file.
-
-    Replaces the monolithic books.json. The parsed trees carry full text (~0.7 MB/book, tens
-    of GB at 50k), so a single file cannot be loaded or rewritten at scale. Sharded, each book
-    is read and written on its own, and only the books a run touches are ever parsed or held.
-    """
     return Path(recall_path) / "books" / f"pg{file_code}.json"
 
 
+# ** MAIN ** — tests + process load a book's parsed tree through here (lazy, per-book)
+# Load a book's parsed tree from its recall shard, PARSING + writing the shard if absent (idempotent).
 def ensure_book(file_code: str, data_path: str = SrcPaths.DATA_DIR,
                 recall_path: str = SrcPaths.RECALL_DIR, title: str | None = None) -> Book:
-    """Load a book's parsed tree from its recall shard, PARSING + writing the shard if absent.
-
-    The lazy, per-book replacement for build_library's old eager books.json fill: reuse
-    recall/books/pg{code}.json when it exists, else parse the zip once and cache it as its own
-    file. Idempotent — a second call reads the shard instead of reparsing.
-    """
-    bf = book_file(recall_path, file_code)
+    bf = book_file(recall_path, file_code)                       # recall/books/pg{code}.json
     if bf.is_file():
-        return Book.from_dict(read_json(bf, {}))
-    book = SceneParser().parse(file_code, str(data_path), title)
+        return Book.from_dict(read_json(bf, {}))                 # reuse the cached tree
+    book = SceneParser().parse(file_code, str(data_path), title)  # parse the zip once
     bf.parent.mkdir(parents=True, exist_ok=True)
-    write_json(bf, book.to_dict())
+    write_json(bf, book.to_dict())                              # cache it as its own shard
     return book
 
 
+# ** MAIN ** — tests.step_two_processing builds the metadata cache + lazy books cache through here
+# Load every book's metadata (full cache) and return a LAZY, empty books cache filled on demand by ensure_book.
 def build_library(data_path: str = SrcPaths.DATA_DIR,
                   recall_path: str = SrcPaths.RECALL_DIR) -> tuple[dict, dict]:
-    """Load every book's metadata (full cache) and return a LAZY, empty books cache.
-
-    metadata.json stays ONE light file (catalog fields): reuse a cached entry when present,
-    else parse from the catalog and add it. Parsed Book trees are heavy (full text) so they are
-    NOT preloaded — each lives in its own recall/books/pg{code}.json and is parsed on demand via
-    ensure_book. Returns (metadata, books) where `books` starts EMPTY and is filled lazily by the
-    caller (ensure_book), so only the books a run touches are ever parsed or in memory.
-    """
     path = Path(data_path)
     recall = Path(recall_path)
     md_file = recall / "metadata.json"
@@ -487,14 +462,14 @@ def build_library(data_path: str = SrcPaths.DATA_DIR,
         file_code = match.group(1)
 
         if file_code in md_cache:
-            md = MetadataParser.from_dict(md_cache[file_code])
+            md = MetadataParser.from_dict(md_cache[file_code])   # rehydrate cached row (Subjects -> set)
         else:
-            md = mdp.feed(file_code)
-            md_cache[file_code] = MetadataParser.to_dict(md)
+            md = mdp.feed(file_code)                             # parse the catalog row
+            md_cache[file_code] = MetadataParser.to_dict(md)     # cache it (Subjects -> list)
             md_dirty = True
         metadata[file_code] = md
 
     if md_dirty:
-        write_json(md_file, md_cache)
+        write_json(md_file, md_cache)        # persist newly-parsed metadata
 
     return metadata, {}          # books: lazy per-book shards, filled by ensure_book on demand

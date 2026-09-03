@@ -9,3 +9,4 @@ logs/test/databases
 logs/test/segments
 logs/test/pg_catalog.csv
 web
+CLAUDE.md

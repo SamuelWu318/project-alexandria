@@ -1,21 +1,3 @@
-# FOR CLAUDE — Stage 3: enrichment + indexing pipeline.
-# -----------------------------------------------------------------------------
-# in:  scenes/pg{code}-s.json  (flat records from process.py, enrichment fields null)
-# out: same file, enriched in place  +  a Qdrant collection of scene points.
-#
-# scenes are enriched in BATCHES: several scenes are packed into ONE prompt (up to
-# BATCH_CHAR_LIMIT of paragraph text), and one call returns, per scene and IN ORDER,
-# first the flavor (dominant_tone, intensity, arc, descriptors), then a GENERAL rich summary,
-# then the 2-3 pivotal MOMENTS (each a sentence-first SVOS clause). Neighbor tones are
-# denormalized (prev_tone/next_tone) for neighbor-tone filtering, and each scene is upserted as
-# one Qdrant point with THREE named vectors (summary, descriptors, svos) — the read path
-# (search.search) fuses summary vs svos by MAX and blends descriptors by RRF.
-#
-# OWNERSHIP: prompt/model tuning is the user's — edit EMBED_PROMPT (in utils/llm.py) and
-# BATCH_CHAR_LIMIT / BATCH_SCENE_LIMIT to retune; the shared model-call params
-# (reasoning effort, tool_choice, routing) live in utils/llm.py MODEL_PARAMS. Paths +
-# atomic JSON IO come from storage.py; the Qdrant contract comes from search.py.
-# -----------------------------------------------------------------------------
 import json, re, time, threading, math, warnings
 from collections import Counter
 from pathlib import Path, PurePath
@@ -32,27 +14,34 @@ from utils import CLIENT, MODEL, MODEL_PARAMS, SCHEMA_VERSION, WORKERS, EMBED_PR
 from utils import relational, schema # scene-record registry: the drift guard below checks the models against it
 from utils import subjects           # subject-path expansion for the filterable payload label
 
+# ---- Stage 3: enrichment + indexing ----
+# in:  scenes/pg{code}-s.json (flat records from process.py, enrichment fields null)
+# out: same file enriched in place  +  a Qdrant collection of scene points (three named vectors:
+# summary, descriptors, svos). Scenes are enriched in BATCHES (one call returns flavor + summary +
+# 2-3 SVOS moments per scene, in order); neighbor tones are denormalized; each scene upserts as one
+# point + mirrors into SQLite. OWNERSHIP: prompt/model tuning is the user's (EMBED_PROMPT in utils/llm.py,
+# BATCH_CHAR_LIMIT / BATCH_SCENE_LIMIT here). The read-path contract comes from search.py.
 
-# --- tuning constants (model/prompt surface — the user's to tune) --- #
+# ---- tuning constants (model/prompt surface — the user's to tune) ----
 
 BATCH_CHAR_LIMIT = 12000          # ~12-15k chars of paragraph text packed per prompt
 BATCH_SCENE_LIMIT = 4             # per-batch scene cap; a batch flushes at whichever trips first
                                   # (chars or count), mirroring data._pack's MAX_PARAGRAPHS
 
 
-# --- batch enrichment schema (tag vocab enums live in storage.py) --- #
+# ---- batch enrichment schema (tag vocab enums live in utils/tags.py) ----
 
 class Moment(BaseModel):
-    # ONE pivotal beat. ORDER IS LOAD-BEARING: `sentence` is declared FIRST, so the model
-    # writes the bound SVOS clause, THEN fills subject/verb/object/setting reading its OWN
-    # sentence back (extraction, not invention). The sentence is what gets embedded (the svos
-    # multivector row); the parts are filter/display metadata. Reordering defeats sentence-first.
+    # ONE pivotal beat. ORDER IS LOAD-BEARING: `sentence` is declared FIRST, so the model writes
+    # the bound SVOS clause, THEN fills subject/verb/object/setting reading its OWN sentence back
+    # (extraction, not invention). The sentence is what gets embedded (the svos multivector row).
     sentence: str
     subject: str = ""
     verb: str = ""
     object: str = ""
     setting: str = ""
 
+    # Normalize the moment sentence to one uniform surface form (capital start, single trailing period); reject empty.
     @field_validator("sentence")
     @classmethod
     def _clean_sentence(cls, v: str) -> str:
@@ -63,20 +52,20 @@ class Moment(BaseModel):
         v = v.rstrip(" .") + "."     # ... and exactly one trailing period
         return v
 
+    # Coerce a part before validation: None -> "", a list -> its first term.
     @field_validator("subject", "verb", "object", "setting", mode="before")
     @classmethod
     def _coerce_part(cls, v):
-        """A part is ONE phrase: accept None (-> "") or a list (-> its first term)."""
         if v is None:
             return ""
         if isinstance(v, list):
             return v[0] if v else ""
         return v
 
+    # Trim + collapse whitespace; a missing part stays "".
     @field_validator("subject", "verb", "object", "setting")
     @classmethod
     def _clean_part(cls, v: str) -> str:
-        """Trim + collapse whitespace; a missing part stays ""."""
         return re.sub(r"\s+", " ", v or "").strip()
 
 
@@ -88,13 +77,11 @@ class SceneEnrichment(BaseModel):
     arc: Arc
     descriptors: list[str] = Field(min_length=3, max_length=5)
     summary: str
-
-    # --- moments (schema v4) — the 2-3 pivotal beats. Each is written SENTENCE-FIRST, then
-    # its subject/verb/object/setting are extracted from that sentence (see Moment). The
-    # sentences become the `svos` multivector rows at index time; `summary` stays the
-    # holistic vector. --- #
+    # moments (schema v4): the 2-3 pivotal beats, written SENTENCE-FIRST (see Moment). The sentences
+    # become the `svos` multivector rows at index time; `summary` stays the holistic vector.
     moments: list[Moment]
 
+    # Normalize descriptors to 3-5 lowercase non-empty adjectives (raises otherwise).
     @field_validator("descriptors")
     @classmethod
     def _norm_desc(cls, v: list[str]) -> list[str]:
@@ -103,6 +90,7 @@ class SceneEnrichment(BaseModel):
             raise ValueError("descriptors must have 3-5 non-empty items")
         return cleaned
 
+    # Normalize the summary to one uniform surface form (capital start, single trailing period); reject empty.
     @field_validator("summary")
     @classmethod
     def _clean(cls, v: str) -> str:
@@ -113,10 +101,10 @@ class SceneEnrichment(BaseModel):
         v = v.rstrip(" .") + "."     # ... and exactly one trailing period
         return v
 
+    # Require at least one beat; keep the first 3 (the prompt asks for 2-3).
     @field_validator("moments")
     @classmethod
     def _cap_moments(cls, v: list[Moment]) -> list[Moment]:
-        """At least one beat; keep the first 3 (the prompt asks for 2-3)."""
         if not v:
             raise ValueError("need at least one moment")
         return v[:3]
@@ -133,12 +121,10 @@ BATCH_TOOL = pydantic_function_tool(
 )
 BATCH_TOOL["function"]["strict"] = False
 
-# --- LLM helper --- #
+# ---- LLM helper: one forced tool call + the shared retry loop (retry/temperature policy is the user's) ----
 
+# System-prompt addendum for a RETRY (the scenes missed on earlier attempts, replayed); "" on the first attempt.
 def _retry_note(notes: list[str]) -> str:
-    """System-prompt addendum for a RETRY. Each attempt is a FRESH conversation, so the
-    scenes missed on earlier attempts are replayed here to remind the model to enrich
-    every scene it skipped. Empty string on the first attempt."""
     if not notes:
         return ""
     lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
@@ -148,27 +134,17 @@ def _retry_note(notes: list[str]) -> str:
             "gaps, no duplicates, no indices that were not in the input. Problems from "
             f"previous attempts:\n{lines}")
 
+# Rebuild the system prompt with the retry reminder in slot [1] (copies the list first — thread-safe); `note_fn` builds the text so enrichment and the distiller can differ.
 def _inject_retry_notes(prompt: list, notes: list[str], note_fn=_retry_note) -> str:
-    """Rebuild the system prompt with the retry reminder in slot [1] of the parts list
-    (a structured position among the instructions), empty on the first attempt. Copies
-    the list first, so the module-level prompt is never mutated (thread-safe). `note_fn`
-    builds the reminder text, so enrichment and the query distiller can differ."""
     temp = prompt.copy()
     temp[1] = note_fn(notes)
     return "".join(temp)
 
+# ** MAIN ** — both _enrich_batch and the legacy distill_query share this ONE retry loop
+# One forced tool call validated into `model_cls` (generic over system_prompt/tool/model_cls). Retries never abort: fresh convo + replayed misses; only a fatal API error raises.
 def _run_tool(user_content: str, validate=None, *,
               system_prompt: list = EMBED_PROMPT, tool: dict = BATCH_TOOL,
               model_cls=BatchEnrichment, note_fn=_retry_note):
-    """One forced tool call validated into `model_cls`, using SceneBreaker's retry policy.
-
-    Generic over the (system_prompt, tool, model_cls) triple so both enrichment and the
-    query distiller share ONE retry loop; the defaults ARE the enrichment call. Retries
-    NEVER abort: each retry is a FRESH conversation (no chat history), the misses replayed
-    as a system note built by `note_fn`. Transient errors back off; the temperature climbs
-    only until TEMP_FREEZE_ATTEMPTS then HOLDS. Only a fatal API error raises. Optional
-    `validate(data) -> (ok, reason)` adds a semantic check on top of schema validation.
-    """
     TEMP_FREEZE_ATTEMPTS = 10   # attempts before the temperature stops climbing (hard cap)
     tool_name = tool["function"]["name"]
     notes = []                  # misses from earlier attempts, replayed in the system note
@@ -176,8 +152,8 @@ def _run_tool(user_content: str, validate=None, *,
 
     while True:
         temp = 0 if attempt == 0 else min(0.75, math.log(attempt ** 0.20) + 0.15)
-        # FRESH conversation every attempt: earlier misses are replayed as a note
-        # appended to the system prompt (no chat history carried).
+        # FRESH conversation every attempt: earlier misses are replayed as a note appended to
+        # the system prompt (no chat history carried).
         messages = [
             {"role": "system", "content": _inject_retry_notes(system_prompt, notes, note_fn)},
             {"role": "user", "content": user_content},
@@ -189,12 +165,11 @@ def _run_tool(user_content: str, validate=None, *,
                 **MODEL_PARAMS,   # tool_choice + reasoning + routing prefs, centralized in utils/llm.py
             )
         except Exception as e:
-            if classify_llm_error(e) == "fatal":
+            if classify_llm_error(e) == "fatal":            # non-retryable 4xx -> abort
                 raise RuntimeError(f"{tool_name} fatal (no retry): {e}") from e
             transient_tries += 1
             sleep = min(2 ** transient_tries, 30)
-            # never give up: after the cap the temperature stops climbing and we keep
-            # retrying at that held value (only a fatal API error above aborts).
+            # never give up: after the cap the temperature stops climbing and we keep retrying
             attempt = min(attempt + 1, TEMP_FREEZE_ATTEMPTS)
             log.warn(f"transient retry {transient_tries} (sleep {sleep}s, temp held ~{temp}): {e}")
             time.sleep(sleep)
@@ -207,11 +182,11 @@ def _run_tool(user_content: str, validate=None, *,
         else:
             args = msg.tool_calls[0].function.arguments
             try:
-                data = model_cls.model_validate_json(args)
+                data = model_cls.model_validate_json(args)   # schema-validate the tool args
             except (ValidationError, json.JSONDecodeError, ValueError) as e:
                 reason = f"arguments failed schema validation: {e}"
             else:
-                ok, why = validate(data) if validate else (True, "")
+                ok, why = validate(data) if validate else (True, "")   # optional semantic check
                 if ok:
                     return data
                 reason = why
@@ -224,19 +199,17 @@ def _run_tool(user_content: str, validate=None, *,
         log.warn(f"validation retry {validation_tries} (fresh convo, temp: {temp}): {reason[:120]}")
 
 
-# --- enrichment --- #
+# ---- enrichment ----
 
+# ** LOCKED **
+# Scene prose with markup stripped and whitespace collapsed (LLM input, not stored).
 def _plain(text_html: str) -> str:
-    """Scene prose with markup stripped and whitespace collapsed (LLM input, not stored)."""
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text_html or "")).strip()
 
 
+# Group scenes into batches, flushing at whichever trips first: `limit` (chars) or `scene_limit` (count) — mirrors data._pack; a lone over-budget scene is kept whole.
 def _batches(records: list[dict], limit: int = BATCH_CHAR_LIMIT,
              scene_limit: int = BATCH_SCENE_LIMIT):
-    """Group scenes into batches, flushing at whichever budget trips first: `limit` (char
-    budget) or `scene_limit` (scene count) — mirrors data._pack. The count cap keeps a batch
-    of many short scenes from overloading the per-scene coverage the way the paragraph cap
-    bounds the segmenter. A scene is never split, so a lone over-budget scene is kept whole."""
     batch, size = [], 0
     for r in records:
         n = len(_plain(r.get("text_html", "")))
@@ -251,11 +224,8 @@ def _batches(records: list[dict], limit: int = BATCH_CHAR_LIMIT,
         yield batch
 
 
+# Enrich one batch in a single coverage-validated call -> per-scene {"tags","moments","summary"} in batch order.
 def _enrich_batch(batch: list[dict]) -> list[dict]:
-    """Enrich one batch in a single call -> per-scene {"tags", "moments", "summary"} in batch order.
-
-    Coverage-validated: exactly one item per scene, no gaps or duplicates.
-    """
     payload = json.dumps({"scenes": [
         {"index": i, "scene_title": r.get("scene_title"),
          "chapter_title": r.get("chapter_title"), "text": _plain(r.get("text_html", ""))}
@@ -263,6 +233,7 @@ def _enrich_batch(batch: list[dict]) -> list[dict]:
     ]}, ensure_ascii=False)
     expected = set(range(len(batch)))
 
+    # Coverage check: exactly one item per scene index, no gaps / duplicates / extras.
     def validate(data: BatchEnrichment):
         idxs = [it.index for it in data.items]
         counts = Counter(idxs)
@@ -278,7 +249,7 @@ def _enrich_batch(batch: list[dict]) -> list[dict]:
         if extra:   parts.append(f"indices not in input {extra}")
         return False, "; ".join(parts)
 
-    data = _run_tool(payload, validate=validate)
+    data = _run_tool(payload, validate=validate)               # forced enrichment call + retry loop
     by_idx = {it.index: it for it in data.items}
     out = []
     for i in range(len(batch)):
@@ -294,8 +265,8 @@ def _enrich_batch(batch: list[dict]) -> list[dict]:
     return out
 
 
+# Write one scene's enrichment onto its record (svos = the moment sentences; prev_tone/next_tone denormalized later).
 def _apply(rec: dict, enriched: dict):
-    """Write one scene's enrichment onto its record (prev_tone/next_tone denormalized later)."""
     t = enriched["tags"]
     rec["dominant_tone"] = t["dominant_tone"]
     rec["intensity"] = t["intensity"]
@@ -311,15 +282,16 @@ def _apply(rec: dict, enriched: dict):
     rec["enrich_model"] = MODEL
 
 
+# ** MAIN ** — tests.embed_test enriches each book here
+# Enrich every scene in one scenes json (resumable), denormalize neighbor tones, rewrite in place.
 def enrich_file(path: Path) -> list[dict]:
-    """Enrich every scene in one scenes json (resumable), denormalize tones, rewrite in place."""
     log.step(f"enriching book {PurePath(path).name[2:-7]}")
-    records = read_json(path, [])
+    records = read_json(path, [])                              # the book's flat scene records
     if not records:
         return records
 
     code = records[0]["book_id"]
-    ckpt = Checkpoint(SrcPaths.ENRICH_CKPT_DIR, f"pg{code}")
+    ckpt = Checkpoint(SrcPaths.ENRICH_CKPT_DIR, f"pg{code}")   # per-scene resume cache
     print_lock = threading.Lock()
 
     # resume: apply anything already enriched or checkpointed; only the rest hit the LLM
@@ -327,7 +299,7 @@ def enrich_file(path: Path) -> list[dict]:
     for r in records:
         if r.get("enriched") and r.get("summary"):
             continue
-        cached = ckpt.load(r["scene_id"])
+        cached = ckpt.load(r["scene_id"])                     # reuse a checkpointed result
         if cached is not None:
             try:
                 _apply(r, cached)
@@ -336,20 +308,20 @@ def enrich_file(path: Path) -> list[dict]:
                 pass  # corrupt checkpoint -> recompute
         todo.append(r)
 
+    # One LLM call per batch; checkpoint each scene before mutating the record.
     def work(batch):
-        # one LLM call per batch; checkpoint each scene before mutating the record
-        results = _enrich_batch(batch)
+        results = _enrich_batch(batch)                        # forced enrichment call
         for r, res in zip(batch, results):
-            ckpt.save(r["scene_id"], res)
+            ckpt.save(r["scene_id"], res)                     # persist before mutating
             _apply(r, res)
         with print_lock:
             log.info(f"batch ({len(batch)}): {', '.join(r['scene_id'] for r in batch)}")
         return batch
 
-    batches = list(_batches(todo))
+    batches = list(_batches(todo))                            # char/count-budget batches
     if batches:
         with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-            list(ex.map(work, batches))
+            list(ex.map(work, batches))                       # parallel batch enrichment
 
     # denormalize neighbor tones now that every dominant_tone is known (for neighbor-tone filtering)
     by_id = {r["scene_id"]: r for r in records}
@@ -358,22 +330,19 @@ def enrich_file(path: Path) -> list[dict]:
         r["prev_tone"] = by_id[p]["dominant_tone"] if p in by_id else None
         r["next_tone"] = by_id[n]["dominant_tone"] if n in by_id else None
 
-    write_json(path, records)
+    write_json(path, records)                                 # rewrite the enriched json in place
     ckpt.clear()   # book done: checkpoints no longer needed
     log.done(f"enriched {len(records)} scenes -> {path}")
     return records
 
 
-# --- svos frame: aggregate moment parts into individual S/V/O/S multivector fields --- #
-# Each enrichment moment carries a subject/verb/object/setting extracted from its SENTENCE.
-# This post-enrichment pass rolls those up, per scene, into the individual `subject` / `verb` /
-# `object` / `setting` term LISTS (the old frame) so each facet is its OWN searchable multivector
-# — queryable alone (search.search_frame), ALONGSIDE the holistic summary and the combined svos
-# sentences. Derived, not LLM-authored: run it AFTER enrichment (it needs `moments`).
+# ---- svos frame: aggregate moment parts into individual S/V/O/S multivector fields ----
+# Each moment carries a subject/verb/object/setting extracted from its SENTENCE. This post-enrichment
+# pass rolls those up, per scene, into the individual `subject`/`verb`/`object`/`setting` term LISTS so
+# each facet is its OWN searchable multivector. Derived, not LLM-authored: run AFTER enrichment.
 
+# Aggregate one scene's moment parts -> the individual S/V/O/S fields (deduped case-insensitively, order-preserving; empty -> None). Idempotent.
 def _derive_frame(rec: dict) -> dict:
-    """Aggregate one scene's moment parts -> the individual S/V/O/S multivector fields (deduped
-    case-insensitively, order-preserving; empty -> None). Idempotent; safe to re-run."""
     moments = rec.get("moments") or []
     for field in ("subject", "verb", "object", "setting"):
         seen, out = set(), []
@@ -387,27 +356,26 @@ def _derive_frame(rec: dict) -> dict:
     return rec
 
 
+# ** MAIN ** — index_scenes derives the frame for a whole book before indexing
+# Derive the S/V/O/S frame for every enriched record in a list (in place). Returns it.
 def derive_frame(records: list[dict]) -> list[dict]:
-    """Derive the S/V/O/S frame for every enriched record in a list (in place). Returns it."""
     for r in records:
         if r.get("moments"):
             _derive_frame(r)
     return records
 
 
+# Post-enrichment pass over ONE scenes json: roll each scene's moments up into the S/V/O/S fields and rewrite in place.
 def derive_frame_file(path) -> list[dict]:
-    """Post-enrichment pass over ONE scenes json: roll each scene's moments up into the
-    individual S/V/O/S multivector fields and rewrite in place. Returns the records."""
     records = read_json(path, [])
-    derive_frame(records)
+    derive_frame(records)                                     # roll moments -> frame fields
     write_json(path, records)
     log.done(f"derived S/V/O/S frame -> {PurePath(path).name}")
     return records
 
 
+# Run derive_frame_file over scene jsons (all pg*-s.json, or the given file_ids) — the standalone 'moments -> svos frame' step. Returns files processed.
 def derive_frame_scenes(file_ids=None) -> int:
-    """Run derive_frame_file over scene jsons (all pg*-s.json, or the given file_ids) — the
-    standalone 'convert moments -> svos frame lists' step. Returns files processed."""
     if file_ids:
         files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
     else:
@@ -417,22 +385,17 @@ def derive_frame_scenes(file_ids=None) -> int:
     return n
 
 
-# --- qdrant index (write path; config/embedder/id come from search.py) --- #
+# ---- qdrant index (write path; config/embedder/id come from search.py) ----
 
+# VectorParams for one named vector — MAX_SIM multivector for the list field (svos), single vector otherwise.
 def _vec_params(name: str, dim: int) -> models.VectorParams:
-    """VectorParams for one named vector — MAX_SIM multivector for the list field (svos)."""
     mv = (models.MultiVectorConfig(comparator=models.MultiVectorComparator.MAX_SIM)
           if name in MULTIVECTOR_NAMES else None)
     return models.VectorParams(size=dim, distance=models.Distance.COSINE, multivector_config=mv)
 
 
+# Ensure the named-vector collection exists; drop + rebuild if the vector NAME set or a field's multivector-ness disagrees with the registry.
 def _ensure_collection(client: QdrantClient, dim: int):
-    """Ensure the named-vector collection (summary/descriptors + frame) exists; rebuild if stale.
-
-    Stale = the vector NAME set differs, OR a field's multivector-ness disagrees with the
-    registry (e.g. subject was single-vector before it became multivector) — either way the
-    stored config can't answer the new queries, so drop and recreate.
-    """
     want = {n: _vec_params(n, dim) for n in VECTOR_NAMES}
     if client.collection_exists(COLLECTION):
         cfg = client.get_collection(COLLECTION).config.params.vectors
@@ -451,17 +414,9 @@ def _ensure_collection(client: QdrantClient, dim: int):
 SUBJECT_PATHS_FIELD = "subject_paths"   # payload label filtered by subject branch (search.subject_filter)
 
 
+# ** MAIN ** — tests.backfill_subject_paths ensures this index too
+# Keyword payload index on `subject_paths` so a branch filter is an inverted-index lookup (inert in local Qdrant, live on server; idempotent).
 def _ensure_subject_index(client: QdrantClient) -> None:
-    """Keyword payload index on `subject_paths` so a branch filter is an inverted-index lookup.
-
-    Without it Qdrant scans every point's payload to test the filter; with it, the term maps
-    straight to its points (the matching set) and its count (the cardinality the query planner
-    uses to pick exact-vs-HNSW). Idempotent — re-declaring the same field/schema is a no-op.
-
-    NOTE: payload indexes are inert in LOCAL/embedded Qdrant (filtering still works, just by
-    scan) and only take effect on SERVER Qdrant. We create it regardless so the index is live
-    the moment the store moves to a server; the local "no effect" warning is muted below.
-    """
     try:
         with warnings.catch_warnings():          # local Qdrant warns the index is inert — harmless
             warnings.simplefilter("ignore")
@@ -471,62 +426,46 @@ def _ensure_subject_index(client: QdrantClient) -> None:
         log.warn(f"subject_paths payload index: {type(e).__name__}: {e}")
 
 
+# Embed one multivector field (svos) for every ready scene -> a per-scene MATRIX (empty field falls back to a 1-term matrix from the summary).
 def _multivector_field(ready: list[dict], field: str) -> list[list[list[float]]]:
-    """Embed one multivector field (svos) for every ready scene -> a per-scene MATRIX.
-
-    Each scene's field is a list of terms; every term is embedded (one batched call over
-    all scenes) and the vectors are regrouped per scene. A scene that left the field empty
-    falls back to a 1-term matrix from its summary, so every point carries every vector.
-    """
-    per_terms = [(_as_terms(r.get(field)) or [r["summary"]]) for r in ready]
+    per_terms = [(_as_terms(r.get(field)) or [r["summary"]]) for r in ready]   # terms per scene (summary fallback)
     flat = [t for terms in per_terms for t in terms]
-    vecs = _embed(flat) if flat else []
+    vecs = _embed(flat) if flat else []                        # one batched embed over all terms
     out, k = [], 0
     for terms in per_terms:
-        out.append(vecs[k:k + len(terms)])
+        out.append(vecs[k:k + len(terms)])                     # regroup vectors per scene
         k += len(terms)
     return out
 
 
+# ** MAIN ** — tests.embed_test + index_scenes write points here
+# Embed summary + descriptors + the svos moment-sentences as named vectors, one point per scene; optionally mirror EVERY record into SQLite first. payload == full record; id is the stable uuid (re-runs overwrite).
 def index_records(client: QdrantClient, records: list[dict],
                   conn: "relational.sqlite3.Connection | None" = None):
-    """Embed the summary, descriptors, and the svos moment-sentences as named vectors, one point per scene.
-
-    payload == the full flat record; id is the stable scene uuid, so re-runs overwrite.
-    `svos` is a MULTIVECTOR field: each of the scene's moment SENTENCES is embedded separately
-    and the scene stores the whole matrix, so query-time MAX_SIM picks the single best-matching
-    beat. summary/descriptors stay single vectors.
-
-    If `conn` (a relational.open_db connection) is given, EVERY record is ALSO mirrored
-    into the SQLite relational store first — independent of enrichment, so exact-match
-    WHERE / COUNT / neighbor queries work even before a book has any summaries. The two
-    stores join on scene_id: Qdrant ranks by similarity, SQLite answers relational.
-    """
     if conn is not None:
-        n = relational.sql_upsert(conn, records)
+        n = relational.sql_upsert(conn, records)               # mirror every record into SQLite
         log.info(f"mirrored {n} rows into the relational store")
 
-    ready = [r for r in records if r.get("summary")]
+    ready = [r for r in records if r.get("summary")]           # only enriched scenes are indexed
     if not ready:
         log.skip("no enriched summaries to index")
         return
     for r in ready:                    # roll moments -> S/V/O/S facets so they embed even if the
         _derive_frame(r)               # standalone derive_frame pass was not run (idempotent)
-    sum_vecs = _embed([r["summary"] for r in ready])
+    sum_vecs = _embed([r["summary"] for r in ready])           # holistic summary vector
     # descriptors are 3-5 adjectives (schema-guaranteed); join to a vibe string.
     desc_vecs = _embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
     # svos: one MATRIX per scene — a vector per moment SENTENCE, scored by MAX_SIM.
     mv = {f: _multivector_field(ready, f) for f in MULTIVECTOR_NAMES}
-    # stamp the filterable subject label onto each payload (all right-anchored prefixes of the
-    # book's subjects) so a branch filter is one exact keyword match at any depth.
+    # stamp the filterable subject label onto each payload (right-anchored prefixes of the book's subjects).
     for r in ready:
         subj = (r.get("book_metadata") or {}).get("Subjects") or []
-        r[SUBJECT_PATHS_FIELD] = subjects.suffixes(subj)
-    _ensure_collection(client, len(sum_vecs[0]))
-    _ensure_subject_index(client)
+        r[SUBJECT_PATHS_FIELD] = subjects.suffixes(subj)       # every branch prefix -> one keyword match
+    _ensure_collection(client, len(sum_vecs[0]))               # (re)build the collection if stale
+    _ensure_subject_index(client)                              # keyword index on subject_paths
     points = [
         models.PointStruct(
-            id=_point_id(r["scene_id"]),
+            id=_point_id(r["scene_id"]),                       # stable uuid5 -> overwrite on re-run
             vector={"summary": sum_vecs[i], "descriptors": desc_vecs[i],
                     **{f: mv[f][i] for f in MULTIVECTOR_NAMES}},
             payload=r)
@@ -536,25 +475,11 @@ def index_records(client: QdrantClient, records: list[dict],
     log.info(f"indexed {len(ready)} points into '{COLLECTION}'")
 
 
-# --- rebuild driver: (re)build the stores from the enriched scene jsons --- #
+# ---- rebuild driver: (re)build the stores from the enriched scene jsons ----
 
+# ** MAIN ** — the clean 'derive -> json -> db' driver (run after wiping scenes.db + the qdrant dir)
+# Rebuild the stores from the enriched scene jsons: optionally derive+persist the S/V/O/S frame, then index each book (named vectors into Qdrant + relational mirror), one client/conn for the run. Returns files indexed.
 def index_scenes(file_ids=None, *, derive=True) -> int:
-    """Rebuild the stores from the enriched scene jsons — the clean 'derive -> json -> db' driver.
-
-    Reads every pg*-s.json under SrcPaths.SCENES_DIR (or just the given `file_ids`); when
-    `derive`, rolls each scene's moments up into the individual S/V/O/S frame fields and
-    REWRITES the json first (so the frame is persisted, not just embedded), then indexes the
-    book with index_records — embedding the named vectors into Qdrant and mirroring every row
-    into SQLite. One Qdrant client + one SQLite connection for the whole run, both closed in
-    finally. Returns the number of book files indexed.
-
-    A FRESH build is automatic: relational.open_db recreates scenes.db from the DDL and
-    _ensure_collection recreates the named-vector collection, so this is the driver to run
-    after deleting scenes.db + the qdrant dir. PREREQUISITE: the jsons must already carry
-    `moments` (new-prompt enrichment) — a pre-moments json has nothing for derive_frame to roll
-    up and indexes only summary/descriptors. Does NOT rebuild the sibling subjects trie table
-    (use tests.embed_test / subjects.build_from_recall for that).
-    """
     if file_ids:
         files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
     else:
@@ -584,20 +509,14 @@ def index_scenes(file_ids=None, *, derive=True) -> int:
         client.close()
 
 
-# --- query distillation (LEGACY — frozen, not on the read path) --- #
-# The QueryFrame / distill_query LLM distiller is RETIRED: query input is manual now (a
-# {summary, moments} frame passed straight to search.search_scenes), so nothing calls this and
-# it no longer drives a live search. Kept intact for reference/reuse. The docstrings + prompt
-# below describe the OLD distilled subject/verb/object/setting frame and its removed
-# search_fused consumer — do NOT wire this back in without porting it to the moments/svos frame.
+# ---- query distillation (LEGACY — frozen, not on the read path) ----
+# RETIRED: query input is manual now (a {summary, moments} frame passed straight to search.search_scenes),
+# so nothing calls this. Kept intact for reference/reuse. The docstrings + prompt below describe the OLD
+# distilled frame and its removed search_fused consumer — do NOT wire back in without porting to moments/svos.
 
+# LEGACY: a writer's scene query distilled into the index frame (drove the removed search_fused).
 class QueryFrame(BaseModel):
-    """A writer's scene query distilled into the index frame (drives search_fused).
-
-    subject/verb/object mirror the index: LISTS of terms (max-pooled at query time), but
-    kept lean on the query side — usually the one literal beat, an alternate only when the
-    query itself is broad. A bare string is coerced to a 1-item list (older gold sets).
-    """
+    # subject/verb/object mirror the index as term LISTS (max-pooled), kept lean on the query side.
     summary: str
     subject: list[str] = Field(default_factory=list)
     verb: list[str] = Field(default_factory=list)
@@ -605,6 +524,7 @@ class QueryFrame(BaseModel):
     setting: str | None = None
     descriptors: list[str] = Field(default_factory=list, max_length=5)
 
+    # Coerce subject/verb/object before validation: None -> [], a bare string -> a 1-item list.
     @field_validator("subject", "verb", "object", mode="before")
     @classmethod
     def _coerce_terms(cls, v):
@@ -612,6 +532,7 @@ class QueryFrame(BaseModel):
             return []
         return [v] if isinstance(v, str) else v
 
+    # Trim, lowercase-dedup, and cap subject/verb/object term lists at 6.
     @field_validator("subject", "verb", "object")
     @classmethod
     def _clean_terms(cls, v: list[str]) -> list[str]:
@@ -623,6 +544,7 @@ class QueryFrame(BaseModel):
                 out.append(t)
         return out[:6]
 
+    # Trim the setting; empty -> None.
     @field_validator("setting")
     @classmethod
     def _clean_setting(cls, v: str | None) -> str | None:
@@ -631,6 +553,7 @@ class QueryFrame(BaseModel):
         v = re.sub(r"\s+", " ", v).strip()
         return v or None
 
+    # Collapse whitespace on the summary; reject empty (it is the frame's gate).
     @field_validator("summary")
     @classmethod
     def _clean_summary(cls, v: str) -> str:
@@ -639,23 +562,22 @@ class QueryFrame(BaseModel):
             raise ValueError("summary must be non-empty")
         return v
 
+    # Lowercase + trim descriptors, cap at 5.
     @field_validator("descriptors")
     @classmethod
     def _norm_desc(cls, v: list[str]) -> list[str]:
         return [d.strip().lower() for d in (v or []) if d and d.strip()][:5]
 
 
-# --- schema drift guard (import-time) --- #
+# ---- schema drift guard (import-time) ----
 # The hand-authored enrichment + query models are the user's tuning surface, so they stay
 # hand-written — but their FIELD SETS must match the registry, or editing scene_schema.json
 # would silently desync what the index stores from what the LLM returns. Fail loudly here.
 assert {n for n in SceneEnrichment.model_fields if n != "index"} == set(schema.LLM_FIELDS), (
     f"SceneEnrichment fields {sorted(n for n in SceneEnrichment.model_fields if n != 'index')} "
     f"!= schema LLM_FIELDS {sorted(schema.LLM_FIELDS)} — sync scene_schema.json or the model")
-# NOTE: the QueryFrame <-> QUERY_FIELDS guard is intentionally SUSPENDED during the svos
-# transition. Query input is now supplied MANUALLY as a {summary, moments} frame (see
-# search.search_scenes), so the LLM query distiller (QueryFrame/distill_query) is legacy and
-# no longer bound to the vector set. Restore this when QueryFrame is rewritten for moments:
+# NOTE: the QueryFrame <-> QUERY_FIELDS guard is SUSPENDED during the svos transition (query input is
+# manual now — see search.search_scenes). Restore this when QueryFrame is rewritten for moments:
 # assert set(QueryFrame.model_fields) == set(schema.QUERY_FIELDS), (...)
 
 
@@ -666,8 +588,8 @@ QUERY_TOOL = pydantic_function_tool(
 QUERY_TOOL["function"]["strict"] = False   # non-strict (see BATCH_TOOL) — provider routing
 
 
+# Retry reminder for the query distiller (a single frame, no coverage concern).
 def _query_retry_note(notes: list[str]) -> str:
-    """Retry reminder for the query distiller (a single frame, no coverage concern)."""
     if not notes:
         return ""
     lines = "\n".join(f"- attempt {i + 1}: {n}" for i, n in enumerate(notes))
@@ -721,17 +643,11 @@ crowd into one collective.
 """]
 
 
+# LEGACY (not on the read path): distil a writer's raw scene query into the frame dict search_fused consumed.
 def distill_query(text: str) -> dict:
-    """Distil a writer's raw scene query into the frame dict search_fused consumes.
-
-    One forced output_query_frame call, reusing _run_tool's retry policy. Returns
-    {summary, subject, verb, object, setting, descriptors}; subject/verb/object are term
-    LISTS (empty [] when unspecified), setting is a string (""); empties are dropped from
-    the fused score by search_fused. summary is always present (the gate).
-    """
     payload = json.dumps({"query": (text or "").strip()}, ensure_ascii=False)
     data = _run_tool(payload, system_prompt=QUERY_SYSTEM_PROMPT, tool=QUERY_TOOL,
-                     model_cls=QueryFrame, note_fn=_query_retry_note)
+                     model_cls=QueryFrame, note_fn=_query_retry_note)   # shared retry loop
     return {
         "summary": data.summary,
         "subject": data.subject,
@@ -741,4 +657,6 @@ def distill_query(text: str) -> dict:
         "descriptors": data.descriptors,
     }
 
+# NOTE: module-level rebuild trigger — importing embed.py runs a full index_scenes() over every
+# enriched pg*-s.json (rebuilds Qdrant + the relational mirror). Comment out to import without rebuilding.
 index_scenes()

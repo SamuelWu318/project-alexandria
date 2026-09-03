@@ -1,18 +1,3 @@
-# FOR CLAUDE — Local read-path test server (no LLM).
-# -----------------------------------------------------------------------------
-# A tiny stdlib HTTP server (zero new deps) that drives the LIVE stores so the
-# gold queries + a browser front end can exercise the whole retrieval path:
-#   * Qdrant  (search.py)      -> unified search(): what-happens (summary + svos) + flavor
-#   * SQLite  (relational.py)  -> reading-order navigation for the book "wheel"
-#   * scenes json (in memory)  -> full text_html + previews (the payload source of truth)
-#
-# It is deliberately SERIAL (HTTPServer, not ThreadingHTTPServer): the SQLite mirror is
-# opened once and sqlite objects are single-thread; one local user clicking does not need
-# concurrency, and serial keeps the Qdrant client + connection access trivially safe.
-#
-# Run:  python -m webtest.server        (from src/project_alexandria/, venv active)
-# Then open http://localhost:8765/ .  Endpoints under /api/* return JSON.
-# -----------------------------------------------------------------------------
 from __future__ import annotations
 import json, re, glob, sys, os, signal, subprocess, time
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -28,26 +13,32 @@ from utils import relational
 from utils import subjects          # book-level subject trie (the folder pre-filter)
 import search
 
+# ---- local read-path test server (no LLM) ----
+# A tiny stdlib HTTP server that drives the LIVE stores so the gold queries + a browser front end can
+# exercise the whole retrieval path: Qdrant (unified search()), SQLite (reading-order nav for the book
+# "wheel"), and the scenes json in memory (full text + previews). Deliberately SERIAL (single-thread
+# SQLite). Run: `python -m webtest.server`, then open http://localhost:8765/ ; /api/* return JSON.
+
+# ---- config ----
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 GOLD = HERE / "gold"
 PORT = 8765
-WEIGHTS = {"scenes":0.4, "flavor":0.6}
+WEIGHTS = {"scenes":0.4, "flavor":0.6}   # per-request RRF balance passed to search() as method_weights
 
-# Retrieval-strategy switch for a subject-folder filter: at or below this many allowed
-# books, force exact brute-force over the isolated set (Strategy 2 — fast + exact when few
-# qualify); above it, use the filtered HNSW walk (Strategy 1 — efficient over a broad set).
-# Counted in BOOKS (what the folder knows); the deeper cost is scenes, but books proxy it.
+# At or below this many allowed books a subject-folder filter forces exact brute-force (fast + exact when
+# few qualify); above it, the filtered HNSW walk. Counted in BOOKS (what the folder knows).
 EXACT_BOOK_THRESHOLD = 10
 
-# --- qdrant lock: last launch wins --- #
-# Local on-disk Qdrant is single-process — a second instance normally errors with
-# "already accessed by another instance". This harness is meant to be relaunched
-# freely, so a NEW server forcibly evicts whoever holds the lock (an old webtest
-# server, or a stray python REPL) and then opens. Scoped strictly to THIS qdrant dir.
+# ---- qdrant lock: last launch wins ----
+# Local on-disk Qdrant is single-process. This harness is meant to be relaunched freely, so a NEW
+# server forcibly evicts whoever holds the lock (an old server, or a stray REPL) then opens. Scoped
+# strictly to THIS qdrant dir.
 
+# ** LOCKED **
+# PIDs (excluding self) holding this qdrant dir open, or running a sibling server (via lsof/pgrep).
 def _lock_holders() -> set[int]:
-    """PIDs (excluding self) holding this qdrant dir open, or running a sibling server."""
     dirp = str(SrcPaths.QDRANT_DIR)
     pids: set[int] = set()
     probes = (
@@ -65,8 +56,9 @@ def _lock_holders() -> set[int]:
     return pids
 
 
+# ** LOCKED **
+# SIGTERM the lock holders, wait briefly, then SIGKILL any that survive.
 def _evict(pids: set[int]) -> None:
-    """SIGTERM the holders, give them a moment, then SIGKILL any that survive."""
     for p in pids:
         try: os.kill(p, signal.SIGTERM)
         except ProcessLookupError: pass
@@ -77,8 +69,9 @@ def _evict(pids: set[int]) -> None:
         except (ProcessLookupError, PermissionError): pass
 
 
+# ** LOCKED **
+# Open the store, evicting the current lock holder on contention (last wins); retries a few times.
 def _open_qdrant(retries: int = 6) -> QdrantClient:
-    """Open the store, evicting the current lock holder on contention (last wins)."""
     last: Exception | None = None
     for i in range(retries):
         try:
@@ -87,15 +80,15 @@ def _open_qdrant(retries: int = 6) -> QdrantClient:
             last = e
             if "already accessed" not in str(e).lower():
                 raise
-            holders = _lock_holders()
+            holders = _lock_holders()                        # who holds the lock?
             if holders:
                 print(f"[webtest] qdrant lock held by {sorted(holders)} — evicting")
-                _evict(holders)
+                _evict(holders)                              # kill them, then retry
             time.sleep(0.4 * (i + 1))   # wait out the RocksDB lock release
     raise RuntimeError(f"could not acquire qdrant lock after {retries} tries: {last}")
 
 
-# --- shared, opened once --- #
+# ---- shared, opened once ----
 _client = _open_qdrant()
 _conn = relational.open_db(SrcPaths.DB_PATH)
 subjects.ensure_table(_conn)         # subject folder tree lives as a sibling table in scenes.db
@@ -105,8 +98,8 @@ _scenes: dict[str, dict] = {}
 _book_title: dict[str, str] = {}
 
 
+# Load every pg*-s.json into memory once (payload source for text + previews).
 def _load_scenes() -> None:
-    """Load every pg*-s.json into memory once (payload source for text + previews)."""
     for f in sorted(glob.glob(str(SrcPaths.SCENES_DIR / "pg*-s.json"))):
         recs = json.loads(Path(f).read_text(encoding="utf-8"))
         for r in recs:
@@ -119,34 +112,29 @@ def _load_scenes() -> None:
     print(f"[webtest] loaded {len(_scenes)} scenes across {len(_book_title)} books")
 
 
+# Populate the folder tree scoped to the SEARCHABLE books only (those whose scenes loaded); rebuilt each boot.
 def _build_subject_tree() -> int:
-    """Populate the folder tree for the SEARCHABLE books only (those whose scenes loaded).
-
-    The trie derives from catalog subjects, but here we scope it to the books actually in
-    the index so folder navigation never dead-ends on a book with no retrievable scenes.
-    Scoping the TABLE (not just the queries) means count_branch / books_in_branch are
-    inherently searchable-only. Rebuilt each boot — idempotent, cheap at test scale.
-    """
     md = read_json(Path(SrcPaths.RECALL_DIR) / "metadata.json", {})
     md = {code: m for code, m in md.items() if code in _book_title}   # searchable subset
-    n = subjects.upsert_many(_conn, md)
+    n = subjects.upsert_many(_conn, md)                              # rebuild the scoped trie
     print(f"[webtest] subject tree: {n} rows across {len(md)} searchable books")
     return n
 
 
+# ** LOCKED **
+# text_html -> plain text, whitespace collapsed.
 def _strip(html: str) -> str:
-    """text_html -> plain text, whitespace collapsed."""
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).strip()
 
 
+# First ~`words` words of the scene prose, for the result-card teaser.
 def _preview(rec: dict, words: int = 45) -> str:
-    """First ~`words` words of the scene prose, for the result-card teaser."""
     toks = _strip(rec.get("text_html", "")).split()
     return " ".join(toks[:words]) + ("…" if len(toks) > words else "")
 
 
+# Lightweight scene card for a result column / book list (no full text).
 def _card(rec: dict, score: float | None = None) -> dict:
-    """Lightweight scene card for a result column / book list (no full text)."""
     return {
         "scene_id": rec.get("scene_id"),
         "book_id": rec.get("book_id"),
@@ -165,6 +153,8 @@ def _card(rec: dict, score: float | None = None) -> dict:
     }
 
 
+# ** LOCKED **
+# Dense per-book rank = the integer suffix of the scene_id, or None.
 def _pos(scene_id: str):
     try:
         return int(str(scene_id).rsplit("-", 1)[1])
@@ -172,16 +162,10 @@ def _pos(scene_id: str):
         return None
 
 
-# --- search dispatch --- #
+# ---- search dispatch ----
 
+# Run ONE query object over the prebuilt filter -> a result column. Never raises: errors ride back in-band.
 def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
-    """Run ONE query object -> a result column. Never raises: errors ride back in-band.
-
-    `flt` is a prebuilt Qdrant filter (single-book, subject-folder set, or None for all
-    books) computed once by the caller — the hard pre-filter that decides which books can
-    surface before the vector search even runs. `exact` picks the retrieval strategy for
-    that filter: brute-force the isolated set (few allowed books) vs the HNSW walk (many).
-    """
     mode = q.get("mode", "search")   # echoed back for the UI column header; not a dispatch key
     # anti-descriptors need matching weights; fill equal if the query gave only the list
     anti = q.get("anti_descriptors")
@@ -189,9 +173,8 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
     if anti and not aw:
         aw = [1.0 / len(anti)] * len(anti)
     try:
-        # ONE unified entry: search() activates the what-happens channels (summary + svos
-        # moment sentences) and/or the flavor channel (descriptors), runs them over `flt`,
-        # and merges (weighted RRF) when more than one is active. An empty field abstains.
+        # ONE unified entry: search() activates the what-happens channels (summary + svos moment
+        # sentences) and/or the flavor channel (descriptors), runs them over `flt`, and RRF-merges.
         pts = search.search(
             _client,
             summary=q.get("summary") or None,
@@ -204,7 +187,7 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
             normalize=q.get("normalize", "zscore"),
             flt=flt, exact=exact, limit=limit,
         )
-        results = [_card(p.payload, p.score) for p in pts]
+        results = [_card(p.payload, p.score) for p in pts]           # scene cards, scored
         return {"label": q.get("label", ""), "mode": mode, "meta": q.get("meta", {}),
                 "target_book_id": q.get("target_book_id"), "results": results}
     except Exception as e:  # bad weights, empty query, etc. -> show it, don't 500 the batch
@@ -212,12 +195,14 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
                 "error": f"{type(e).__name__}: {e}", "results": []}
 
 
-# --- request handling --- #
+# ---- request handling ----
 
 class Handler(BaseHTTPRequestHandler):
+    # Silence the default per-request access logging.
     def log_message(self, *a):  # quiet
         pass
 
+    # Write one HTTP response (status, body bytes, content type).
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -225,15 +210,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # Send an object as a JSON response.
     def _json(self, obj, code: int = 200):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json")
 
+    # Send a file from disk, or a 404 JSON if absent.
     def _file(self, path: Path, ctype: str):
         if not path.is_file():
             return self._json({"error": "not found"}, 404)
         self._send(200, path.read_bytes(), ctype)
 
-    # ---- GET ----
+    # Route GET: index.html, /api/datasets, /api/scene, /api/subject (folder nav), /api/book (reading order), static.
     def do_GET(self):
         u = urlparse(self.path)
         p = u.path
@@ -260,14 +247,13 @@ class Handler(BaseHTTPRequestHandler):
             })
             return self._json(d)
         if p == "/api/subject":
-            # folder listing at a subject path: sub-folders (child terms + counts) and the
-            # books in this branch (the "files"). path=Fiction&path=Italy -> ["Fiction","Italy"];
-            # no path -> the roots. This is the pre-retrieval navigator, all from SQL indexes.
+            # folder listing at a subject path: sub-folders (child terms + counts) + the branch's books,
+            # all from the SQL indexes. path=Fiction&path=Italy -> ["Fiction","Italy"]; no path -> the roots.
             path = parse_qs(u.query).get("path", [])
-            folders = [{"term": t, "count": subjects.count_branch(_conn, path + [t])}
+            folders = [{"term": t, "count": subjects.count_branch(_conn, path + [t])}   # child terms + counts
                        for t in subjects.children(_conn, path)]
             if path:
-                bids = subjects.books_in_branch(_conn, path)
+                bids = subjects.books_in_branch(_conn, path)                            # this branch's books
                 books = [{"book_id": b, "title": _book_title.get(b, f"book {b}")} for b in bids]
                 subject, count = " -- ".join(reversed(path)), len(bids)
             else:
@@ -276,8 +262,7 @@ class Handler(BaseHTTPRequestHandler):
                                "books": books, "count": count})
         if p == "/api/book":
             bid = (parse_qs(u.query).get("id") or [""])[0]
-            # reading order comes from the RELATIONAL store (proves the B-tree nav),
-            # decorated with previews from the in-memory scene payloads.
+            # reading order from the RELATIONAL store (proves the B-tree nav), decorated with previews.
             rows = relational.find(_conn, book_id=bid, order=True)
             out = []
             for row in rows:
@@ -291,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(STATIC / p[len("/static/"):], _ctype(p))
         return self._json({"error": f"no route {p}"}, 404)
 
-    # ---- POST ----
+    # Route POST /api/search_batch: build the hard pre-filter (subject branch > book), pick exact-vs-walk, run every query.
     def do_POST(self):
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length", 0))
@@ -299,32 +284,32 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/search_batch":
             limit = int(body.get("limit", 8))
             queries = body.get("queries", [])
-            # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a
-            # single pinned book (book_id). The branch filters by the indexed `subject_paths`
-            # label (one term, not an id-set); its book count comes from the SQL tree and drives
-            # the exact-vs-walk switch. A branch with zero searchable books -> every column empty.
+            # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a single
+            # pinned book (book_id). Its book count comes from the SQL tree and drives exact-vs-walk.
             subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]
             book_id = body.get("book_id") or None
             if subject_path:
-                n = subjects.count_branch(_conn, subject_path)
+                n = subjects.count_branch(_conn, subject_path)     # books in the branch
                 if n == 0:
                     empty = [{"label": q.get("label", ""), "mode": q.get("mode", "search"),
                               "meta": q.get("meta", {}), "target_book_id": q.get("target_book_id"),
                               "results": []} for q in queries]
                     return self._json({"columns": empty})
-                flt = search.subject_filter(subject_path)
+                flt = search.subject_filter(subject_path)          # branch pre-filter
                 exact = n <= EXACT_BOOK_THRESHOLD              # few books -> brute-force the set
             elif book_id:
-                flt = search.book_filter(book_id)
+                flt = search.book_filter(book_id)                  # single-book pre-filter
                 exact = True                                   # one book is maximally selective
             else:
                 flt = None
                 exact = False
-            cols = [_run_query(q, limit, flt, exact) for q in queries]
+            cols = [_run_query(q, limit, flt, exact) for q in queries]   # one column per query
             return self._json({"columns": cols})
         return self._json({"error": f"no route {u.path}"}, 404)
 
 
+# ** LOCKED **
+# Map a static file path to its Content-Type (css/js/html, else octet-stream).
 def _ctype(path: str) -> str:
     if path.endswith(".css"): return "text/css"
     if path.endswith(".js"): return "application/javascript"
@@ -332,8 +317,11 @@ def _ctype(path: str) -> str:
     return "application/octet-stream"
 
 
+# ---- server ----
+
+# ** ENTRY ** — load scenes + build the folder tree, then serve on PORT until Ctrl-C.
 def main():
-    _load_scenes()
+    _load_scenes()                   # in-memory payload source
     _build_subject_tree()            # folder pre-filter tree, scoped to the loaded books
     srv = HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[webtest] serving on http://localhost:{PORT}/  (Ctrl-C to stop)")

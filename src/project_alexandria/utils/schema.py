@@ -1,44 +1,22 @@
-# FOR CLAUDE — Scene-record schema: the SINGLE SOURCE OF TRUTH.
-# -----------------------------------------------------------------------------
-# Loads scene_schema.json (the editable master registry) and DERIVES every store's
-# field contract from it, so the schema is defined ONCE:
-#   * process.py       -> blank_record()        (the null template a new scene starts as)
-#   * relational.py    -> create_table_sql() / SQL_COLS / to_row() / FILTERABLE / INT_COLS
-#   * search.py        -> VECTOR_NAMES / DEFAULT_WEIGHTS
-#   * embed.py         -> LLM_FIELDS / QUERY_FIELDS (import-time drift asserts)
-# and the reconcile tool ripples an edit of the master across scenes JSON + SQLite +
-# Qdrant payloads.
-#
-# Field CLASSES:
-#   core       — structural (ids, positions, prose, provenance). Protected: reconcile
-#                never strips or nulls a core field.
-#   enrichment — the experimental surface (tones, frame, descriptors, summary). Reconcile
-#                nulls a missing one and strips any record key not in the master.
-#
-# This module stays stdlib-light on purpose (json + pathlib): the JSON/DB reconcile path
-# must run without pulling in the LLM client. tags-enum + relational + qdrant imports are
-# all LAZY, inside the functions that need them.
-#
-# Workflow:  edit scene_schema.json  ->  python -m utils.schema --check     (parity vs stores)
-#                                    ->  python -m utils.schema --reconcile  (dry-run diff)
-#                                    ->  python -m utils.schema --reconcile --apply --db --qdrant
-# Re-enrich a tag: reset its VALUES (reconcile won't — it never overwrites) then re-run:
-#            python -m utils.schema --clear subject,verb,object            (dry-run diff)
-#            python -m utils.schema --clear subject,verb,object --apply     (+ --db to rebuild SQLite)
-# -----------------------------------------------------------------------------
 from __future__ import annotations
 import json, os, tempfile
 from collections import Counter
 from pathlib import Path
 from utils import SrcPaths
 
-# a hard floor: the master MUST declare these, so a bad edit can never make reconcile
-# strip the columns everything joins on.
+# ---- scene-record schema: the SINGLE SOURCE OF TRUTH ----
+# Loads scene_schema.json (the editable master registry) and DERIVES every store's field contract
+# from it, so the schema is defined ONCE. Stays stdlib-light on purpose (json + pathlib) — the
+# reconcile path must run without pulling in the LLM client; tags/relational/qdrant imports are LAZY.
+# Workflow: edit scene_schema.json -> `python -m utils.schema --check` (parity) / `--reconcile` (ripple).
+
+# a hard floor: the master MUST declare these, so a bad edit can never strip the join columns.
 _REQUIRED = ("scene_id", "book_id")
 
 
-# --- load + derive (at import) --- #
+# ---- load + derive (at import) ----
 
+# Load + validate scene_schema.json (raises if a required field is missing).
 def _load() -> dict:
     reg = json.loads(SrcPaths.SCHEMA_PATH.read_text(encoding="utf-8"))
     fields = reg.get("fields") or {}
@@ -64,8 +42,7 @@ QUERY_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("vector"))  # == dis
 # vector store (search.py)
 VECTOR_NAMES = tuple(f for f in FIELDS if FIELDS[f].get("vector"))
 DEFAULT_WEIGHTS = {f: FIELDS[f]["weight"] for f in VECTOR_NAMES}
-# multivector fields: a LIST of per-item vectors scored by MAX_SIM (max-pooling), so the
-# query's best-matching clause drives the field's contribution (svos).
+# multivector fields (svos): a LIST of per-item vectors scored by MAX_SIM (max-pooling).
 MULTIVECTOR_NAMES = tuple(f for f in VECTOR_NAMES if FIELDS[f].get("multivector"))
 
 # relational store (relational.py)
@@ -76,34 +53,37 @@ JSON_STORE_COLS = tuple(f for f in SQL_COLS if FIELDS[f]["sql"].get("store") == 
 FILTERABLE = frozenset(f for f in FIELDS if FIELDS[f].get("filterable"))
 
 
-# --- record helpers --- #
+# ---- record helpers ----
 
+# The declared default for a field ('$schema_version' resolves to the registry version).
 def _default(name: str):
-    """Declared default for a field ('$schema_version' resolves to the registry version)."""
     d = FIELDS[name]["default"]
     return SCHEMA_VERSION if d == "$schema_version" else d
 
 
+# ** MAIN ** — process.scenes_to_records starts every new scene from this null template
+# A fresh scene record: every JSON field at its declared default.
 def blank_record() -> dict:
-    """A fresh scene record: every JSON field at its default (the process.py null template)."""
     return {name: _default(name) for name in JSON_FIELDS}
 
 
+# ** LOCKED **
+# Dense per-book rank = the integer suffix of the scene_id (`book-i`); None if unparseable.
 def pos_of(scene_id: str) -> int | None:
-    """Dense per-book rank = the integer suffix of the scene_id (`book-i`)."""
     try:
         return int(str(scene_id).rsplit("-", 1)[1])
     except (IndexError, ValueError):
         return None
 
 
+# ** MAIN ** — relational._to_row flattens every record for SQL through here
+# Flatten a record into a SQL column tuple in SQL_COLS order, applying each column's store transform.
 def to_row(rec: dict) -> tuple:
-    """Flatten a record into a SQL column tuple in SQL_COLS order, applying store transforms."""
     out = []
     for name in SQL_COLS:
         store = FIELDS[name]["sql"].get("store", "direct")
         if store == "pos":
-            out.append(pos_of(rec.get("scene_id", "")))
+            out.append(pos_of(rec.get("scene_id", "")))   # id suffix -> dense rank
         elif store == "bool_int":
             out.append(1 if rec.get(name) else 0)
         elif store == "json":
@@ -113,16 +93,18 @@ def to_row(rec: dict) -> tuple:
     return tuple(out)
 
 
+# ** MAIN ** — relational._row rehydrates every SQL row through here
+# Re-inflate a SQL row dict: JSON-store columns back into lists (in place, returned).
 def inflate_row(d: dict) -> dict:
-    """Re-inflate a SQL row dict: JSON-store columns back into lists (in place, returned)."""
     for col in JSON_STORE_COLS:
         if d.get(col):
             d[col] = json.loads(d[col])
     return d
 
 
+# ** MAIN ** — relational.open_db builds the table from this DDL
+# Derive the full CREATE TABLE + index DDL from the registry.
 def create_table_sql() -> str:
-    """Derive the full CREATE TABLE + index DDL from the registry."""
     lines = []
     for name in SQL_COLS:
         col = f"    {name:<22} {SQL_TYPES[name]}"
@@ -136,16 +118,10 @@ def create_table_sql() -> str:
     return ddl
 
 
-# --- reconcile: make a record match the master --- #
+# ---- reconcile: make a record's keys match the master (structure only, never a value) ----
 
+# Sync one record's keys to the master JSON field set: add missing at default, strip unknown, flag a missing CORE field.
 def reconcile(record: dict) -> tuple[dict, dict]:
-    """Make one record's keys exactly the master's JSON field set (in place).
-
-    Adds a missing field at its default; strips any key the master no longer declares.
-    NEVER overwrites an existing value, and flags (does not silently null) a missing CORE
-    field — those are structural and a missing one means an upstream bug, not a tag edit.
-    Returns (record, {"added", "removed", "warnings"}).
-    """
     added, removed, warnings = [], [], []
     for name in JSON_FIELDS:
         if name not in record:
@@ -160,8 +136,9 @@ def reconcile(record: dict) -> tuple[dict, dict]:
     return record, {"added": added, "removed": removed, "warnings": warnings}
 
 
+# ** LOCKED **
+# Write JSON to `path` atomically (tmp in same dir, then os.replace).
 def _atomic_write_json(path: Path, obj) -> None:
-    """Write JSON to `path` atomically (tmp in same dir, then os.replace)."""
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -172,12 +149,8 @@ def _atomic_write_json(path: Path, obj) -> None:
             os.remove(tmp)
 
 
+# Reconcile every record in one scenes json (dry-run unless apply); writes a .bak then rewrites atomically.
 def reconcile_file(path: str | Path, *, apply: bool = False, backup: bool = True) -> tuple[Counter, set, bool]:
-    """Reconcile every record in one scenes json. Dry-run unless apply=True.
-
-    Returns (per-field add/remove counts, set of warnings, changed?). On apply, writes a
-    `<path>.bak` sibling first (unless backup=False) then rewrites atomically.
-    """
     path = Path(path)
     raw = path.read_text(encoding="utf-8")
     recs = json.loads(raw)
@@ -185,7 +158,7 @@ def reconcile_file(path: str | Path, *, apply: bool = False, backup: bool = True
     warns: set = set()
     changed = False
     for r in recs:
-        _, ch = reconcile(r)
+        _, ch = reconcile(r)                     # sync one record's structure
         if ch["added"] or ch["removed"]:
             changed = True
         for a in ch["added"]:
@@ -196,20 +169,14 @@ def reconcile_file(path: str | Path, *, apply: bool = False, backup: bool = True
     if changed and apply:
         if backup:
             (path.parent / (path.name + ".bak")).write_text(raw, encoding="utf-8")
-        _atomic_write_json(path, recs)
+        _atomic_write_json(path, recs)           # crash-safe rewrite
     return stats, warns, changed
 
 
-# --- clear: reset enrichment values to prepare a re-enrichment --- #
-# Distinct from reconcile: reconcile syncs STRUCTURE and never touches an existing value;
-# clear deliberately RESETS the named enrichment fields to their default (unfilled) and
-# marks the record un-enriched, so the next enrichment pass regenerates them. Only
-# `kind:enrichment` fields may be cleared — core structure is protected.
+# ---- clear: reset enrichment values to prepare a re-enrichment (RESETS values, unlike reconcile) ----
 
+# Reset each named field to default; if anything changed, mark the record un-enriched so it reprocesses. Returns changed?.
 def _clear_record(rec: dict, cols: tuple) -> bool:
-    """Reset each named field to its default; if anything changed, mark the record
-    un-enriched (enriched=False, enrich_model=null) so the pipeline reprocesses it.
-    Returns True if the record changed."""
     changed = False
     for c in cols:
         d = _default(c)
@@ -222,14 +189,12 @@ def _clear_record(rec: dict, cols: tuple) -> bool:
     return changed
 
 
+# Clear the named enrichment fields in every record of one scenes json (dry-run unless apply). Returns (recs changed, changed?).
 def clear_file(path: str | Path, cols: tuple, *, apply: bool = False, backup: bool = True) -> tuple[int, bool]:
-    """Clear the named enrichment fields in every record of one scenes json (dry-run unless
-    apply). Returns (records changed, changed?). On apply, writes a `<path>.bak` sibling
-    first (unless backup=False) then rewrites atomically."""
     path = Path(path)
     raw = path.read_text(encoding="utf-8")
     recs = json.loads(raw)
-    n = sum(1 for r in recs if _clear_record(r, cols))
+    n = sum(1 for r in recs if _clear_record(r, cols))   # reset the fields per record
     if n and apply:
         if backup:
             (path.parent / (path.name + ".bak")).write_text(raw, encoding="utf-8")
@@ -237,10 +202,8 @@ def clear_file(path: str | Path, cols: tuple, *, apply: bool = False, backup: bo
     return n, bool(n)
 
 
+# Wipe the enrichment RESUME caches (per-scene checkpoints + book status flags) so cleared scenes actually re-run.
 def reset_enrich_state() -> None:
-    """Wipe the enrichment RESUME caches so cleared scenes actually re-run: the per-scene
-    checkpoints (ENRICH_CKPT_DIR) and the book-level completed flags (STATUS_PATH). Without
-    this, enrich_file replays cached results and embed_test skips 'completed' books."""
     import shutil
     from utils import SrcPaths
     ck = Path(SrcPaths.ENRICH_CKPT_DIR)
@@ -251,37 +214,33 @@ def reset_enrich_state() -> None:
         st.unlink()
 
 
-# --- ripple: SQLite + Qdrant (lazy heavy imports) --- #
+# ---- ripple: SQLite + Qdrant (lazy heavy imports) ----
 
+# Every pg*-s.json under the scenes dir, sorted.
 def _scene_files(scenes_dir: Path | None = None) -> list[Path]:
     from utils import SrcPaths
     d = Path(scenes_dir) if scenes_dir else Path(SrcPaths.SCENES_DIR)
     return sorted(d.glob("pg*-s.json"))
 
 
+# Rebuild the SQLite scenes table from the reconciled jsons (DROP + recreate from current DDL, re-upsert all). Returns rows.
 def sync_db() -> int:
-    """Rebuild the SQLite scenes table from the (reconciled) scenes json — DROP + recreate
-    from the current DDL so stripped columns actually disappear, then re-upsert every record.
-    """
     from utils import relational
     conn = relational.open_db()
     try:
         conn.executescript("DROP TABLE IF EXISTS scenes;")
-        conn.executescript(create_table_sql())
+        conn.executescript(create_table_sql())              # current DDL, stripped cols gone
         total = 0
         for f in _scene_files():
             recs = json.loads(f.read_text(encoding="utf-8"))
-            total += relational.sql_upsert(conn, recs)
+            total += relational.sql_upsert(conn, recs)       # mirror each book's records
         return total
     finally:
         conn.close()
 
 
+# Overwrite every indexed point's payload from the reconciled jsons (payload-only; vectors untouched). Returns points.
 def sync_qdrant() -> int:
-    """Overwrite every existing point's payload from the reconciled scenes json, so stripped
-    tags vanish from Qdrant too. Payload-only: vectors are untouched. Adding/removing a
-    VECTOR field still needs a re-index (embed.index_records) — this does not re-embed.
-    """
     import search
     client = search.open_client()
     try:
@@ -303,10 +262,10 @@ def sync_qdrant() -> int:
         client.close()
 
 
-# --- CLI --- #
+# ---- CLI ----
 
+# Assert the derived contract matches every store's constants + pydantic models. Returns an exit code.
 def _check() -> int:
-    """Assert the derived contract matches the store constants + pydantic models. Exit code."""
     import search, embed
     from utils import relational
     problems = []
@@ -324,10 +283,8 @@ def _check() -> int:
     eq("SCHEMA_VERSION", SCHEMA_VERSION, __import__("utils").SCHEMA_VERSION)
     llm = {n for n in embed.SceneEnrichment.model_fields if n != "index"}
     eq("LLM_FIELDS", set(LLM_FIELDS), llm)
-    # QUERY_FIELDS <-> QueryFrame parity is SUSPENDED during the svos transition: query input
-    # is supplied MANUALLY as a {summary, moments} frame (search.search_scenes), so the legacy
-    # QueryFrame distiller is no longer bound to the vector set. Restore when QueryFrame is
-    # rewritten for moments. (See the matching suspended assert in embed.py.)
+    # QUERY_FIELDS <-> QueryFrame parity is SUSPENDED during the svos transition (query input is
+    # manual now). Restore when QueryFrame is rewritten for moments — see the matching note in embed.py.
     # eq("QUERY_FIELDS", set(QUERY_FIELDS), set(embed.QueryFrame.model_fields))
 
     if problems:
@@ -340,6 +297,7 @@ def _check() -> int:
     return 0
 
 
+# CLI entry: dispatch --check / --reconcile / --clear over the scene jsons (+ optional --db / --qdrant ripple).
 def main():
     import argparse
     ap = argparse.ArgumentParser(description="Scene schema: single source of truth + reconcile tool.")
@@ -355,7 +313,7 @@ def main():
     args = ap.parse_args()
 
     if args.check:
-        raise SystemExit(_check())
+        raise SystemExit(_check())                # parity gate
 
     if args.clear:
         cols = tuple(c.strip() for c in args.clear.split(",") if c.strip())
@@ -367,14 +325,14 @@ def main():
         print(f"{'APPLY' if args.apply else 'DRY-RUN'} clear {list(cols)} over {len(files)} scene files:")
         total = 0
         for f in files:
-            n, changed = clear_file(f, cols, apply=args.apply, backup=not args.no_backup)
+            n, changed = clear_file(f, cols, apply=args.apply, backup=not args.no_backup)   # reset per file
             if changed:
                 total += n
                 print(f"  {f.name}: cleared on {n} recs (enriched -> False)")
         if not total:
             print("  (nothing to clear — already at default)")
         if args.apply:
-            reset_enrich_state()
+            reset_enrich_state()                  # wipe resume caches so scenes re-run
             print("  reset enrichment resume state: checkpoints wiped + status.json removed")
             if args.db:
                 print(f"  rebuilt SQLite mirror: {sync_db()} rows")
@@ -390,7 +348,7 @@ def main():
         any_change = False
         print(f"{'APPLY' if args.apply else 'DRY-RUN'} reconcile over {len(files)} scene files:")
         for f in files:
-            stats, w, changed = reconcile_file(f, apply=args.apply, backup=not args.no_backup)
+            stats, w, changed = reconcile_file(f, apply=args.apply, backup=not args.no_backup)   # sync per file
             warns.update(w)
             if changed:
                 any_change = True

@@ -1,15 +1,3 @@
-# FOR CLAUDE — Interactive test / smoke harness (run by hand, not pytest).
-# -----------------------------------------------------------------------------
-# Three entry points, called manually:
-#   * search_test()       — the read path: run canned queries against the live
-#                           Qdrant index and print hits. This is what main() runs.
-#   * segment_test(code)  — the stage-2 driver: build the library, segment ONE book
-#                           with the LLM (resumable via checkpoints), write its
-#                           scenes json. Was process.main.
-#   * payload_dump_test() — dump every book's chunk payloads for eyeballing. Was
-#                           data.main.
-# Paths + JSON IO come from storage.py.
-# -----------------------------------------------------------------------------
 from pathlib import Path
 import subprocess, os, sys, time, re, contextlib, zipfile
 
@@ -22,19 +10,15 @@ import search
 from utils import write_json, read_json, relational, subjects, log, SCHEMA_VERSION, SrcPaths, llm, llm_ready_up
 from qdrant_client import QdrantClient
 
+# ---- interactive test / smoke harness (run by hand, not pytest) ----
+# The manually-run drivers that exercise the whole pipeline: step_one/two/three_retrieval/processing/embedding
+# (download -> segment -> enrich + index), plus search_test / manual_search (read path) and the subject-tree
+# tests. Each ** ENTRY ** function is one you run yourself; their internal calls are annotated inline.
+
 # book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
 OTHER_SKIP_RATIO = 0.70
-# TEST_PATH = os.path.dirname(os.path.abspath(sys.argv[0])) + "/test"
-# DATA_PATH = TEST_PATH + "/data"                 # contains the raw zip files needed
-# SrcPaths.SCENES_DIR = TEST_PATH + "/scenes"             # contains fully stitched scenes + fields before and after fill
-# SEGMENTS_PATH = TEST_PATH + "/segments"         # contains excluded book list + pre-processing chunks
-# RECALL_PATH = TEST_PATH + "/recall"             # contains books and metadata jsons for recall
-# CHECKPOINT_DIR = TEST_PATH + "/checkpoints"
-# SrcPaths.QDRANT_DIR = TEST_PATH + "/qdrant_db"          # on-disk local Qdrant db (embed writes, search reads)
-# DB_PATH = TEST_PATH + "/scenes.db"              # on-disk SQLite relational mirror (embed writes, search reads)
-# STATUS_PATH = CHECKPOINT_DIR + "/status.json"   # {book_id: "completed"} -> embed_test skips it on rerun
 
-# --- test file numbers --- #
+# ---- test book ids (uncomment a line to include that book) ----
 
 FILE_IDS = [
     "64317",    # great gatsby
@@ -62,19 +46,17 @@ FILE_IDS = [
     "103"       # around the world in eighty days
 ]
 
-# --- qdrant search test --- #
+# ---- query sets (how a writer searches; each maps to a famous scene in a FILE_IDS book) ----
 
-# general, plot-free scene descriptions (how a writer searches), each mapped to a famous
-# scene in one of the FILE_IDS books. Confirms GENERAL summaries retrieve the right scene.
+# general, plot-free scene descriptions -> summary-only retrieval.
 TEST_QUERIES = [
     "A man is inspired by a wealthy host's extravagant party.",
-    "An evil witch is killed.",              
+    "An evil witch is killed.",
     "A young soldier panics and flees from his first taste of battle.",
     "A man experiences a traumatic fight and narrowly wins or escapes."
 ]
 
-# (summary, descriptors-list) pairs for the flavor merge: search() runs the summary channel
-# and the weighted-descriptor centroid, then RRF-merges them. descriptors is a LIST (equal-weighted).
+# (summary, descriptors-list) pairs -> summary channel + weighted-descriptor centroid, RRF-merged.
 COMBINED_QUERIES = [
     ("A crowd of glittering strangers drifts through a wealthy host's extravagant summer party.",
      ["festive", "glamorous", "hollow"]),                       # Gatsby (64317)
@@ -82,8 +64,7 @@ COMBINED_QUERIES = [
      ["tender", "bittersweet", "yearning"]),                    # A Farewell to Arms (75201)
 ]
 
-# (summary, moment-sentence list) pairs for the what-happens two-channel search: the general
-# summary + the stripped svos clause sentences, fused by GREATEST SINGLE MATCH (max).
+# (summary, moment-sentence list) pairs -> what-happens two-channel search (summary vs svos, max).
 MOMENTS_QUERIES = [
     ("A young soldier breaks and runs from his first battle.",
      ["A terrified soldier flees the battlefield.", "The soldier throws down his rifle and runs."]),  # Red Badge (73)
@@ -98,20 +79,19 @@ DESCRIPTOR_QUERIES = [
     ["chaotic", "terrifying", "cowardly"],          # Red Badge battle-panic (73)
 ]
 
-# --- subject tree: SQL table + subject_paths payload --- #
+# ---- subject tree: SQL table + subject_paths payload ----
 
+# ** ENTRY ** — build the subject table from metadata, then walk + recall down a branch it discovers.
 def subject_sql_test():
-    """Build the subject table in scenes.db from recall/metadata.json, then recall from it —
-    the SCALE path (indexed SQL slices). Drives a path down the tree it discovers itself."""
     conn = subjects.open_db(SrcPaths.DB_PATH)
     try:
-        n = subjects.build_from_recall(conn, SrcPaths.RECALL_DIR)
+        n = subjects.build_from_recall(conn, SrcPaths.RECALL_DIR)   # table from metadata.json alone
         log.step(f"built book_subject_path: {n} rows in {SrcPaths.DB_PATH}")
 
         # walk a path DOWN the tree the table generated — nothing hardcoded
         path = []
         while True:
-            kids = subjects.children(conn, path)
+            kids = subjects.children(conn, path)                    # browse one level
             log.info(f"children of {path or '[root]'}: {kids[:8]}{' ...' if len(kids) > 8 else ''}")
             if not kids:
                 break
@@ -120,21 +100,14 @@ def subject_sql_test():
         # recall at the deepest branch reached
         parent = path[:-1]                     # last hop had no children; step back to a real branch
         log.step(f"RECALL  in={parent}")
-        log.done(f"  branch slice -> {subjects.branch(conn, parent)}")
+        log.done(f"  branch slice -> {subjects.branch(conn, parent)}")   # child terms + book ids
     finally:
         conn.close()
     return
 
 
+# ** ENTRY ** — one-off migration: stamp `subject_paths` onto EXISTING indexed points WITHOUT re-embedding.
 def backfill_subject_paths(file_ids=None):
-    """One-off: stamp `subject_paths` onto EXISTING indexed points WITHOUT re-embedding.
-
-    Future books get the label for free — index_records stamps it on every point and ensures
-    the keyword index. This is the migration for books indexed BEFORE the field existed: it
-    reads each book's Subjects from its scenes json, expands the right-anchored prefixes, and
-    set_payloads them onto that book's points (the label is book-level, so one call per book
-    covers all its scenes). Cheap: no vectors are recomputed. file_ids=None does every book.
-    """
     files = ([Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c] if file_ids
              else sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json")))
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
@@ -146,14 +119,14 @@ def backfill_subject_paths(file_ids=None):
                 continue
             recs = read_json(str(f), [])
             subj = next((r.get("book_metadata") for r in recs if r.get("book_metadata")), None) or {}
-            paths = subjects.suffixes(subj.get("Subjects") or [])
+            paths = subjects.suffixes(subj.get("Subjects") or [])   # right-anchored branch labels
             ids = [embed._point_id(r["scene_id"]) for r in recs
-                   if r.get("summary") and r.get("scene_id")]     # only enriched scenes are indexed
+                   if r.get("summary") and r.get("scene_id")]        # only enriched scenes are indexed
             if not ids or not paths:
                 log.skip(f"{f.name}: no indexed points or no subjects — skip")
                 continue
             client.set_payload(embed.COLLECTION,
-                               payload={embed.SUBJECT_PATHS_FIELD: paths}, points=ids)
+                               payload={embed.SUBJECT_PATHS_FIELD: paths}, points=ids)   # payload-only stamp
             total += len(ids)
             log.info(f"{f.name}: stamped {len(ids)} points with {len(paths)} labels")
         log.done(f"backfilled subject_paths onto {total} points across {len(files)} books")
@@ -162,21 +135,21 @@ def backfill_subject_paths(file_ids=None):
     return
 
 
-# --- payload dump (was data.main) --- #
+# ---- payload dump (was data.main) ----
 
+# ** ENTRY ** — dump every book's chunk payloads to SEGMENTS_DIR/pg{code}-p.json for inspection.
 def payload_dump_test():
-    """Dump every book's chunk payloads to SEGMENTS_PATH/pg{code}-p.json for inspection."""
-    metadata, _ = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
+    metadata, _ = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)   # metadata cache
     for code in metadata:                        # books are lazy now — parse/load each shard
         book = ensure_book(code, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR, metadata[code].get("Title"))
         log.info(f"dumping payloads for book {book.file_code}")
-        book.to_json(SrcPaths.SEGMENTS_DIR)
+        book.to_json(SrcPaths.SEGMENTS_DIR)      # lossy chunk payloads
 
 
-# --- segmentation run (was process.main) --- #
+# ---- segmentation run (was process.main) ----
 
+# ** ENTRY ** — segment ONE book with the LLM (resumable) and write its scenes json.
 def segment_test(metadata: dict, books: dict, desired: str):
-    """Segment ONE book with the LLM (resumable via checkpoints) and write its scenes json."""
     # do not segment if a completed scenes file already exists
     if (SrcPaths.SCENES_DIR / f"pg{desired}-s.json").is_file():
         log.skip(f"book {desired} already in scenes — skip segmentation")
@@ -191,8 +164,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
 
     desired_book = []
     md = metadata[desired]
-    # recall is lazy + per-book now: ensure_book checks recall/books/pg{code}.json and parses +
-    # writes the shard if it does not exist, so the book is on disk before we load it.
+    # recall is lazy + per-book: ensure_book parses + writes the shard if it does not exist.
     if desired not in books:
         books[desired] = ensure_book(desired, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR, md.get("Title"))
     book = books[desired]
@@ -225,7 +197,7 @@ def segment_test(metadata: dict, books: dict, desired: str):
                  f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding")
         return
 
-    # the full stitched together segments
+    # stitch + flatten the kept scenes into ingest-ready records
     records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
     out_path = f"{SrcPaths.SCENES_DIR}/pg{desired}-s.json"
@@ -233,35 +205,29 @@ def segment_test(metadata: dict, books: dict, desired: str):
     log.done(f"book {desired}: recorded {len(records)} scenes -> {out_path}")
 
 
-# --- enrichment + indexing run (was embed.main) --- #
+# ---- enrichment + indexing run (was embed.main) ----
 
+# Load the test-root {book_id: status} map; missing file / key / null all mean 'not done'.
 def _load_status() -> dict:
-    """Load the test-root {book_id: status} map; missing file / key / null all mean 'not done'."""
     return read_json(SrcPaths.STATUS_PATH, {})
 
 
+# Persist one book's completion status so the next embed_test run skips it.
 def _mark_status(code: str, value="completed"):
-    """Persist one book's completion status so the next embed_test run skips it."""
     status = _load_status()
     status[code] = value
     write_json(SrcPaths.STATUS_PATH, status)
- 
 
+
+# ** ENTRY ** — enrich each scenes json and index it into the local Qdrant db (skips books marked 'completed').
 def embed_test(file_ids=None):
-    """Enrich each scenes json under SrcPaths.SCENES_DIR and index it into a LOCAL Qdrant db
-    saved in the test root (TEST_PATH/qdrant_db). Test-tree mirror of embed.main.
-
-    file_ids picks specific books; None enriches every pg*-s.json under SrcPaths.SCENES_DIR.
-    A book marked "completed" in STATUS_PATH is skipped; null its status (or delete the
-    file) to force a redo.
-    """
     if file_ids:
         files = [Path(f"{SrcPaths.SCENES_DIR}/pg{c}-s.json") for c in file_ids if c]
     else:
         files = sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json"))
 
-    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # on-disk local db in the test root, auto-created
-    conn = relational.open_db(SrcPaths.DB_PATH)        # test-root SQLite mirror, created/migrated on open
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # on-disk local db, auto-created
+    conn = relational.open_db(SrcPaths.DB_PATH)        # SQLite mirror, created/migrated on open
     subjects.ensure_table(conn)                        # sibling subject table in the same scenes.db
     subjects.build_from_recall(conn, SrcPaths.RECALL_DIR)  # book-level subject trie, from metadata alone
     status = _load_status()
@@ -284,10 +250,10 @@ def embed_test(file_ids=None):
         client.close()
 
 
-# --- search --- #
+# ---- search ----
 
+# Print each hit: score, scene id, flavor tags, title, summary, descriptors.
 def _show(hits):
-    """Print each hit: score, scene id, flavor tags, title, summary, descriptors."""
     for h in hits:
         p = h.payload
         print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
@@ -295,12 +261,11 @@ def _show(hits):
         print(f"     {p.get('summary')}  << {p.get('descriptors')}")
 
 
+# ** ENTRY ** — smoke the unified search(): summary-only, +moments, +descriptors, then pure-descriptor.
 def search_test(book_id: str = None, limit: int = 2):
-    """Smoke the unified search(): summary-only, summary+moments (svos), summary+descriptors
-    (RRF), then pure-descriptor — every group through the one search() entry."""
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))   # read the test db that embed_test wrote
 
-    flt = search.book_filter(book_id)
+    flt = search.book_filter(book_id)                      # optional one-book pre-filter
 
     try:
         log.step("SUMMARY ONLY")
@@ -326,13 +291,10 @@ def search_test(book_id: str = None, limit: int = 2):
         client.close()
 
 
-# --- keep-awake (macOS lid-close survival) --- #
+# ---- keep-awake (macOS lid-close survival) ----
 
+# Toggle macOS lid-close sleep via `sudo pmset -b disablesleep <value>` (needs admin; safe warn-and-continue on failure).
 def _pmset_disablesleep(value: int) -> bool:
-    """Toggle macOS lid-close sleep via `sudo pmset -b disablesleep <value>` (needs admin;
-    prompts for your password in the terminal). 1 = never sleep on lid close even on
-    BATTERY; 0 = restore default. Returns True on success; safe warn-and-continue if it
-    fails (no sudo rights, no tty, or non-macOS)."""
     try:
         subprocess.run(["sudo", "pmset", "-b", "disablesleep", str(value)], check=True)
         return True
@@ -341,20 +303,9 @@ def _pmset_disablesleep(value: int) -> bool:
         return False
 
 
+# Keep the Mac awake for the whole block (pmset + caffeinate), restoring normal sleep on exit (incl. Ctrl-C).
 @contextlib.contextmanager
 def stay_awake():
-    """Keep the Mac awake for the whole block so a long process/embed run survives a
-    closed lid, then automatically restore normal sleep on exit — including Ctrl-C.
-
-    Two layers:
-      * `sudo pmset -b disablesleep 1` — strong guard: no lid-close sleep even on
-        BATTERY. Needs admin, so it prompts for your password when you run tests.py.
-        Auto-reverted to 0 in `finally` (normal end, exception, OR Ctrl-C).
-      * `caffeinate -imsw <pid>` — prevents idle/disk/system sleep, bound to this PID.
-
-    Only a low-battery/critical sleep or a manual Ctrl-C stops the run. (A hard SIGKILL
-    would skip the revert; if that ever happens, rerun `sudo pmset -b disablesleep 0`.)
-    """
     proc = None
     disabled = _pmset_disablesleep(1)   # admin prompt; reverted in finally below
     try:
@@ -371,11 +322,10 @@ def stay_awake():
             _pmset_disablesleep(0)      # restore normal sleep on Ctrl-C / end / error
 
 
-# --- steps --- #
+# ---- pipeline steps ----
 
+# ** ENTRY ** — step 1: download each book's -h.zip into DATA_DIR (parallel wgets, then validate + rebuild bad ones).
 def step_one_retrieval(file_ids, force=False):
-    """Download each book's -h.zip into DATA_PATH. Launches the wgets in parallel,
-    then waits for all of them so step two never reads a half-finished download."""
     if not file_ids: return
 
     Path(SrcPaths.DATA_DIR).mkdir(parents=True, exist_ok=True)
@@ -389,7 +339,7 @@ def step_one_retrieval(file_ids, force=False):
         if current_zip.is_file(): current_zip.unlink()
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
-        procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))
+        procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))   # launch the download
         log.info(f"book {file_id}: downloading")
         time.sleep(2)
 
@@ -399,14 +349,14 @@ def step_one_retrieval(file_ids, force=False):
         if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
             log.warn(f"book {file_id}: missing or invalid zip — rebuild")
             rebuild.append(file_id)
-    step_one_retrieval(rebuild, force=True)
+    step_one_retrieval(rebuild, force=True)      # re-download the bad ones
 
     for p in procs:
-        p.wait()
+        p.wait()                                 # block until every download finishes
 
+# ** ENTRY ** — step 2: segment every downloaded book into scenes (build library, then segment_test each).
 def step_two_processing(file_ids):
-    """Segments all files into scenes, creating segment, scenes, and recall folders."""
-    if not llm_ready_up(): sys.exit("LLM issue")
+    if not llm_ready_up(): sys.exit("LLM issue")     # fail fast if the LLM is unreachable
 
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
@@ -415,28 +365,21 @@ def step_two_processing(file_ids):
             # build_library skipped, so this keeps segment_test's metadata lookup from KeyError-ing.
             if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
                 log.warn(f"book {file_id}: missing or invalid zip — skip")
-            segment_test(metadata, books, file_id)
+            segment_test(metadata, books, file_id)   # segment one book
 
+# ** ENTRY ** — step 3: enrich + index each book that has a scenes json.
 def step_three_embedding(file_ids):
-    """Enrich + index each book's scenes into the local Qdrant db (test root),
-    skipping any id with no scenes json yet (excluded or not segmented)."""
     with stay_awake():   # embed runs long — survive a closed lid
         exist_ids = []
         for file_id in file_ids:
             if not (SrcPaths.SCENES_DIR / f"pg{file_id}-s.json").is_file(): continue
             exist_ids.append(file_id)
-        embed_test(exist_ids)
+        embed_test(exist_ids)                    # enrich + index the ones present
 
 
+# ** ENTRY ** — hand-driven read path: run the unified search() over a manual summary/moments/descriptors and print hits.
 def manual_search(summary: str = "", moments=None, descriptors=None,
                   limit: int = 5, book_id: str = None):
-    """Manual read-path driver: hand it a summary and/or a list of moment clause SENTENCES
-    (and/or a descriptor list), run the unified search(), print the hits. Query input is
-    manual now — no LLM distiller. Eyeball the whole read path on the test index.
-
-    e.g. manual_search("A soldier flees his first battle.",
-                       moments=["A terrified soldier throws down his rifle and runs."])
-    """
     log.step(f"SEARCH  summary={summary!r}  moments={moments!r}  descriptors={descriptors!r}")
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
     try:
@@ -448,11 +391,12 @@ def manual_search(summary: str = "", moments=None, descriptors=None,
         client.close()
 
 
+# ** ENTRY ** — full pipeline: download -> segment -> enrich/index -> subject-tree smoke.
 def main():
-    step_one_retrieval(FILE_IDS)
-    step_two_processing(FILE_IDS)
-    step_three_embedding(FILE_IDS)
-    subject_sql_test()
+    step_one_retrieval(FILE_IDS)         # download
+    step_two_processing(FILE_IDS)        # segment
+    step_three_embedding(FILE_IDS)       # enrich + index
+    subject_sql_test()                   # subject-tree smoke
     #search_test()
     pass
 

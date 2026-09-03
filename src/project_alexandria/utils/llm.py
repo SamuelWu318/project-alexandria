@@ -305,11 +305,11 @@ Ground every beat in the prose. Fold a crowd into one collective ("mob"). Drop b
 """]
 
 
-def classify_llm_error(e: Exception) -> str:
-    """Classify an API error: "transient" (retry with backoff) vs "fatal" (raise now).
+# ---- error policy + readiness probe (MAIN — imported by process.py, embed.py, tests.py) ----
 
-    transient = network / 429 / 5xx; fatal = other 4xx where retrying won't help.
-    """
+# ** MAIN ** — the shared retry/raise decision for both LLM stages
+# Classify an API error: "transient" (network / 429 / 5xx -> retry with backoff) vs "fatal" (raise now).
+def classify_llm_error(e: Exception) -> str:
     if isinstance(e, (openai.APIConnectionError, openai.APITimeoutError)):
         return "transient"
     if isinstance(e, openai.APIStatusError):
@@ -317,6 +317,8 @@ def classify_llm_error(e: Exception) -> str:
     return "transient"  # unknown network-ish -> limited retry
 
 
+# ** LOCKED **  ** MAIN ** — called by tests.step_two_processing before a run
+# Smoke-test the LLM: send one message, print the reply, return True on success / False on any error.
 def llm_ready_up():
     try:
         messages = [

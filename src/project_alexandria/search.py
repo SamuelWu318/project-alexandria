@@ -1,99 +1,79 @@
-# FOR CLAUDE — Read path: query the scene vector DB.
-# -----------------------------------------------------------------------------
-# Import THIS from the app / API. It pulls in only qdrant + fastembed — NO LLM, NO
-# segmentation — so the query path stays light and fast. It also OWNS the
-# vector-store primitives (COLLECTION name, vector config, embedder, point id,
-# filters) that the build-once write path (embed.py) imports to index.
-#
-# By design this config lives here, NOT in storage.py: storage.py centralizes
-# plain-JSON file IO, whereas COLLECTION / VECTOR_NAMES / EMBED_MODEL / QDRANT_DIR
-# are one cohesive Qdrant contract shared between read and write. Both sides MUST
-# agree on them, so they have a single home.
-#
-# Invariants:
-#   * EMBED_MODEL must match the model the index was built with, or scores are junk.
-#   * point_id is a stable uuid5 of scene_id, so re-indexing a scene overwrites its
-#     existing point instead of creating a duplicate.
-#   * bge is asymmetric: the summary and frame-phrase QUERIES are prefixed (QUERY_PREFIX);
-#     indexed passages and descriptor queries stay raw.
-# -----------------------------------------------------------------------------
 import uuid
 import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 from utils import SrcPaths, schema # scene-record registry (single source of truth) — drives the named vectors
 
+# ---- Read path: query the scene vector DB (import THIS from the app / API) ----
+# Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. It also
+# OWNS the vector-store primitives (COLLECTION, vector config, embedder, point id, filters) that the
+# write path (embed.py) imports to index. Invariants (see CLAUDE.md): EMBED_MODEL must match the index;
+# point_id is a stable uuid5 so re-index overwrites; bge is asymmetric (queries are prefixed).
 
-# --- vector store config (shared with embed.py's indexer) --- #
+# ---- vector store config (shared with embed.py's indexer) ----
 
-# Qdrant collection name — the read/write join key: embed.py writes points here,
-# search.py queries here. Deliberately DECOUPLED from SrcPaths.SCENES_DIR (the on-disk
-# scenes/ directory): a collection name is a store identifier, not a filesystem path.
+# Qdrant collection name — the read/write join key (embed.py writes here, search.py queries here).
 COLLECTION = "scenes"
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
-# named vectors == the registry's vector:true fields (holistic summary + flavor descriptors
-# + the svos moment-clause multivector). Edit scene_schema.json to add/drop a vector, then re-index.
+# named vectors == the registry's vector:true fields (summary + descriptors + the svos multivector).
 VECTOR_NAMES = schema.VECTOR_NAMES
-# multivector:true fields (svos) store a LIST of per-item vectors and score by MAX_SIM: for a
-# query clause the field's score is the MAX cosine over the scene's stored clauses (max-pool).
-# A specific query locks onto a specific beat; a general one onto a general beat — neither
-# averaged away. These fields MUST be queried with a matrix (list of vectors), even a 1-row
-# one — a single flat vector is rejected by the multivector index.
+# multivector:true fields (svos): a LIST of per-item vectors scored by MAX_SIM (max-pool). MUST be
+# queried with a matrix (list of vectors), even a 1-row one — a flat vector is rejected by the index.
 MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
 
-# bge query-side instruction prefix (summary path only). Set to "" to A/B without
-# re-indexing — passages are untouched, so the index stays valid either way.
+# bge query-side instruction prefix (summary path only). Set to "" to A/B without re-indexing.
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 # stable per-scene Qdrant id namespace: uuid5(NAMESPACE, scene_id) -> same point
 NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "projectalexandria.scenes")
 
 
+# ** LOCKED **  ** MAIN ** — embed.py + schema.sync_qdrant address points by this id
+# Stable Qdrant point id for a scene (uuid5, so re-index overwrites).
 def point_id(scene_id: str) -> str:
-    """Stable Qdrant point id for a scene (uuid5, so re-index overwrites)."""
     return str(uuid.uuid5(NAMESPACE, scene_id))
 
 
-# --- embedder (same model for index + query) --- #
+# ---- embedder (same model for index + query) ----
 
 _EMBEDDER = None
 
+# ** LOCKED **
+# Lazily construct and cache the shared TextEmbedding model.
 def _embedder() -> TextEmbedding:
-    """Lazily construct and cache the shared TextEmbedding model."""
     global _EMBEDDER
     if _EMBEDDER is None:
         _EMBEDDER = TextEmbedding(model_name=EMBED_MODEL)
     return _EMBEDDER
 
 
+# ** LOCKED **  ** MAIN ** — embed.py imports this as `_embed` to build every vector
+# Embed a batch of texts into plain float lists.
 def embed(texts: list[str]) -> list[list[float]]:
-    """Embed a batch of texts into plain float lists."""
     return [v.tolist() for v in _embedder().embed(texts)]
 
 
-# --- client + filters --- #
+# ---- client + filters ----
 
+# ** MAIN ** — evals + schema.sync_qdrant open the on-disk store here
+# Open the on-disk Qdrant client (first call downloads the embed model).
 def open_client() -> QdrantClient:
-    """Open the on-disk Qdrant client (first call downloads the embed model)."""
     return QdrantClient(path=str(SrcPaths.QDRANT_DIR))
 
 
+# ** MAIN ** — tests + webtest restrict a search to one book here
+# Filter that restricts a search to one book, or None for all books.
 def book_filter(book_id: str | None) -> models.Filter | None:
-    """Filter that restricts a search to one book, or None for all books."""
     if not book_id:
         return None
     return models.Filter(must=[models.FieldCondition(
         key="book_id", match=models.MatchValue(value=book_id))])
 
 
+# ** MAIN ** — webtest restricts a search to one subject branch here
+# Restrict a search to one subject branch via the indexed `subject_paths` payload label (one exact keyword term).
 def subject_filter(branch) -> models.Filter | None:
-    """Restrict a search to one subject branch via the indexed `subject_paths` payload label.
-
-    One exact keyword term the payload index resolves to its points directly — instead of an
-    id-set of every book under the branch. `branch` is a reversed nav list (["Fiction",
-    "Italy"]) OR the ready suffix ("Italy -- Fiction"); None/empty -> no restriction (all books).
-    """
     if not branch:
         return None
     suffix = branch if isinstance(branch, str) else " -- ".join(reversed(list(branch)))
@@ -101,39 +81,28 @@ def subject_filter(branch) -> models.Filter | None:
         key="subject_paths", match=models.MatchValue(value=suffix))])
 
 
+# ** LOCKED **
+# Pick the retrieval STRATEGY: exact brute-force over the filtered set (few books) vs the filtered HNSW walk (broad).
 def _search_params(exact: bool):
-    """Pick the retrieval STRATEGY for a filtered search.
-
-    exact=True  -> SearchParams(exact=True): skip the HNSW graph and compare the query
-                   against EVERY point the filter allows (Strategy 2 — brute force over the
-                   isolated set). Fast + exact when that set is small; the caller decides
-                   "small" (few allowed books).
-    exact=False -> None: the normal filtered HNSW walk (Strategy 1) — the graph traversal
-                   that stays efficient when the allowed set is broad.
-    Qdrant makes this same call automatically via full_scan_threshold (measured in POINTS);
-    passing it explicitly lets the caller trip it on a BOOK count it already knows.
-    """
     return models.SearchParams(exact=True) if exact else None
 
 
-# --- weighted + negative descriptor search --- #
-# Per-descriptor weighting is a QUERY-time operation: nothing extra is stored. Instead
-# of embedding one joined "a, b, c" string (search_descriptors above), each descriptor
-# is embedded on its own and combined by weight, so the caller can lean the search
-# ("0.7 melancholy, 0.3 eerie") and push AWAY from anti-descriptors by subtraction.
+# ---- weighted + negative descriptor search (per-descriptor weighting is a QUERY-time op) ----
 
 WEIGHT_TOL = 1e-6   # how far a weight list may drift from summing to 1.00
 
 
+# ** LOCKED **
+# L2-normalize a vector; a zero vector is returned unchanged (guards divide-by-zero).
 def _unit(v) -> np.ndarray:
-    """L2-normalize a vector; a zero vector is returned unchanged (guards divide-by-zero)."""
     v = np.asarray(v, dtype=np.float32)
     n = float(np.linalg.norm(v))
     return v / n if n else v
 
 
+# ** LOCKED **
+# Validate a (terms, weights) pair: non-empty, equal length, non-negative, sum≈1.00.
 def _check_weights(terms: list[str], weights: list[float], label: str):
-    """Validate a (terms, weights) pair: non-empty, equal length, non-negative, sum≈1.00."""
     if not terms:
         raise ValueError(f"{label}: need at least one term")
     if len(terms) != len(weights):
@@ -145,13 +114,9 @@ def _check_weights(terms: list[str], weights: list[float], label: str):
         raise ValueError(f"{label}: weights must sum to 1.00 (got {total:.6f})")
 
 
+# ** LOCKED **
+# Weighted centroid of the terms' embeddings as a unit vector (each term unit-normalized first, so no word dominates by magnitude).
 def weighted_vector(terms: list[str], weights: list[float]) -> np.ndarray:
-    """Weighted centroid of the terms' embeddings, returned as a unit vector.
-
-    Each term is embedded and L2-normalized FIRST, so no single word dominates by raw
-    magnitude; the per-term unit vectors are then summed by weight and the result is
-    re-normalized. Caller validates lengths/weights via _check_weights.
-    """
     vecs = embed(terms)                         # one batched embed call for all terms
     acc = np.zeros(len(vecs[0]), dtype=np.float32)
     for v, w in zip(vecs, weights):
@@ -159,9 +124,11 @@ def weighted_vector(terms: list[str], weights: list[float]) -> np.ndarray:
     return _unit(acc)
 
 
+# ** MAIN ** — search() runs the flavor channel through here; evals A/Bs it
+# Descriptor search with per-descriptor weights and optional anti-descriptors (weighted centroid of INDIVIDUAL embeddings, anti = subtraction). Returns ScoredPoints best-first.
 def search_weighted_descriptors(
     client: QdrantClient,
-    descriptors: list[str], 
+    descriptors: list[str],
     weights: list[float] = None,
     *,
     anti_descriptors: list[str] | None = None,
@@ -171,32 +138,16 @@ def search_weighted_descriptors(
     flt: models.Filter | None = None,
     exact: bool = False,
 ):
-    """Descriptor search with per-descriptor weights and optional anti-descriptors.
+    if not weights: weights = [1.00 / len(descriptors) for _ in descriptors]   # equal-weight default
 
-    `descriptors`/`weights` are equal-length; `weights` are the writer's percentages and
-    MUST sum to 1.00. The query is a weighted centroid of the INDIVIDUAL descriptor
-    embeddings (not one joined string), so "0.7 melancholy, 0.3 eerie" leans the search
-    toward melancholy while still feeling the eerie pull.
-
-    If `anti_descriptors`/`anti_weights` are supplied (same contract — equal length, sum
-    to 1.00, given together), their weighted centroid is SUBTRACTED from the query,
-    tilting results away from that flavor with no extra positive descriptor needed.
-    `anti_strength` scales the push (1.0 == equal weight to the positive direction).
-    Note: subtraction TILTS in cosine space, it does not hard-exclude; for a clean cut
-    on the controlled tags use a payload `must_not` filter instead.
-
-    Returns Qdrant ScoredPoints (payload == the full scene record), ranked best-first.
-    """
-    if not weights: weights = [1.00 / len(descriptors) for _ in descriptors]
-    
     _check_weights(descriptors, weights, "descriptors")
-    q = weighted_vector(descriptors, weights)
+    q = weighted_vector(descriptors, weights)                  # positive centroid
 
     if anti_descriptors or anti_weights:
         if not (anti_descriptors and anti_weights):
             raise ValueError("anti_descriptors and anti_weights must be given together")
         _check_weights(anti_descriptors, anti_weights, "anti_descriptors")
-        q = q - anti_strength * weighted_vector(anti_descriptors, anti_weights)
+        q = q - anti_strength * weighted_vector(anti_descriptors, anti_weights)   # tilt away from the anti-flavor
         if float(np.linalg.norm(q)) < 1e-8:
             raise ValueError("positive and anti descriptors cancel out; lower anti_strength")
         q = _unit(q)
@@ -207,51 +158,27 @@ def search_weighted_descriptors(
     ).points
 
 
-# --- field weights (registry) — LEGACY, not a search knob --- #
+# ---- field weights (registry) — LEGACY, not a search knob ----
 # Per-vector `weight` from scene_schema.json. NOTHING in the read path consumes these anymore:
-# search_scenes fuses summary vs svos by MAX (greatest single match — no weights), and search()
-# blends what-happens vs flavor by weighted RRF via its `method_weights` arg (NOT these). Kept
-# only so the schema<->search drift check stays meaningful. TO TUNE retrieval, use search()'s
-# knobs, NOT these:
-#   * method_weights={"scenes":.., "flavor":..}  — balance what-happens vs descriptor flavor (RRF)
-#   * normalize="zscore"|"minmax"|None            — how each channel is scaled before the MAX
-# summary-vs-svos has NO weight by design (it is a max). Editing the per-field weights below
-# does nothing to search; it only keeps this constant in sync with the registry.
+# search_scenes fuses summary vs svos by MAX (no weights) and search() blends channels by weighted
+# RRF (method_weights, NOT these). Kept only so the schema<->search drift check stays meaningful.
+# TO TUNE retrieval, use search()'s knobs (method_weights, normalize), NOT this constant.
 DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry (legacy)
 
 
+# ** LOCKED **  ** MAIN ** — embed.py imports this to normalize each multivector field
+# Normalize a multivector field value to a clean list of items (bare string or list -> non-empty trimmed items; None -> []).
 def _as_terms(v) -> list[str]:
-    """Normalize a multivector field value to a clean list of items (e.g. svos clauses).
-
-    Accepts either a bare string (single value) or a list of strings, and returns the
-    non-empty trimmed items. An empty/None field yields [] (the field simply abstains).
-    """
     if v is None:
         return []
     items = [v] if isinstance(v, str) else list(v)
     return [t.strip() for t in items if isinstance(t, str) and t.strip()]
 
 
+# ** LOCKED **
+# Rescale ONE channel's cosines across the candidate pool so a cross-channel MAX compares RELATIVE strength (missing -> channel mean; no-spread -> abstain).
 def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
-    """Rescale ONE channel's cosines across the current candidate pool so a cross-channel MAX
-    compares RELATIVE strength, not raw cosine band.
-
-    bge cosines sit in narrow, channel-specific bands (the summary channel may spread
-    0.60-0.88, a short svos clause tighter). search_scenes ranks by max(z(summary), z(svos));
-    on RAW cosines the higher/wider-band channel would win regardless of relevance. Normalizing
-    each channel over the pool first makes "greatest" mean greatest relative to that channel's
-    own spread — the fair max the greatest-single-match design needs. (This is a scaling step,
-    NOT a weighting one: there is no per-channel weight in the max.)
-
-    Normalized over `ids` ONLY — ranking is relative to these candidates. A candidate
-    missing from `raw` is imputed to the channel mean (neutral), NOT 0.0, so a missing vector
-    doesn't crater a scene the way a raw-0.0 cosine outlier would after scaling. A channel
-    with no spread over the pool can't rank anything, so every candidate gets 0.0: it
-    contributes a constant and effectively abstains.
-        method=None -> raw cosines (missing -> 0.0): the pre-norm behavior, kept for A/B.
-        "zscore"    -> (x - mean)/std  (equalizes variance; the recommended default)
-        "minmax"    -> (x - min)/(max - min) into [0,1] (outlier-sensitive)
-    """
+    # method=None -> raw cosines (missing -> 0.0); "zscore" -> (x-mean)/std; "minmax" -> into [0,1].
     if method is None:
         return {i: raw.get(i, 0.0) for i in ids}
     present = [raw[i] for i in ids if i in raw]
@@ -272,17 +199,15 @@ def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
     raise ValueError(f"unknown normalize method {method!r} (use 'zscore', 'minmax', or None)")
 
 
-# --- unified search: orchestrate the specific retrievers + merge --- #
+# ---- unified search: orchestrate the specific retrievers + merge ----
 
-# Default RRF balance of the what-happens (scenes) vs flavor (descriptors) channels when
-# search() fuses both. RRF is rank-based, so only the scenes:flavor RATIO matters. search()
-# falls back to this when `method_weights` is not passed, and evals `--tune` uses it as the
-# sweep baseline — so changing the default retrieval balance is editing this one line.
+# Default RRF balance of what-happens (scenes) vs flavor (descriptors); only the ratio matters (RRF is rank-based).
 DEFAULT_METHOD_WEIGHTS = {"scenes": 0.7, "flavor": 0.3}
 
 
+# ** LOCKED **
+# AND several optional filters into one (merge their `must` conditions); None if empty.
 def _and_filters(*filters: models.Filter | None) -> models.Filter | None:
-    """AND several optional filters into one (merge their `must` conditions). None if empty."""
     musts: list = []
     for f in filters:
         if f is not None and f.must:
@@ -290,9 +215,8 @@ def _and_filters(*filters: models.Filter | None) -> models.Filter | None:
     return models.Filter(must=musts) if musts else None
 
 
+# Manual query moments -> clean clause SENTENCES (accepts a string, list of strings, or {"sentence":...} dicts).
 def _moment_sentences(moments) -> list[str]:
-    """Manual query moments -> clean clause SENTENCES. Accepts a single string, a list of
-    strings, or a list of {"sentence": ...} dicts (the enrichment shape). Empties dropped."""
     if not moments:
         return []
     if isinstance(moments, str):
@@ -305,25 +229,14 @@ def _moment_sentences(moments) -> list[str]:
     return out
 
 
+# ** MAIN ** — search() runs the what-happens channel here; evals.collect_channels calls it directly
+# What-happens search: the general `summary` and the `svos` moment-clauses fused by the GREATEST SINGLE MATCH (each channel z-normalized over the union pool). Returns ScoredPoints, pool-relative score.
 def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None,
                   limit: int = 5, flt: models.Filter | None = None,
                   prefetch: int | None = None, normalize: str | None = "zscore",
                   exact: bool = False):
-    """What-happens search: the general `summary` and the `svos` moment-clauses fused by the
-    GREATEST SINGLE MATCH. Two channels — summary (one holistic vector) and svos (the scene's
-    moment SENTENCES as a MAX_SIM multivector). The candidate pool is the UNION of each
-    channel's prefetch (either can drive recall), and a scene scores
-        max( z(summary_cos), z(svos_maxsim) )
-    over that pool — each channel z-normalized so "greatest" means greatest RELATIVE strength,
-    not whichever channel sits in the higher cosine band. So a vague/holistic query resolves on
-    summary and a sharp single-action query on a beat, neither diluting the other.
-
-    `moments` is the query's clause sentence(s): a string, a list of strings, or a list of
-    {"sentence": ...} dicts (manual input). At least one of summary/moments is required.
-    Returns Qdrant ScoredPoints (payload == record), best-first; `.score` is pool-relative.
-    """
     summ = (summary or "").strip()
-    sents = _moment_sentences(moments)
+    sents = _moment_sentences(moments)                         # query clause sentences
     if not (summ or sents):
         raise ValueError("search_scenes needs a summary or at least one moment sentence")
     prefetch = prefetch or max(limit * 5, 50)
@@ -344,7 +257,7 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
             cand.setdefault(p.id, p)
     if not cand:
         return []
-    ids = list(cand)
+    ids = list(cand)                                           # the union candidate pool
     idflt = models.Filter(must=[models.HasIdCondition(has_id=ids)])
 
     scores: dict = {}                                          # score BOTH channels over the union
@@ -357,8 +270,8 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
                                    query_filter=idflt, with_payload=False).points
         scores["svos"] = {h.id: h.score for h in hits}
 
-    normed = {ch: _normalize_pool(sc, ids, normalize) for ch, sc in scores.items()}
-    fused = sorted(((i, max(n[i] for n in normed.values())) for i in ids),
+    normed = {ch: _normalize_pool(sc, ids, normalize) for ch, sc in scores.items()}   # per-channel z-norm
+    fused = sorted(((i, max(n[i] for n in normed.values())) for i in ids),            # greatest single match
                    key=lambda t: t[1], reverse=True)
     out = []
     for i, sc in fused[:limit]:
@@ -368,14 +281,10 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
     return out
 
 
+# ** MAIN ** — per-facet search over ONE frame multivector (subject/verb/object/setting/svos)
+# Query ONE frame multivector on its own as a MAX_SIM matrix, so a scene's score is its best-matching stored facet term.
 def search_frame(client: QdrantClient, field: str, terms, *, limit: int = 5,
                  flt: models.Filter | None = None, exact: bool = False):
-    """Per-facet 'S V O S individual' search: query ONE frame multivector on its own.
-
-    `field` is subject / verb / object / setting (or svos) — a multivector field; `terms` is a
-    query string or list of terms, queried as a MAX_SIM matrix against that field alone, so a
-    scene's score is its best-matching stored facet term. Returns Qdrant ScoredPoints, best-first.
-    """
     if field not in MULTIVECTOR_NAMES:
         raise ValueError(f"{field!r} is not a multivector field (have {sorted(MULTIVECTOR_NAMES)})")
     items = _as_terms(terms)
@@ -387,13 +296,9 @@ def search_frame(client: QdrantClient, field: str, terms, *, limit: int = 5,
                                with_payload=True).points
 
 
+# ** LOCKED **
+# Weighted Reciprocal Rank Fusion of several ranked ScoredPoint lists -> one ranking (rank-based, so heterogeneous scores reconcile without a shared scale).
 def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
-    """Weighted Reciprocal Rank Fusion of several ranked ScoredPoint lists -> one ranking.
-
-    Rank-based, so heterogeneous scores (a z-scored what-happens score, a raw descriptor
-    cosine) reconcile without a shared scale: each method contributes w_m / (k + rank) to a
-    scene's total, best rank first. Returns the top `limit` ScoredPoints, `.score` = RRF total.
-    """
     total: dict = {}
     seen: dict = {}
     for m, pts in rankings.items():
@@ -410,6 +315,8 @@ def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
     return out
 
 
+# ** MAIN ** — the ONE search entry: imported by tests, evals, webtest, embed's read side
+# Unified scene search: orchestrate the active retrievers over one filter and MERGE their rankings by weighted RRF. Two knobs — method_weights (RRF balance) + normalize. Returns ScoredPoints best-first.
 def search(client: QdrantClient, *, summary: str | None = None, moments=None,
            descriptors: list[str] | None = None, weights: list[float] | None = None,
            anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
@@ -417,48 +324,23 @@ def search(client: QdrantClient, *, summary: str | None = None, moments=None,
            flt: models.Filter | None = None, limit: int = 5, prefetch: int | None = None,
            normalize: str | None = "zscore", method_weights: dict | None = None,
            rrf_k: int = 60, exact: bool = False):
-    """Unified scene search: ONE entry, all configurations. Orchestrates the specific
-    retrievers and MERGES their rankings.
-
-    Retrievers, activated by what you pass:
-      * what-happens -> search_scenes(summary, moments): max(summary, svos) greatest-single-match.
-      * flavor       -> search_weighted_descriptors(descriptors, weights, anti_*): weighted
-                        descriptor centroid, optional anti-descriptors.
-    All active retrievers run over the SAME filter — `flt` if given, else book_id AND
-    subject_branch ANDed together. Exactly one active -> that ranking, untouched. More than
-    one -> their ranked outputs are fused by weighted Reciprocal Rank Fusion (rank-based, so
-    a z-scored what-happens score and a raw descriptor cosine merge without a shared scale);
-    `method_weights` overrides the per-method RRF weight (default DEFAULT_METHOD_WEIGHTS,
-    {"scenes":0.7,"flavor":0.3}).
-    Each retriever collects `prefetch` candidates before the merge trims to `limit`.
-    Returns Qdrant ScoredPoints (payload == record), best-first.
-
-    TUNING — the search has exactly TWO knobs, both here (NOT the schema per-field weights):
-      * method_weights — the RRF balance of what-happens vs flavor. Pass it per call (the
-        webtest query forwards a per-query `method_weights`); raise "scenes" to favor the
-        beats/summary, "flavor" to lean on descriptors.
-      * normalize — how each channel is scaled before the what-happens MAX ("zscore" default;
-        evals `--mode norm` A/Bs it). summary-vs-svos itself is a MAX and has NO weight.
-    The per-field `weight` in scene_schema.json / DEFAULT_FIELD_WEIGHTS is LEGACY — it does not
-    affect this function at all.
-    """
     if flt is None:
-        flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))
+        flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))   # AND book + subject pre-filters
     prefetch = prefetch or max(limit * 5, 50)
 
     rankings: dict = {}
     if summary or moments:
-        rankings["scenes"] = search_scenes(
+        rankings["scenes"] = search_scenes(                    # what-happens: max(summary, svos)
             client, summary=summary, moments=moments, limit=prefetch, flt=flt,
             normalize=normalize, exact=exact)
     if descriptors:
-        rankings["flavor"] = search_weighted_descriptors(
+        rankings["flavor"] = search_weighted_descriptors(       # flavor: weighted descriptor centroid
             client, descriptors, weights, anti_descriptors=anti_descriptors,
             anti_weights=anti_weights, anti_strength=anti_strength, limit=prefetch,
             flt=flt, exact=exact)
     if not rankings:
         raise ValueError("search needs at least one of: summary, moments, descriptors")
     if len(rankings) == 1:
-        return next(iter(rankings.values()))[:limit]
+        return next(iter(rankings.values()))[:limit]           # one channel -> its ranking, untouched
     mw = method_weights or DEFAULT_METHOD_WEIGHTS
-    return _rrf(rankings, mw, rrf_k, limit)
+    return _rrf(rankings, mw, rrf_k, limit)                     # >1 channel -> rank-fuse them

@@ -1,31 +1,16 @@
-# FOR CLAUDE — Console logging (stdlib `logging`, configured once).
-# -----------------------------------------------------------------------------
-# The pipeline calls six semantic helpers — step/info/done/skip/warn/fail — and this
-# module backs them with the stdlib `logging` module instead of raw print(): one
-# configured logger, timestamps, level names, thread-safe emits, and a single place
-# to change format, level, or destination. The caller API is unchanged, so nothing
-# in data/process/embed/tests had to move.
-#
-# Level mapping: warn -> WARNING, fail -> ERROR; step/info/done/skip are INFO with a
-# short category tag kept IN the message, so the category stays greppable even though
-# they share the INFO level. debug() is silent unless the level is DEBUG.
-#
-# Verbosity: set ALEXANDRIA_LOG_LEVEL (e.g. DEBUG, WARNING) in the env, or call
-# set_level() at runtime.
-#
-# Destination is stdout on purpose: the harness still writes plain DATA/report lines
-# (search hits, query echoes) with print() to stdout, and logging there keeps stage
-# headers interleaved in order with those results. Flip the handler to sys.stderr
-# (one line below) if you'd rather separate logs from results in a pipeline.
-# -----------------------------------------------------------------------------
 from __future__ import annotations
 import logging, os, sys
 
+# ---- console logging (LOCKED · stdlib `logging`, one logger, configured once) ----
+# Verbosity: set ALEXANDRIA_LOG_LEVEL in the env, or call set_level() at runtime.
+# Emits to stdout so stage headers interleave with the harness's print()ed results;
+# point the handler at sys.stderr to split logs from results.
+
 _LOGGER_NAME = "alexandria"
 
-
+# ** LOCKED **
+# Return the shared logger, attaching its stdout handler exactly once (idempotent).
 def _build_logger() -> logging.Logger:
-    """Return the shared logger, configuring its handler exactly once (idempotent)."""
     logger = logging.getLogger(_LOGGER_NAME)
     if logger.handlers:            # already configured on an earlier import
         return logger
@@ -40,42 +25,45 @@ def _build_logger() -> logging.Logger:
 
 _log = _build_logger()
 
+# ---- semantic helpers (LOCKED · MAIN — called across the whole pipeline via `log`) ----
+# warn -> WARNING, fail -> ERROR; step/info/done/skip are INFO with a greppable category tag.
 
+# ** LOCKED **
+# Raise or lower verbosity at runtime, e.g. set_level('DEBUG').
 def set_level(level: str | int) -> None:
-    """Raise/lower verbosity at runtime, e.g. set_level('DEBUG') or set_level('WARNING')."""
     _log.setLevel(level)
 
-
+# ** LOCKED **
+# Log a section / stage header.
 def step(msg: str) -> None:
-    """Section / stage header."""
     _log.info("=== %s ===", msg)
 
-
+# ** LOCKED **
+# Log neutral progress / status.
 def info(msg: str) -> None:
-    """Progress / neutral status."""
     _log.info("%s", msg)
 
-
+# ** LOCKED **
+# Log that a unit of work finished or was written.
 def done(msg: str) -> None:
-    """A unit of work finished or was written."""
     _log.info("done: %s", msg)
 
-
+# ** LOCKED **
+# Log that something was gated, already done, or excluded.
 def skip(msg: str) -> None:
-    """Something was gated, already done, or excluded."""
     _log.info("skip: %s", msg)
 
-
+# ** LOCKED **
+# Log a recoverable problem (a retry, a missing input, a degraded fallback).
 def warn(msg: str) -> None:
-    """Recoverable problem: a retry, a missing input, a degraded fallback."""
     _log.warning("%s", msg)
 
-
+# ** LOCKED **
+# Log an error, usually just before raising.
 def fail(msg: str) -> None:
-    """An error, usually logged just before raising."""
     _log.error("%s", msg)
 
-
+# ** LOCKED **
+# Log verbose detail; silent unless the level is DEBUG.
 def debug(msg: str) -> None:
-    """Verbose detail; silent unless the level is DEBUG."""
     _log.debug("%s", msg)
