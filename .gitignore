@@ -3,5 +3,9 @@ __pycache__
 .remember
 .venv
 .env
-logs
+logs/example html
+logs/test/data
+logs/test/databases
+logs/test/segments
+logs/test/pg_catalog.csv
 web
