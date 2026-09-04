@@ -656,7 +656,3 @@ def distill_query(text: str) -> dict:
         "setting": data.setting or "",
         "descriptors": data.descriptors,
     }
-
-# NOTE: module-level rebuild trigger — importing embed.py runs a full index_scenes() over every
-# enriched pg*-s.json (rebuilds Qdrant + the relational mirror). Comment out to import without rebuilding.
-index_scenes()

@@ -393,8 +393,8 @@ def manual_search(summary: str = "", moments=None, descriptors=None,
 
 # ** ENTRY ** — full pipeline: download -> segment -> enrich/index -> subject-tree smoke.
 def main():
-    step_one_retrieval(FILE_IDS)         # download
-    step_two_processing(FILE_IDS)        # segment
+    #step_one_retrieval(FILE_IDS)         # download
+    #step_two_processing(FILE_IDS)        # segment
     step_three_embedding(FILE_IDS)       # enrich + index
     subject_sql_test()                   # subject-tree smoke
     #search_test()
