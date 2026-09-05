@@ -3,11 +3,6 @@ __pycache__
 .remember
 .venv
 .env
-logs/example html
-logs/test/data
-logs/test/databases
-logs/test/segments
-logs/test/pg_catalog.csv
-logs/notinuse
+logs
 web
 CLAUDE.md
