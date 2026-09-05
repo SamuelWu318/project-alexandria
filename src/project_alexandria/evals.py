@@ -2,12 +2,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# ---- retrieval eval + A/B comparator for the read path ----
+# ---- retrieval eval + A/B comparator + weight tuner for the read path ----
 # Answers ONE question: does approach A or B retrieve better on the gold set? Ground truth is
 # BOOK-LEVEL (a result is a HIT when its book_id == the query's target), so metrics are book-match
 # MRR / Hit@k / P@k, broken down by query sharpness. The scorer grades OUTPUTS (a Run) without
-# re-running search; run_search is the thin driver that produces a Run from the unified search().
-# The only search weight is search()'s method_weights (RRF); `--tune` sweeps it. Run: `python -m evals`.
+# re-running search; run_search drives search() to produce a Run. Gold queries carry a summary +
+# subject/verb/object/setting frame + descriptors (no moment sentences), so they exercise the
+# summary/frame vector channels + the descriptor flavor channel. `--tune` coordinate-ascends BOTH
+# weight sets — field_weights (the per-channel vector blend) + method_weights (scenes:flavor RRF) —
+# by caching each channel once, then re-blending for free. Run: `python -m evals` (see --mode/--tune).
 
 # Run  = dict[query_id, list[{"scene_id": str, "book_id": str, "score": float}]]  best-first
 # Gold = dict[query_id, {"book_id": str, "sharpness": int | None}]
@@ -34,7 +37,7 @@ def _target(g) -> str:
     return g["book_id"] if isinstance(g, dict) else g
 
 
-# ** MAIN ** — compare_runs + tune_method_weights grade every Run through here
+# ** MAIN ** — compare_runs + coordinate_ascent grade every Run through here
 # Grade one Run against the gold on book-match relevance (result relevant iff book_id == target). Returns aggregate MRR / Hit@k / P@k + per-query breakdown.
 def score_run(run: dict, gold: dict, ks: tuple = DEFAULT_KS) -> dict:
     ks = tuple(sorted(ks))
@@ -170,19 +173,24 @@ def format_comparison(cmp: dict) -> str:
 
 # ---- driver: produce a Run from the unified search() ----
 
-# Drive the unified search() over the gold queries with one channel/normalize config -> a Run (flags gate which channels run, so an A/B isolates one).
-def run_search(client, queries: list[dict], *, use_summary: bool = True,
-               use_moments: bool = True, use_descriptors: bool = False,
-               normalize: str | None = "zscore", limit: int = 10) -> dict:
+# ** MAIN ** — every A/B mode + the default/tuned configs run through here
+# Drive the unified search() over the gold queries with one FULL config -> a Run. Flags gate which channels run (isolate one for an A/B); field_weights/method_weights/combine/normalize set the blend.
+def run_search(client, queries: list[dict], *, use_summary: bool = True, use_moments: bool = True,
+               use_frame: bool = True, use_descriptors: bool = False,
+               field_weights: dict | None = None, method_weights: dict | None = None,
+               combine: str = "sum", normalize: str | None = "zscore", limit: int = 10) -> dict:
     import search
     run: dict[str, list] = {}
     for e in queries:
         summary = e.get("summary") if use_summary else None
         moments = e.get("moments") if use_moments else None
+        frame = _gold_frame(e) if use_frame else None                      # subject/verb/object/setting query terms
         descriptors = (e.get("descriptors") or None) if use_descriptors else None
         try:
-            pts = search.search(client, summary=summary, moments=moments,          # unified search
-                                descriptors=descriptors, normalize=normalize, limit=limit)
+            pts = search.search(client, summary=summary, moments=moments, frame=frame,   # unified search
+                                descriptors=descriptors, field_weights=field_weights,
+                                method_weights=method_weights, combine=combine,
+                                normalize=normalize, limit=limit)
         except Exception as ex:                 # an empty/invalid query shouldn't sink the run
             print(f"[evals] {e['id']}: {type(ex).__name__}: {ex}")
             run[e["id"]] = []
@@ -193,52 +201,77 @@ def run_search(client, queries: list[dict], *, use_summary: bool = True,
     return run
 
 
-# ---- weight tuning: sweep the scenes:flavor RRF ratio (the only search weight) ----
-# Collect each gold query's TWO channel rankings ONCE (the expensive part), then re-RRF under any
-# ratio for free and keep the best. `normalize` is held fixed (it lives inside the scenes channel's MAX).
+# The frame query dict for a gold entry: its subject/verb/object/setting fields (empty facets dropped); None if all empty.
+def _gold_frame(e: dict) -> dict | None:
+    frame = {f: e.get(f) for f in ("subject", "verb", "object", "setting") if e.get(f)}
+    return frame or None
 
-# Run each gold query's what-happens + flavor channels SEPARATELY, once, and cache their ranked (scene_id, book_id) lists.
-def collect_channels(client, queries: list[dict], *, normalize: str | None = "zscore",
-                     limit: int = 10) -> dict:
+
+# ---- fine-tuning: cache every channel once, then blend offline under any weights (coordinate ascent) ----
+# The read path has TWO weight sets: field_weights (the per-channel vector blend inside search_scenes)
+# and method_weights (the scenes:flavor RRF split). Both are tuned here. The expensive part — the vector
+# queries — runs ONCE per gold query (collect_vector_channels caches each channel's z-normed scores + the
+# flavor ranking); after that every candidate weight vector is a FREE re-blend (blend_run), so coordinate
+# ascent can sweep all of it. `normalize`/`combine` are held fixed during a sweep (they shape the cache).
+
+# Cache, per gold query: each active vector channel's normalized scores, the id->(scene_id,book_id) map, and the flavor ranking.
+def collect_vector_channels(client, queries: list[dict], *, normalize: str | None = "zscore",
+                            prefetch: int = 50) -> dict:
     import search
     out: dict[str, dict] = {}
     for e in queries:
         qid = e["id"]
-        scenes, flavor = [], []
-        if e.get("summary") or e.get("moments"):
+        entry = {"channels": {}, "meta": {}, "flavor": []}
+        if e.get("summary") or e.get("moments") or _gold_frame(e):
             try:
-                pts = search.search_scenes(client, summary=e.get("summary"),           # what-happens channel
-                                           moments=e.get("moments"), normalize=normalize, limit=limit)
-                scenes = [(p.payload.get("scene_id"), p.payload.get("book_id")) for p in pts]
+                scored = search.score_channels(client, summary=e.get("summary"), moments=e.get("moments"),
+                                               frame=_gold_frame(e), normalize=normalize, prefetch=prefetch)
+                entry["channels"] = scored["channels"]                     # {channel: {id: z}}
+                entry["meta"] = {i: (p.payload.get("scene_id"), p.payload.get("book_id"))
+                                 for i, p in scored["cand"].items()}       # id -> (scene_id, book_id)
             except Exception as ex:
                 print(f"[evals] {qid} scenes: {type(ex).__name__}: {ex}")
         if e.get("descriptors"):
             try:
-                pts = search.search_weighted_descriptors(client, e["descriptors"], limit=limit)  # flavor channel
-                flavor = [(p.payload.get("scene_id"), p.payload.get("book_id")) for p in pts]
+                pts = search.search_weighted_descriptors(client, e["descriptors"], limit=prefetch)   # flavor channel
+                entry["flavor"] = [(p.payload.get("scene_id"), p.payload.get("book_id")) for p in pts]
             except Exception as ex:
                 print(f"[evals] {qid} flavor: {type(ex).__name__}: {ex}")
-        out[qid] = {"scenes": scenes, "flavor": flavor}
+        out[qid] = entry
     return out
 
 
-# Re-RRF the cached channel rankings under `method_weights` -> a Run (pure math, mirrors search._rrf).
-def rrf_from_channels(channels: dict, method_weights: dict, *, k: int = 60, limit: int = 10) -> dict:
-    run: dict[str, list] = {}
-    for qid, ch in channels.items():
-        total: dict = {}
-        book: dict = {}
-        for m, ranked in ch.items():
-            w = method_weights.get(m, 0.0)
-            if w <= 0:
+# Weighted RRF over cached (scene_id, book_id) rankings -> ranked result dicts (mirrors search._rrf; all-zero weights -> equal).
+def _rrf_pairs(rankings: dict, method_weights: dict, k: int, limit: int) -> list:
+    active = [m for m in rankings if method_weights.get(m, 0.0) > 0] or list(rankings)
+    total: dict = {}
+    book: dict = {}
+    for m in active:
+        w = method_weights.get(m, 1.0)
+        for rank, (sid, bid) in enumerate(rankings[m]):
+            if not sid:
                 continue
-            for rank, (sid, bid) in enumerate(ranked):
-                if not sid:
-                    continue
-                total[sid] = total.get(sid, 0.0) + w / (k + rank + 1)
-                book[sid] = bid
-        order = sorted(total, key=lambda s: total[s], reverse=True)[:limit]
-        run[qid] = [{"scene_id": sid, "book_id": book[sid], "score": total[sid]} for sid in order]
+            total[sid] = total.get(sid, 0.0) + w / (k + rank + 1)
+            book[sid] = bid
+    order = sorted(total, key=lambda s: total[s], reverse=True)[:limit]
+    return [{"scene_id": sid, "book_id": book[sid], "score": total[sid]} for sid in order]
+
+
+# Re-blend the cached channels under (field_weights, combine) + RRF with flavor under method_weights -> a Run. Pure math, no search.
+def blend_run(cached: dict, field_weights: dict | None, method_weights: dict, *,
+              combine: str = "sum", k: int = 60, limit: int = 10) -> dict:
+    import search
+    run: dict[str, list] = {}
+    for qid, e in cached.items():
+        rankings: dict = {}
+        if e["channels"]:
+            scored = {"channels": e["channels"], "ids": list(e["meta"]), "cand": {}}
+            fused = search.blend_channels(scored, field_weights, combine)   # [(id, score)] under these weights
+            meta = e["meta"]
+            rankings["scenes"] = [meta[i] for i, _ in fused]
+        if e["flavor"]:
+            rankings["flavor"] = e["flavor"]
+        run[qid] = _rrf_pairs(rankings, method_weights, k, limit)
     return run
 
 
@@ -253,32 +286,62 @@ def _metric_value(agg: dict, metric: str) -> float:
     raise ValueError(f"unknown metric {metric!r} (use mrr, hit@K, or p@K)")
 
 
-# Sweep the scenes:flavor RRF ratio over `grid` to maximize `metric` (ties keep the LOWER scenes weight). Returns (best_weights, best_score, history).
-def tune_method_weights(channels: dict, gold: dict, *, metric: str = "mrr", k: int = 60,
-                        limit: int = 10,
-                        grid: tuple = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) -> tuple:
-    history, best_s, best_score = [], grid[0], -1.0
-    for s in grid:
-        mw = {"scenes": round(s, 3), "flavor": round(1.0 - s, 3)}
-        run = rrf_from_channels(channels, mw, k=k, limit=limit)        # re-RRF at this ratio (free)
-        sc = _metric_value(score_run(run, gold)["aggregate"], metric)  # grade it
-        history.append((s, sc))
-        if sc > best_score + 1e-9:
-            best_score, best_s = sc, s
-    best = {"scenes": round(best_s, 3), "flavor": round(1.0 - best_s, 3)}
-    return best, best_score, history
+# Coordinate-ascent tune of the vector field_weights + the scenes:flavor split to maximize `metric` on gold (each blend is free). Returns (best_field, best_method, best_score, history).
+def coordinate_ascent(cached: dict, gold: dict, *, metric: str = "mrr", combine: str = "sum",
+                      k: int = 60, limit: int = 10, rounds: int = 4,
+                      grid: tuple = (0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 1.0)) -> tuple:
+    import search
+    seen: list = []                                            # active vector channels across the cache
+    for e in cached.values():
+        for c in e["channels"]:
+            if c not in seen:
+                seen.append(c)
+    chans = [c for c in search.SCENES_VECTORS if c in seen]    # stable canonical order
+    has_flavor = any(e["flavor"] for e in cached.values())
+    field = {c: float(search.SCENES_DEFAULT_WEIGHTS.get(c, 0.0)) for c in chans}
+    method = dict(search.DEFAULT_METHOD_WEIGHTS)
+
+    def obj(fw, mw):
+        run = blend_run(cached, fw, mw, combine=combine, k=k, limit=limit)
+        return _metric_value(score_run(run, gold)["aggregate"], metric)
+
+    best = obj(field, method)
+    history = [("init", dict(field), dict(method), best)]
+    for r in range(rounds):
+        improved = False
+        for ch in chans:                                       # optimize each channel weight in turn
+            best_v = field[ch]
+            for v in grid:
+                field[ch] = v
+                s = obj(field, method)
+                if s > best + 1e-9:
+                    best, best_v, improved = s, v, True
+            field[ch] = best_v
+        if has_flavor:                                         # then the scenes:flavor split
+            best_s = method["scenes"]
+            for sf in grid:
+                cand = {"scenes": round(sf, 3), "flavor": round(1.0 - sf, 3)}
+                s = obj(field, cand)
+                if s > best + 1e-9:
+                    best, best_s, improved = s, sf, True
+            method = {"scenes": round(best_s, 3), "flavor": round(1.0 - best_s, 3)}
+        history.append((f"round{r + 1}", dict(field), dict(method), best))
+        if not improved:                                       # converged
+            break
+    return field, method, best, history
 
 
-# Render the scenes:flavor sweep table + the winning method_weights.
-def format_tuning(history: list, best: dict, best_score: float, metric: str, n_flavor: int) -> str:
-    L = ["", f"METHOD_WEIGHTS SWEEP  (scenes:flavor RRF ratio, objective {metric.upper()})",
-         f"  {n_flavor} gold queries have a flavor channel — only those move under the ratio",
-         f"    {'scenes':>7} {'flavor':>7}   {metric:>8}"]
-    for s, sc in history:
-        mark = "  <- best" if abs(s - best["scenes"]) < 1e-9 else ""
-        L.append(f"    {s:>7.2f} {1 - s:>7.2f}   {sc:>8.4f}{mark}")
-    L.append(f"  best method_weights = {{'scenes': {best['scenes']}, 'flavor': {best['flavor']}}}"
-             f"   ({metric} {best_score:.4f})")
+# Render the coordinate-ascent result: the winning field_weights + method split + per-round score.
+def format_tuning(field: dict, method: dict, best_score: float, history: list, metric: str) -> str:
+    L = ["", f"COORDINATE-ASCENT TUNE  (objective {metric.upper()})",
+         f"  best {metric} = {best_score:.4f}",
+         "  field_weights (vector blend, relative):"]
+    for c, v in field.items():
+        L.append(f"    {c:<10} {v:>6.3f}")
+    L.append(f"  method_weights = {{'scenes': {method['scenes']}, 'flavor': {method['flavor']}}}")
+    L.append("  per-round best:")
+    for tag, _, _, sc in history:
+        L.append(f"    {tag:<8} {sc:>8.4f}")
     return "\n".join(L)
 
 
@@ -290,24 +353,25 @@ def _norm_arg(s: str) -> str | None:
     return None if s.lower() in ("none", "raw", "null", "") else s.lower()
 
 
-# CLI entry: parse --mode / --tune, run the chosen A/B (or the RRF-ratio sweep), print the report.
+# CLI entry: parse args, run the chosen A/B mode or the coordinate-ascent tune, print the report.
 def main():
     import argparse
     import search
     ap = argparse.ArgumentParser(
-        description="A/B two read-path configs on the gold set (book-match accuracy).")
-    ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor"),
-                    help="norm: A/B the z-normalize setting (--a vs --b). "
-                         "lift: summary-only (A) vs summary+svos moments (B). "
-                         "flavor: what-happens only (A) vs + descriptors RRF merge (B).")
+        description="A/B two read-path configs on the gold set, or coordinate-ascent tune every weight.")
+    ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor", "combine"),
+                    help="norm: A/B normalize (--a vs --b). lift: summary-only vs summary+frame. "
+                         "flavor: what-happens+frame vs + descriptors. combine: sum-blend vs max.")
     ap.add_argument("--a", default="none", help="normalize for A (mode=norm): none|zscore|minmax")
     ap.add_argument("--b", default="zscore", help="normalize for B (mode=norm): none|zscore|minmax")
     ap.add_argument("--normalize", default="zscore",
-                    help="z-norm held fixed for mode=lift/flavor: none|zscore|minmax")
+                    help="normalize held fixed for modes lift/flavor/combine + tune: none|zscore|minmax")
+    ap.add_argument("--combine", default="sum", choices=("sum", "max"),
+                    help="vector-blend combine held fixed for lift/flavor/tune (sum=weighted blend, max=greatest single)")
     ap.add_argument("--limit", type=int, default=10, help="results retrieved per query")
     ap.add_argument("--gold", default=None, help="path to a gold query json (default: webtest gold)")
     ap.add_argument("--tune", action="store_true",
-                    help="sweep the scenes:flavor RRF ratio (method_weights) for best --metric")
+                    help="coordinate-ascent tune the field_weights + scenes:flavor split for best --metric")
     ap.add_argument("--metric", default="mrr", help="tune objective: mrr | hit@K | p@K")
     args = ap.parse_args()
 
@@ -317,36 +381,37 @@ def main():
         nrm = _norm_arg(args.normalize)
         client = search.open_client()
         try:
-            channels = collect_channels(client, queries, normalize=nrm, limit=args.limit)  # one expensive pass
+            cached = collect_vector_channels(client, queries, normalize=nrm)   # one expensive pass
         finally:
             client.close()
-        n_flavor = sum(1 for ch in channels.values() if ch["flavor"])
-        best, best_score, hist = tune_method_weights(channels, gold, metric=args.metric, limit=args.limit)  # sweep
-        base = search.DEFAULT_METHOD_WEIGHTS
-        base_run = rrf_from_channels(channels, base, limit=args.limit)   # default ratio
-        best_run = rrf_from_channels(channels, best, limit=args.limit)   # tuned ratio
-        cmp = compare_runs(base_run, best_run, gold,
-                           label_a=f"default {base['scenes']}/{base['flavor']}",
-                           label_b=f"tuned {best['scenes']}/{best['flavor']}")
+        field, method, best_score, history = coordinate_ascent(               # free re-blends
+            cached, gold, metric=args.metric, combine=args.combine, limit=args.limit)
+        base_run = blend_run(cached, None, search.DEFAULT_METHOD_WEIGHTS,      # default weights
+                             combine=args.combine, limit=args.limit)
+        tuned_run = blend_run(cached, field, method, combine=args.combine, limit=args.limit)   # tuned weights
+        cmp = compare_runs(base_run, tuned_run, gold, label_a="default", label_b="tuned")
         print(format_comparison(cmp))
-        print(format_tuning(hist, best, best_score, args.metric, n_flavor))
+        print(format_tuning(field, method, best_score, history, args.metric))
         return
 
     client = search.open_client()
     try:
+        nrm = _norm_arg(args.normalize)
         if args.mode == "lift":
-            nrm = _norm_arg(args.normalize)
-            run_a = run_search(client, queries, use_moments=False, normalize=nrm, limit=args.limit)  # summary only
-            run_b = run_search(client, queries, use_moments=True, normalize=nrm, limit=args.limit)   # + svos
-            la, lb = "summary_only", "summary+svos"
+            run_a = run_search(client, queries, use_frame=False, normalize=nrm, combine=args.combine, limit=args.limit)  # summary only
+            run_b = run_search(client, queries, use_frame=True, normalize=nrm, combine=args.combine, limit=args.limit)   # + frame
+            la, lb = "summary_only", "summary+frame"
         elif args.mode == "flavor":
-            nrm = _norm_arg(args.normalize)
-            run_a = run_search(client, queries, use_descriptors=False, normalize=nrm, limit=args.limit)  # what-happens
-            run_b = run_search(client, queries, use_descriptors=True, normalize=nrm, limit=args.limit)   # + descriptors
+            run_a = run_search(client, queries, use_descriptors=False, normalize=nrm, combine=args.combine, limit=args.limit)  # what-happens
+            run_b = run_search(client, queries, use_descriptors=True, normalize=nrm, combine=args.combine, limit=args.limit)   # + descriptors
             la, lb = "what_happens", "+descriptors"
+        elif args.mode == "combine":
+            run_a = run_search(client, queries, normalize=nrm, combine="sum", limit=args.limit)   # weighted blend
+            run_b = run_search(client, queries, normalize=nrm, combine="max", limit=args.limit)   # greatest single
+            la, lb = "combine=sum", "combine=max"
         else:  # norm
-            run_a = run_search(client, queries, normalize=_norm_arg(args.a), limit=args.limit)
-            run_b = run_search(client, queries, normalize=_norm_arg(args.b), limit=args.limit)
+            run_a = run_search(client, queries, normalize=_norm_arg(args.a), combine=args.combine, limit=args.limit)
+            run_b = run_search(client, queries, normalize=_norm_arg(args.b), combine=args.combine, limit=args.limit)
             la, lb = f"norm={args.a}", f"norm={args.b}"
     finally:
         client.close()

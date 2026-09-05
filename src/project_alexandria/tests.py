@@ -395,8 +395,9 @@ def manual_search(summary: str = "", moments=None, descriptors=None,
 def main():
     #step_one_retrieval(FILE_IDS)         # download
     #step_two_processing(FILE_IDS)        # segment
-    step_three_embedding(FILE_IDS)       # enrich + index
-    subject_sql_test()                   # subject-tree smoke
+    #step_three_embedding(FILE_IDS)       # enrich + index
+    #subject_sql_test()                   # subject-tree smoke
+    embed.index_scenes()
     #search_test()
     pass
 

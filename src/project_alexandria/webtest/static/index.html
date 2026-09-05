@@ -121,6 +121,17 @@
   .fitem.fbook{color:var(--dim)}
   .fitem.fbook.on{border-color:var(--accent);color:var(--ink);background:#12211f}
   .fld-empty{color:var(--dim2);font-size:11.5px;padding:3px 0}
+
+  /* weight tuning panel */
+  #weights{border-top:1px dashed var(--edge);padding-top:9px;margin-top:2px;display:flex;flex-direction:column;gap:7px}
+  .w-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+  .w-ttl{font-weight:600;color:var(--ink)}
+  .w-fields{display:flex;gap:8px;flex-wrap:wrap}
+  label.wf{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim)}
+  span.wf{color:var(--dim);font-size:10px;display:flex;flex-direction:column;gap:2px}
+  span.wf .pair{display:flex;align-items:center;gap:4px}
+  .wnum{width:58px;font-family:var(--mono);font-size:12px;padding:4px 6px}
+  #weights select{font-size:12px;padding:4px 6px}
 </style>
 </head>
 <body>
@@ -151,6 +162,14 @@
   <div class="panel" id="p-custom">
     <label class="f">Summary — rich, one sentence<textarea id="c-summary" rows="2" placeholder="A mentor sacrifices himself on a narrow bridge to hold back a monstrous foe so his companions can escape."></textarea></label>
     <label class="f">SVOS moments — one stripped clause per line<textarea id="c-moments" rows="3" placeholder="Mentor blocks monstrous foe on bridge.&#10;Mentor falls into chasm to save companions."></textarea></label>
+    <label class="f">frame — subject / verb / object / setting (comma each, optional)
+      <span class="pair">
+        <input id="c-subject" placeholder="subject" style="width:104px">
+        <input id="c-verb" placeholder="verb" style="width:92px">
+        <input id="c-object" placeholder="object" style="width:104px">
+        <input id="c-setting" placeholder="setting" style="width:112px">
+      </span>
+    </label>
     <label class="f">descriptors (comma)<input id="c-desc" placeholder="heroic, tragic"></label>
     <label class="f">Book filter<select id="c-book"></select></label>
     <label class="f">Limit<input class="small" id="c-limit" type="number" value="10" min="1" max="30"></label>
@@ -166,6 +185,18 @@
       <span class="fw-note">hard pre-filter — only books under the chosen folder (or one pinned book) can surface. Click a 📁 to descend, a 📄 to pin one book, a crumb to go back.</span>
     </div>
     <div class="fld-list" id="fld-list"></div>
+  </div>
+
+  <div id="weights">
+    <div class="w-head">
+      <span class="w-ttl">⚖ Weights</span>
+      <span class="w-fields" id="w-fields"></span>
+      <label class="wf">combine<select id="w-combine"><option value="sum">sum (blend)</option><option value="max">max (single)</option></select></label>
+      <label class="wf">normalize<select id="w-normalize"><option value="zscore">zscore</option><option value="minmax">minmax</option><option value="none">none</option></select></label>
+      <span class="wf">scenes / flavor<span class="pair"><input class="wnum" id="w-scenes" type="number" step="0.05" min="0" value="0.4"> / <input class="wnum" id="w-flavor" type="number" step="0.05" min="0" value="0.6"></span></span>
+      <button class="ghost" id="w-reset">reset</button>
+      <span class="fw-note">per-channel z-normed vector blend (summary·svos·subject·verb·object·setting), the scenes:flavor RRF split, blend mode + normalization — applied to every query.</span>
+    </div>
   </div>
 
   <div id="status"></div>
@@ -218,6 +249,7 @@ const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[
   $("#t-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   $("#c-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   updateTRun();
+  buildWeightInputs();
   await loadFolder();
 })();
 
@@ -296,6 +328,30 @@ function filterLabel(){
   return null;
 }
 
+// ---------- weight tuning (the vector-blend field weights + scenes:flavor RRF split) ----------
+// FIELD_CHANNELS + defaults mirror search.SCENES_DEFAULT_WEIGHTS; every batch carries these so the
+// server blends the vector channels (z-normed) under them and RRF-merges scenes vs flavor.
+const FIELD_CHANNELS = ["summary","svos","subject","verb","object","setting"];
+const FIELD_DEFAULTS = {summary:0.25, svos:0.5, subject:0.2, verb:0.1, object:0.15, setting:0.05};
+function buildWeightInputs(){
+  $("#w-fields").innerHTML = FIELD_CHANNELS.map(c=>
+    `<label class="wf">${c}<input class="wnum" id="w-f-${c}" type="number" step="0.05" min="0" value="${FIELD_DEFAULTS[c]}"></label>`).join("");
+}
+function readWeights(){
+  const field_weights={}; FIELD_CHANNELS.forEach(c=>{ field_weights[c]=parseFloat($("#w-f-"+c).value)||0; });
+  return {
+    field_weights,
+    method_weights:{scenes:parseFloat($("#w-scenes").value)||0, flavor:parseFloat($("#w-flavor").value)||0},
+    combine:$("#w-combine").value,
+    normalize:$("#w-normalize").value,
+  };
+}
+function resetWeights(){
+  FIELD_CHANNELS.forEach(c=>$("#w-f-"+c).value=FIELD_DEFAULTS[c]);
+  $("#w-scenes").value=0.4; $("#w-flavor").value=0.6; $("#w-combine").value="sum"; $("#w-normalize").value="zscore";
+}
+$("#w-reset").onclick = resetWeights;
+
 // ---------- runners ----------
 $("#t-run").onclick = async ()=>{
   const book = $("#t-book").value, limit=+$("#t-limit").value;
@@ -326,8 +382,12 @@ $("#c-run").onclick = async ()=>{
   const book=$("#c-book").value, limit=+$("#c-limit").value;
   const descriptors=$("#c-desc").value.split(",").map(s=>s.trim()).filter(Boolean);
   const moments=$("#c-moments").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  const q={summary:$("#c-summary").value, moments, descriptors, label:"custom",
-    target_book_id:book||null, meta:{summary:$("#c-summary").value||moments.join(" / "), descriptors}};
+  const csv = s => s.split(",").map(x=>x.trim()).filter(Boolean);
+  const frameRaw = {subject:csv($("#c-subject").value), verb:csv($("#c-verb").value),
+                    object:csv($("#c-object").value), setting:csv($("#c-setting").value)};
+  const frame = Object.fromEntries(Object.entries(frameRaw).filter(([,v])=>v.length));  // drop empty facets
+  const q={summary:$("#c-summary").value, moments, frame:Object.keys(frame).length?frame:null, descriptors,
+    label:"custom", target_book_id:book||null, meta:{summary:$("#c-summary").value||moments.join(" / "), descriptors}};
   await runBatch([q], {limit, book_id:book||null}, `custom${book?(" · filtered"):""}`);
 };
 
@@ -337,7 +397,7 @@ async function runBatch(queries, extra, what){
   setStatus(`running ${queries.length} quer${queries.length>1?"ies":"y"} — ${whatF} …`);
   const t0=performance.now();
   // filterExtra() spread LAST so an active folder set (book_ids) overrides any per-tab book_id
-  const {columns} = await post("/api/search_batch", {queries, ...extra, ...filterExtra()});
+  const {columns} = await post("/api/search_batch", {queries, ...extra, ...filterExtra(), ...readWeights()});
   renderColumns(columns);
   setStatus(`${whatF} — ${((performance.now()-t0)/1000).toFixed(1)}s`);
 }

@@ -158,12 +158,18 @@ def search_weighted_descriptors(
     ).points
 
 
-# ---- field weights (registry) — LEGACY, not a search knob ----
-# Per-vector `weight` from scene_schema.json. NOTHING in the read path consumes these anymore:
-# search_scenes fuses summary vs svos by MAX (no weights) and search() blends channels by weighted
-# RRF (method_weights, NOT these). Kept only so the schema<->search drift check stays meaningful.
-# TO TUNE retrieval, use search()'s knobs (method_weights, normalize), NOT this constant.
-DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry (legacy)
+# ---- field weights (registry) — the per-channel tuning surface ----
+# Per-vector `weight` from scene_schema.json, now LIVE: search_scenes blends its vector channels
+# (summary, svos, subject, verb, object, setting) as a per-channel z-normalized WEIGHTED SUM, and
+# these are the defaults for that blend. z-norm equalizes each channel's cosine band (no channel
+# overpowers by raw scale); the weights tilt influence (none is overpowered unless you lower it).
+# Still sourced from the registry so the schema<->search drift check stays meaningful; override per
+# call with search()/search_scenes `field_weights` (webtest + evals tune them).
+DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry
+
+# the vector channels fused INSIDE search_scenes (descriptors is the separate `flavor` method + RRF)
+SCENES_VECTORS = ("summary", "svos", "subject", "verb", "object", "setting")
+SCENES_DEFAULT_WEIGHTS = {k: DEFAULT_FIELD_WEIGHTS.get(k, 0.0) for k in SCENES_VECTORS}
 
 
 # ** LOCKED **  ** MAIN ** — embed.py imports this to normalize each multivector field
@@ -229,53 +235,103 @@ def _moment_sentences(moments) -> list[str]:
     return out
 
 
-# ** MAIN ** — search() runs the what-happens channel here; evals.collect_channels calls it directly
-# What-happens search: the general `summary` and the `svos` moment-clauses fused by the GREATEST SINGLE MATCH (each channel z-normalized over the union pool). Returns ScoredPoints, pool-relative score.
-def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None,
-                  limit: int = 5, flt: models.Filter | None = None,
-                  prefetch: int | None = None, normalize: str | None = "zscore",
-                  exact: bool = False):
-    summ = (summary or "").strip()
-    sents = _moment_sentences(moments)                         # query clause sentences
-    if not (summ or sents):
-        raise ValueError("search_scenes needs a summary or at least one moment sentence")
-    prefetch = prefetch or max(limit * 5, 50)
+# Frame query terms per facet: an explicit `frame` dict wins, else the parts are read off moment dicts.
+def _frame_query_terms(moments, frame=None) -> dict:
+    frame = frame or {}
+    out = {f: _as_terms(frame.get(f)) for f in ("subject", "verb", "object", "setting")}
+    if moments and not isinstance(moments, str):
+        for m in moments:
+            if not isinstance(m, dict):
+                continue
+            for f in ("subject", "verb", "object", "setting"):
+                if _as_terms(frame.get(f)):            # explicit terms override derivation
+                    continue
+                v = (m.get(f) or "").strip()
+                if v and v not in out[f]:
+                    out[f].append(v)
+    return {f: t for f, t in out.items() if t}
 
-    cand: dict = {}
-    sv = qmat = None
-    if summ:                                                   # summary channel prefetch
-        sv = embed([QUERY_PREFIX + summ])[0]
-        for p in client.query_points(COLLECTION, query=sv, using="summary", limit=prefetch,
-                                     query_filter=flt, search_params=_search_params(exact),
-                                     with_payload=True).points:
-            cand[p.id] = p
-    if sents:                                                  # svos channel prefetch (MAX_SIM)
-        qmat = embed([QUERY_PREFIX + s for s in sents])
-        for p in client.query_points(COLLECTION, query=qmat, using="svos", limit=prefetch,
+
+# Build the query for each active vector channel: summary -> one vector, svos + frame facets -> matrices.
+def _channel_queries(summary, moments, frame) -> dict:
+    channels: dict = {}
+    summ = (summary or "").strip()
+    if summ:
+        channels["summary"] = embed([QUERY_PREFIX + summ])[0]          # single holistic vector
+    sents = _moment_sentences(moments)
+    if sents:
+        channels["svos"] = embed([QUERY_PREFIX + s for s in sents])    # MAX_SIM matrix of clause sentences
+    for f, terms in _frame_query_terms(moments, frame).items():
+        channels[f] = embed([QUERY_PREFIX + t for t in terms])         # per-facet MAX_SIM matrix
+    return channels
+
+
+# ** LOCKED **
+# Resolve per-channel weights over the ACTIVE channels: non-negative, renormalized to sum to 1 (all-zero -> equal).
+def _resolve_field_weights(field_weights, names: list) -> dict:
+    base = field_weights if field_weights is not None else SCENES_DEFAULT_WEIGHTS
+    w = {n: max(0.0, float(base.get(n, 0.0))) for n in names}
+    total = sum(w.values())
+    if total <= 0:
+        return {n: 1.0 / len(names) for n in names}
+    return {n: w[n] / total for n in names}
+
+
+# ** MAIN ** — search_scenes blends these; evals caches them once to re-blend offline while tuning
+# Score every active vector channel over ONE union candidate pool and z-normalize each; returns {"channels": {name: {id: z}}, "cand": {id: point}, "ids": [...]}.
+def score_channels(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
+                   normalize: str | None = "zscore", flt: models.Filter | None = None,
+                   prefetch: int = 50, exact: bool = False) -> dict:
+    channels = _channel_queries(summary, moments, frame)
+    if not channels:
+        raise ValueError("score_channels needs a summary, moment sentence, or frame term")
+    cand: dict = {}                                            # union of every channel's prefetch
+    for name, q in channels.items():
+        for p in client.query_points(COLLECTION, query=q, using=name, limit=prefetch,
                                      query_filter=flt, search_params=_search_params(exact),
                                      with_payload=True).points:
             cand.setdefault(p.id, p)
-    if not cand:
-        return []
-    ids = list(cand)                                           # the union candidate pool
+    ids = list(cand)
+    if not ids:
+        return {"channels": {}, "cand": {}, "ids": []}
     idflt = models.Filter(must=[models.HasIdCondition(has_id=ids)])
-
-    scores: dict = {}                                          # score BOTH channels over the union
-    if sv is not None:
-        hits = client.query_points(COLLECTION, query=sv, using="summary", limit=len(ids),
+    normed: dict = {}                                          # score every channel over the whole union
+    for name, q in channels.items():
+        hits = client.query_points(COLLECTION, query=q, using=name, limit=len(ids),
                                    query_filter=idflt, with_payload=False).points
-        scores["summary"] = {h.id: h.score for h in hits}
-    if qmat is not None:
-        hits = client.query_points(COLLECTION, query=qmat, using="svos", limit=len(ids),
-                                   query_filter=idflt, with_payload=False).points
-        scores["svos"] = {h.id: h.score for h in hits}
+        normed[name] = _normalize_pool({h.id: h.score for h in hits}, ids, normalize)
+    return {"channels": normed, "cand": cand, "ids": ids}
 
-    normed = {ch: _normalize_pool(sc, ids, normalize) for ch, sc in scores.items()}   # per-channel z-norm
-    fused = sorted(((i, max(n[i] for n in normed.values())) for i in ids),            # greatest single match
-                   key=lambda t: t[1], reverse=True)
+
+# ** MAIN ** — evals blends cached channels under any weights while tuning
+# Fuse pre-scored channels into one ranking: per-channel z-score * weight, combined by weighted SUM (blend) or MAX (greatest single match). Returns [(id, score)] best-first.
+def blend_channels(scored: dict, field_weights: dict | None = None, combine: str = "sum") -> list:
+    normed, ids = scored["channels"], scored["ids"]
+    if not ids or not normed:
+        return []
+    weights = _resolve_field_weights(field_weights, list(normed))
+    fused = []
+    for i in ids:
+        contribs = [weights[name] * normed[name][i] for name in normed]
+        fused.append((i, max(contribs) if combine == "max" else sum(contribs)))
+    fused.sort(key=lambda t: t[1], reverse=True)
+    return fused
+
+
+# ** MAIN ** — search() runs the what-happens/frame channel here; evals A/Bs it
+# What-happens + frame search: the summary, svos, and subject/verb/object/setting channels fused by a per-channel z-normalized weighted blend (no channel overpowers by scale; field_weights tilt it). Returns ScoredPoints, pool-relative score.
+def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
+                  field_weights: dict | None = None, combine: str = "sum",
+                  limit: int = 5, flt: models.Filter | None = None,
+                  prefetch: int | None = None, normalize: str | None = "zscore",
+                  exact: bool = False):
+    prefetch = prefetch or max(limit * 5, 50)
+    scored = score_channels(client, summary=summary, moments=moments, frame=frame,   # prefetch + z-norm each channel
+                            normalize=normalize, flt=flt, prefetch=prefetch, exact=exact)
+    fused = blend_channels(scored, field_weights, combine)                           # weighted blend over the pool
     out = []
     for i, sc in fused[:limit]:
-        p = cand[i]
+        p = scored["cand"][i]
         p.score = sc
         out.append(p)
     return out
@@ -316,31 +372,32 @@ def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
 
 
 # ** MAIN ** — the ONE search entry: imported by tests, evals, webtest, embed's read side
-# Unified scene search: orchestrate the active retrievers over one filter and MERGE their rankings by weighted RRF. Two knobs — method_weights (RRF balance) + normalize. Returns ScoredPoints best-first.
-def search(client: QdrantClient, *, summary: str | None = None, moments=None,
+# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Returns ScoredPoints best-first.
+def search(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
            descriptors: list[str] | None = None, weights: list[float] | None = None,
            anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
            anti_strength: float = 1.0, book_id: str | None = None, subject_branch=None,
            flt: models.Filter | None = None, limit: int = 5, prefetch: int | None = None,
-           normalize: str | None = "zscore", method_weights: dict | None = None,
+           normalize: str | None = "zscore", combine: str = "sum",
+           field_weights: dict | None = None, method_weights: dict | None = None,
            rrf_k: int = 60, exact: bool = False):
     if flt is None:
         flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))   # AND book + subject pre-filters
     prefetch = prefetch or max(limit * 5, 50)
 
     rankings: dict = {}
-    if summary or moments:
-        rankings["scenes"] = search_scenes(                    # what-happens: max(summary, svos)
-            client, summary=summary, moments=moments, limit=prefetch, flt=flt,
-            normalize=normalize, exact=exact)
+    if summary or moments or frame:
+        rankings["scenes"] = search_scenes(                    # what-happens + frame: z-normed weighted blend
+            client, summary=summary, moments=moments, frame=frame, field_weights=field_weights,
+            combine=combine, limit=prefetch, flt=flt, normalize=normalize, exact=exact)
     if descriptors:
         rankings["flavor"] = search_weighted_descriptors(       # flavor: weighted descriptor centroid
             client, descriptors, weights, anti_descriptors=anti_descriptors,
             anti_weights=anti_weights, anti_strength=anti_strength, limit=prefetch,
             flt=flt, exact=exact)
     if not rankings:
-        raise ValueError("search needs at least one of: summary, moments, descriptors")
+        raise ValueError("search needs at least one of: summary, moments, frame, descriptors")
     if len(rankings) == 1:
-        return next(iter(rankings.values()))[:limit]           # one channel -> its ranking, untouched
+        return next(iter(rankings.values()))[:limit]           # one method -> its ranking, untouched
     mw = method_weights or DEFAULT_METHOD_WEIGHTS
-    return _rrf(rankings, mw, rrf_k, limit)                     # >1 channel -> rank-fuse them
+    return _rrf(rankings, mw, rrf_k, limit)                     # >1 method -> weighted rank-fuse

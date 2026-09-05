@@ -164,27 +164,43 @@ def _pos(scene_id: str):
 
 # ---- search dispatch ----
 
+# Coerce a UI normalize string to search's contract ("none"/"raw"/"" -> None; else pass through).
+def _norm(v):
+    if isinstance(v, str) and v.strip().lower() in ("none", "null", "raw", ""):
+        return None
+    return v
+
+
 # Run ONE query object over the prebuilt filter -> a result column. Never raises: errors ride back in-band.
-def _run_query(q: dict, limit: int, flt, exact: bool = False) -> dict:
+# `tuning` carries the batch-level weight knobs (field_weights, method_weights, combine, normalize); a
+# per-query key overrides it, which overrides the module defaults — so the UI can tune the blend live.
+def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | None = None) -> dict:
     mode = q.get("mode", "search")   # echoed back for the UI column header; not a dispatch key
+    tuning = tuning or {}
     # anti-descriptors need matching weights; fill equal if the query gave only the list
     anti = q.get("anti_descriptors")
     aw = q.get("anti_weights")
     if anti and not aw:
         aw = [1.0 / len(anti)] * len(anti)
+    field_weights = q.get("field_weights") or tuning.get("field_weights")            # per-channel vector weights
+    method_weights = q.get("method_weights") or tuning.get("method_weights") or WEIGHTS  # scenes vs flavor RRF
+    combine = q.get("combine") or tuning.get("combine") or "sum"                      # weighted blend vs greatest match
+    normalize = _norm(q.get("normalize", tuning.get("normalize", "zscore")))          # per-channel scaling
     try:
-        # ONE unified entry: search() activates the what-happens channels (summary + svos moment
-        # sentences) and/or the flavor channel (descriptors), runs them over `flt`, and RRF-merges.
+        # ONE unified entry: search() activates the what-happens/frame vector channels (summary + svos +
+        # subject/verb/object/setting) and/or the flavor channel (descriptors), runs them over `flt`,
+        # blends the vectors by z-normed field_weights, then RRF-merges the methods by method_weights.
         pts = search.search(
             _client,
             summary=q.get("summary") or None,
             moments=q.get("moments") or None,        # manual clause sentence(s) -> svos channel
+            frame=q.get("frame") or None,            # explicit subject/verb/object/setting query terms
             descriptors=q.get("descriptors") or None,
             weights=q.get("weights"),
             anti_descriptors=anti, anti_weights=aw,
             anti_strength=q.get("anti_strength", 1.0),
-            method_weights=WEIGHTS,
-            normalize=q.get("normalize", "zscore"),
+            field_weights=field_weights, method_weights=method_weights,
+            combine=combine, normalize=normalize,
             flt=flt, exact=exact, limit=limit,
         )
         results = [_card(p.payload, p.score) for p in pts]           # scene cards, scored
@@ -284,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/search_batch":
             limit = int(body.get("limit", 8))
             queries = body.get("queries", [])
+            # batch-level weight tuning applied to every query (a per-query key still overrides)
+            tuning = {"field_weights": body.get("field_weights"), "method_weights": body.get("method_weights"),
+                      "combine": body.get("combine"), "normalize": body.get("normalize")}
             # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a single
             # pinned book (book_id). Its book count comes from the SQL tree and drives exact-vs-walk.
             subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]
@@ -303,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 flt = None
                 exact = False
-            cols = [_run_query(q, limit, flt, exact) for q in queries]   # one column per query
+            cols = [_run_query(q, limit, flt, exact, tuning) for q in queries]   # one column per query
             return self._json({"columns": cols})
         return self._json({"error": f"no route {u.path}"}, 404)
 

@@ -9,6 +9,5 @@ logs/test/databases
 logs/test/segments
 logs/test/pg_catalog.csv
 logs/notinuse
-logs/test/checkpoints
 web
 CLAUDE.md

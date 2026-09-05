@@ -256,9 +256,9 @@ Ground the beat in the prose. Fold a crowd into one collective ("mob"). Drop bar
 2. Gauge intensity, then arc (rise / fall / steady / turn).
 3. Pick 3-5 flavor adjectives (emotion welcome).
 4. Write the general summary: ONE simple ~8-16 word sentence, one situation, no names, no feeling words.
-5. Find the ONE most pivotal beat, then reword it 2-3 ways (different but similar subject/verb/object).
-   For each rewording: WRITE the sparse sentence, THEN read it back and fill subject/verb/object/setting.
-   The sentence should ONLY have SUBJECT, VERB, OBJECT, SETTING of the most pivotal beat. Anythign else should not be added.
+5. Find the SINGLE most pivotal beat, then reword it 2-3 ways (different but similar subject/verb/object).
+   For each rewording: WRITE the sentence, THEN read it back and fill subject/verb/object/setting.
+   The sentence should ONLY have SUBJECT, VERB, OBJECT, SETTING of the most pivotal beat. Secondary beats should not be written.
 6. Verify: one item per input index, every index once.
 
 # RULES
@@ -282,7 +282,7 @@ Ground the beat in the prose. Fold a crowd into one collective ("mob"). Drop bar
   -- output_enrichment --
   {"items": [
     {"index": 0, "dominant_tone": "defiance", "intensity": "high", "arc": "rising", "descriptors": ["cunning","daring","defiant"], "summary": "A cornered captive turns on a far stronger captor to kill him.", "moments": [
-      {"sentence": "Captive prepares to kill sleeping giant.", "subject": "captive", "verb": "prepares to kill", "object": "sleeping giant", "setting": "cave"},
+      {"sentence": "Captive moves to strike sleeping giant.", "subject": "captive", "verb": "moves to strike", "object": "sleeping giant", "setting": "cave"},
       {"sentence": "Prisoner grabs stake to slay captor.", "subject": "prisoner", "verb": "grabs", "object": "stake", "setting": "cave"},
       {"sentence": "Trapped man plans to kill drunken captor.", "subject": "trapped man", "verb": "plans to kill", "object": "drunken captor", "setting": "cave"}
     ]},
