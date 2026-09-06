@@ -187,6 +187,17 @@
     <div class="fld-list" id="fld-list"></div>
   </div>
 
+  <div id="facets">
+    <div class="w-head">
+      <span class="w-ttl">🎭 Flavor</span>
+      <label class="wf">tone<select id="fac-tone"></select></label>
+      <label class="wf">intensity<select id="fac-intensity"></select></label>
+      <label class="wf">arc<select id="fac-arc"></select></label>
+      <button class="ghost" id="fac-clear">clear</button>
+      <span class="fw-note">hard pre-filter on the enriched flavor facets (dominant_tone · intensity · arc) — ANDed with the book/subject scope. Only scenes matching every chosen facet can surface.</span>
+    </div>
+  </div>
+
   <div id="weights">
     <div class="w-head">
       <span class="w-ttl">⚖ Weights</span>
@@ -248,8 +259,12 @@ const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[
   const bopts = DATA.books.map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join("");
   $("#t-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   $("#c-book").innerHTML = `<option value="">— all books —</option>` + bopts;
+  buildFacetInputs();
   updateTRun();
+  const W = await api("/api/weights").catch(()=>null);           // live tuned weights (from evals --tune)
+  if (W && W.field_weights) FIELD_DEFAULTS = Object.assign({}, FIELD_DEFAULTS, W.field_weights);
   buildWeightInputs();
+  if (W && W.tuned) { const t=document.querySelector(".w-ttl"); if(t) t.textContent="⚖ Weights (tuned)"; }
   await loadFolder();
 })();
 
@@ -317,22 +332,45 @@ $("#fld-clear").onclick = ()=>{ FILTER={path:[],books:[],bookId:null}; loadFolde
 
 // the hard pre-filter merged into every search batch: a pinned book wins, else the folder
 // branch travels as the subject_paths label (server turns it into one MatchValue term).
+// The flavor facets (tone/intensity/arc) are ORTHOGONAL — always spread on top, ANDed server-side.
 function filterExtra(){
-  if(FILTER.bookId) return {book_id: FILTER.bookId};
-  if(FILTER.path.length) return {subject_path: FILTER.path};
-  return {};
+  const scope = FILTER.bookId ? {book_id: FILTER.bookId}
+              : FILTER.path.length ? {subject_path: FILTER.path} : {};
+  return {...scope, ...facetExtra()};
+}
+// The chosen flavor facets as {tone?, intensity?, arc?} (empty = "any", omitted).
+function facetExtra(){
+  const out = {};
+  for(const f of ["tone","intensity","arc"]){ const v=$("#fac-"+f).value; if(v) out[f]=v; }
+  return out;
+}
+function facetLabel(){
+  const f=facetExtra(); const parts=["tone","intensity","arc"].filter(k=>f[k]).map(k=>f[k]);
+  return parts.length ? parts.join(" · ") : null;
 }
 function filterLabel(){
-  if(FILTER.bookId) return "book "+FILTER.bookId;
-  if(FILTER.path.length) return FILTER.path.join(" ▸ ")+` (${FILTER.count})`;
-  return null;
+  const scope = FILTER.bookId ? "book "+FILTER.bookId
+              : FILTER.path.length ? FILTER.path.join(" ▸ ")+` (${FILTER.count})` : null;
+  const fac = facetLabel();
+  return [scope, fac && "🎭 "+fac].filter(Boolean).join(" · ") || null;
 }
 
+// Populate the tone/intensity/arc dropdowns from the live enum vocab (DATA.facets).
+function buildFacetInputs(){
+  const fac = DATA.facets || {};
+  for(const f of ["tone","intensity","arc"]){
+    const opts = (fac[f]||[]).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    $("#fac-"+f).innerHTML = `<option value="">— any —</option>` + opts;
+  }
+}
+$("#fac-clear").onclick = ()=>{ for(const f of ["tone","intensity","arc"]) $("#fac-"+f).value=""; };
+
 // ---------- weight tuning (the vector-blend field weights + scenes:flavor RRF split) ----------
-// FIELD_CHANNELS + defaults mirror search.SCENES_DEFAULT_WEIGHTS; every batch carries these so the
-// server blends the vector channels (z-normed) under them and RRF-merges scenes vs flavor.
+// FIELD_CHANNELS + defaults. FIELD_DEFAULTS is the fallback (schema weights); boot() overwrites it from
+// /api/weights so the panel STARTS at the live tuned weights (what `evals --tune` last wrote). Every batch
+// carries these so the server blends the vector channels (z-normed) under them and RRF-merges scenes vs flavor.
 const FIELD_CHANNELS = ["summary","svos","subject","verb","object","setting"];
-const FIELD_DEFAULTS = {summary:0.25, svos:0.5, subject:0.2, verb:0.1, object:0.15, setting:0.05};
+let FIELD_DEFAULTS = {summary:0.25, svos:0.5, subject:0.2, verb:0.1, object:0.15, setting:0.05};
 function buildWeightInputs(){
   $("#w-fields").innerHTML = FIELD_CHANNELS.map(c=>
     `<label class="wf">${c}<input class="wnum" id="w-f-${c}" type="number" step="0.05" min="0" value="${FIELD_DEFAULTS[c]}"></label>`).join("");

@@ -3,6 +3,7 @@ import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 from utils import SrcPaths, schema # scene-record registry (single source of truth) — drives the named vectors
+from utils.read_write import read_json   # to load the tuned field_weights override written by evals --tune
 
 # ---- Read path: query the scene vector DB (import THIS from the app / API) ----
 # Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. It also
@@ -79,6 +80,39 @@ def subject_filter(branch) -> models.Filter | None:
     suffix = branch if isinstance(branch, str) else " -- ".join(reversed(list(branch)))
     return models.Filter(must=[models.FieldCondition(
         key="subject_paths", match=models.MatchValue(value=suffix))])
+
+
+# ** LOCKED **
+# Hard-filter on one enum payload facet: a single value (MatchValue) or any-of a list (MatchAny); None -> no restriction.
+def facet_filter(key: str, value) -> models.Filter | None:
+    if not value:
+        return None
+    if isinstance(value, str):
+        match = models.MatchValue(value=value)
+    else:
+        vals = [v for v in value if v]
+        if not vals:
+            return None
+        match = models.MatchAny(any=vals)
+    return models.Filter(must=[models.FieldCondition(key=key, match=match)])
+
+
+# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
+# Restrict a search to scene(s) whose dominant tone matches (payload col `dominant_tone`).
+def tone_filter(tone) -> models.Filter | None:
+    return facet_filter("dominant_tone", tone)
+
+
+# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
+# Restrict a search to scene(s) whose intensity matches (payload col `intensity`).
+def intensity_filter(intensity) -> models.Filter | None:
+    return facet_filter("intensity", intensity)
+
+
+# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
+# Restrict a search to scene(s) whose narrative arc matches (payload col `arc`).
+def arc_filter(arc) -> models.Filter | None:
+    return facet_filter("arc", arc)
 
 
 # ** LOCKED **
@@ -170,6 +204,19 @@ DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` fro
 # the vector channels fused INSIDE search_scenes (descriptors is the separate `flavor` method + RRF)
 SCENES_VECTORS = ("summary", "svos", "subject", "verb", "object", "setting")
 SCENES_DEFAULT_WEIGHTS = {k: DEFAULT_FIELD_WEIGHTS.get(k, 0.0) for k in SCENES_VECTORS}
+
+
+# ** MAIN ** — the live default field_weights; every None-weight caller (webtest, evals base runs) resolves through here
+# The DEFAULT field_weights for search: the tuned override that `evals --tune` writes to SrcPaths.TUNED_WEIGHTS_PATH
+# if it exists and is valid, else the schema defaults. Read fresh each call, so a re-tune takes effect with no
+# restart. A caller passing explicit field_weights still overrides this. Bad/empty file -> schema defaults.
+def active_field_weights() -> dict:
+    data = read_json(SrcPaths.TUNED_WEIGHTS_PATH, default=None)   # {"field_weights": {chan: w}, ...} or None
+    if isinstance(data, dict):
+        fw = data.get("field_weights")
+        if isinstance(fw, dict) and any(fw.values()):
+            return {k: float(v) for k, v in fw.items()}
+    return SCENES_DEFAULT_WEIGHTS
 
 
 # ** LOCKED **  ** MAIN ** — embed.py imports this to normalize each multivector field
@@ -269,7 +316,7 @@ def _channel_queries(summary, moments, frame) -> dict:
 # ** LOCKED **
 # Resolve per-channel weights over the ACTIVE channels: non-negative, renormalized to sum to 1 (all-zero -> equal).
 def _resolve_field_weights(field_weights, names: list) -> dict:
-    base = field_weights if field_weights is not None else SCENES_DEFAULT_WEIGHTS
+    base = field_weights if field_weights is not None else active_field_weights()   # tuned override (if any) else schema defaults
     w = {n: max(0.0, float(base.get(n, 0.0))) for n in names}
     total = sum(w.values())
     if total <= 0:
@@ -372,17 +419,20 @@ def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
 
 
 # ** MAIN ** — the ONE search entry: imported by tests, evals, webtest, embed's read side
-# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Returns ScoredPoints best-first.
+# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Hard pre-filters (ANDed): book_id, subject_branch, tone/intensity/arc (each a single value or any-of a list). Returns ScoredPoints best-first.
 def search(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
            descriptors: list[str] | None = None, weights: list[float] | None = None,
            anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
            anti_strength: float = 1.0, book_id: str | None = None, subject_branch=None,
+           tone=None, intensity=None, arc=None,
            flt: models.Filter | None = None, limit: int = 5, prefetch: int | None = None,
            normalize: str | None = "zscore", combine: str = "sum",
            field_weights: dict | None = None, method_weights: dict | None = None,
            rrf_k: int = 60, exact: bool = False):
     if flt is None:
-        flt = _and_filters(book_filter(book_id), subject_filter(subject_branch))   # AND book + subject pre-filters
+        flt = _and_filters(book_filter(book_id), subject_filter(subject_branch),   # AND book + subject +
+                           tone_filter(tone), intensity_filter(intensity),         # flavor-facet hard filters
+                           arc_filter(arc))
     prefetch = prefetch or max(limit * 5, 50)
 
     rankings: dict = {}

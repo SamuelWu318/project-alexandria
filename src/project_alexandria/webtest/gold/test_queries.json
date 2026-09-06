@@ -1,8 +1,9 @@
 {
-  "_about": "Gold query set for the 10-book indexed corpus. 5 per book, sharpness 1 (very unique to the book) -> 5 (generic archetype). Each entry was authored FROM a specific real scene in the corpus: that scene's id is target_scene_id (the guaranteed-correct rank-1 answer, with target_scene_title/summary for review), and the query — a general-register summary (present tense, no proper names, feeling words only in descriptors), a decomposed subject/verb/object/setting frame, and a combined svos clause — is a distilled user query pointing at that scene. Used to probe rank-1 retrieval precision (correct book AND correct scene) and its falloff as a query gets more general.",
+  "_about": "Gold query set for the 10-book indexed corpus. 100 entries = 50 scenes x 2 variants. Each scene was picked from the corpus and gives its id as target_scene_id (the guaranteed rank-1 answer). For every scene there are TWO queries with the SAME frame/svos/descriptors/target but different summaries: variant 'specific' (a clear, detailed summary) and variant 'ambiguous' (a much vaguer, generalized summary that still resolves to that single scene). Comparing the two tests the model's ability to generalize from a loose description. 5 scenes per book, sharpness 1 (very unique) -> 5 (generic archetype).",
   "test_queries": [
     {
       "id": "q-84-1",
+      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 1,
@@ -22,7 +23,29 @@
       "target_scene_summary": "A creator flees from his newly animated being."
     },
     {
+      "id": "q-84-1-amb",
+      "variant": "ambiguous",
+      "book_id": "84",
+      "book_title": "Frankenstein",
+      "sharpness": 1,
+      "summary": "Having finally given life to the thing he built, its maker is seized with horror and flees from it.",
+      "subject": "a horrified scientist",
+      "verb": "flees",
+      "object": "his newly animated creature",
+      "setting": "a laboratory",
+      "svos": "A horrified scientist flees his newly animated creature in a laboratory.",
+      "descriptors": [
+        "horrified",
+        "nightmarish",
+        "frantic"
+      ],
+      "target_scene_id": "84-25",
+      "target_scene_title": "Victor creates the creature and flees in horror",
+      "target_scene_summary": "A creator flees from his newly animated being."
+    },
+    {
       "id": "q-84-2",
+      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 2,
@@ -42,7 +65,29 @@
       "target_scene_summary": "A husband discovers his bride murdered on their wedding night."
     },
     {
+      "id": "q-84-2-amb",
+      "variant": "ambiguous",
+      "book_id": "84",
+      "book_title": "Frankenstein",
+      "sharpness": 2,
+      "summary": "On the night meant to be happiest, a man finds his new wife dead at an enemy's hand.",
+      "subject": "a husband",
+      "verb": "finds",
+      "object": "his murdered bride",
+      "setting": "a wedding-night chamber",
+      "svos": "A husband finds his murdered bride in a wedding-night chamber.",
+      "descriptors": [
+        "devastating",
+        "shattering",
+        "agonizing"
+      ],
+      "target_scene_id": "84-138",
+      "target_scene_title": "Elizabeth's murder and Victor's horrified grief",
+      "target_scene_summary": "A husband discovers his bride murdered on their wedding night."
+    },
+    {
       "id": "q-84-3",
+      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 3,
@@ -62,7 +107,29 @@
       "target_scene_summary": "A creator destroys his nearly finished creation while the monster watches from the window."
     },
     {
+      "id": "q-84-3-amb",
+      "variant": "ambiguous",
+      "book_id": "84",
+      "book_title": "Frankenstein",
+      "sharpness": 3,
+      "summary": "Unable to keep his terrible promise, a maker destroys his second creation as the first looks on.",
+      "subject": "a maker",
+      "verb": "destroys",
+      "object": "the half-made mate",
+      "setting": "an island laboratory",
+      "svos": "A maker destroys the half-made mate in an island laboratory.",
+      "descriptors": [
+        "violent",
+        "desperate",
+        "malignant"
+      ],
+      "target_scene_id": "84-110",
+      "target_scene_title": "The daemon appears and Victor destroys the female",
+      "target_scene_summary": "A creator destroys his nearly finished creation while the monster watches from the window."
+    },
+    {
       "id": "q-84-4",
+      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 4,
@@ -82,7 +149,29 @@
       "target_scene_summary": "A blind hermit listens kindly to a stranger's plea for friendship."
     },
     {
+      "id": "q-84-4-amb",
+      "variant": "ambiguous",
+      "book_id": "84",
+      "book_title": "Frankenstein",
+      "sharpness": 4,
+      "summary": "An outcast no one can bear to look upon begs for kindness from the one person who cannot see him.",
+      "subject": "a lonely outcast",
+      "verb": "pleads with",
+      "object": "a blind old man",
+      "setting": "a cottage",
+      "svos": "A lonely outcast pleads with a blind old man in a cottage.",
+      "descriptors": [
+        "tender",
+        "hopeful",
+        "sincere"
+      ],
+      "target_scene_id": "84-81",
+      "target_scene_title": "Interview with De Lacey, seeking acceptance",
+      "target_scene_summary": "A blind hermit listens kindly to a stranger's plea for friendship."
+    },
+    {
       "id": "q-84-5",
+      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 5,
@@ -102,7 +191,29 @@
       "target_scene_summary": "A captain discovers a monstrous being weeping over its creator's body."
     },
     {
+      "id": "q-84-5-amb",
+      "variant": "ambiguous",
+      "book_id": "84",
+      "book_title": "Frankenstein",
+      "sharpness": 5,
+      "summary": "A newcomer stumbles on a dreadful being grieving over the body of the man who made it.",
+      "subject": "a monstrous figure",
+      "verb": "weeps over",
+      "object": "its dead creator",
+      "setting": "a ship cabin",
+      "svos": "A monstrous figure weeps over its dead creator in a ship cabin.",
+      "descriptors": [
+        "grief-stricken",
+        "raw",
+        "haunting"
+      ],
+      "target_scene_id": "84-159",
+      "target_scene_title": "Walton finds Creature weeping over Frankenstein",
+      "target_scene_summary": "A captain discovers a monstrous being weeping over its creator's body."
+    },
+    {
       "id": "q-98-1",
+      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 1,
@@ -122,7 +233,29 @@
       "target_scene_summary": "A man secretly exchanges clothes with a condemned prisoner to die in his place."
     },
     {
+      "id": "q-98-1-amb",
+      "variant": "ambiguous",
+      "book_id": "98",
+      "book_title": "A Tale of Two Cities",
+      "sharpness": 1,
+      "summary": "In a cell, one man quietly takes another's place, trading his own life for the condemned man's.",
+      "subject": "a self-sacrificing man",
+      "verb": "swaps clothes with",
+      "object": "a condemned prisoner",
+      "setting": "a prison cell",
+      "svos": "A self-sacrificing man swaps clothes with a condemned prisoner in a prison cell.",
+      "descriptors": [
+        "sacrificial",
+        "desperate",
+        "ingenious"
+      ],
+      "target_scene_id": "98-290",
+      "target_scene_title": "Carton swaps clothes with Darnay",
+      "target_scene_summary": "A man secretly exchanges clothes with a condemned prisoner to die in his place."
+    },
+    {
       "id": "q-98-2",
+      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 2,
@@ -142,7 +275,29 @@
       "target_scene_summary": "A speeding aristocratic carriage kills a child and the nobleman tosses a gold coin as compensation."
     },
     {
+      "id": "q-98-2-amb",
+      "variant": "ambiguous",
+      "book_id": "98",
+      "book_title": "A Tale of Two Cities",
+      "sharpness": 2,
+      "summary": "A great man's speeding carriage strikes down a poor child, and he answers the death with only a coin.",
+      "subject": "a cold nobleman",
+      "verb": "tosses a coin for",
+      "object": "a child his carriage killed",
+      "setting": "a city street",
+      "svos": "A cold nobleman tosses a coin for a child his carriage killed in a city street.",
+      "descriptors": [
+        "callous",
+        "brutal",
+        "aristocratic"
+      ],
+      "target_scene_id": "98-89",
+      "target_scene_title": "The carriage kills a child and the Marquis pays a coin",
+      "target_scene_summary": "A speeding aristocratic carriage kills a child and the nobleman tosses a gold coin as compensation."
+    },
+    {
       "id": "q-98-3",
+      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 3,
@@ -162,7 +317,29 @@
       "target_scene_summary": "A young woman faces her father making shoes in a gloomy garret."
     },
     {
+      "id": "q-98-3-amb",
+      "variant": "ambiguous",
+      "book_id": "98",
+      "book_title": "A Tale of Two Cities",
+      "sharpness": 3,
+      "summary": "In a dim upper room a long-lost prisoner works mechanically at an old craft, scarcely knowing those come to reclaim him.",
+      "subject": "a broken prisoner",
+      "verb": "cobbles shoes",
+      "object": "",
+      "setting": "a gloomy garret",
+      "svos": "A broken prisoner cobbles shoes in a gloomy garret.",
+      "descriptors": [
+        "haunting",
+        "pitiable",
+        "somber"
+      ],
+      "target_scene_id": "98-27",
+      "target_scene_title": "Garret door opens, shoemaker Manette revealed",
+      "target_scene_summary": "A young woman faces her father making shoes in a gloomy garret."
+    },
+    {
       "id": "q-98-4",
+      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 4,
@@ -182,7 +359,29 @@
       "target_scene_summary": "Starving Parisians desperately drink spilled wine from a broken cask."
     },
     {
+      "id": "q-98-4-amb",
+      "variant": "ambiguous",
+      "book_id": "98",
+      "book_title": "A Tale of Two Cities",
+      "sharpness": 4,
+      "summary": "When drink spills across the street of a starving quarter, the desperate crowd falls upon it.",
+      "subject": "a starving crowd",
+      "verb": "drinks",
+      "object": "spilled wine",
+      "setting": "a poor street",
+      "svos": "A starving crowd drinks spilled wine in a poor street.",
+      "descriptors": [
+        "desperate",
+        "communal",
+        "foreboding"
+      ],
+      "target_scene_id": "98-20",
+      "target_scene_title": "Broken wine cask draws desperate crowd",
+      "target_scene_summary": "Starving Parisians desperately drink spilled wine from a broken cask."
+    },
+    {
       "id": "q-98-5",
+      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 5,
@@ -202,7 +401,29 @@
       "target_scene_summary": "A revolutionary mob storms a fortress demanding prisoners and records."
     },
     {
+      "id": "q-98-5-amb",
+      "variant": "ambiguous",
+      "book_id": "98",
+      "book_title": "A Tale of Two Cities",
+      "sharpness": 5,
+      "summary": "An enraged multitude overwhelms a hated stronghold and seizes its keepers.",
+      "subject": "a furious mob",
+      "verb": "storms",
+      "object": "a prison fortress",
+      "setting": "a fortress courtyard",
+      "svos": "A furious mob storms a prison fortress in a fortress courtyard.",
+      "descriptors": [
+        "chaotic",
+        "vengeful",
+        "exultant"
+      ],
+      "target_scene_id": "98-176",
+      "target_scene_title": "Surrender of the Bastille and cries for prisoners",
+      "target_scene_summary": "A revolutionary mob storms a fortress demanding prisoners and records."
+    },
+    {
       "id": "q-103-1",
+      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 1,
@@ -222,7 +443,29 @@
       "target_scene_summary": "A traveler buys a ship for double its value and orders it dismantled for fuel to win a wager."
     },
     {
+      "id": "q-103-1-amb",
+      "variant": "ambiguous",
+      "book_id": "103",
+      "book_title": "Around the World in Eighty Days",
+      "sharpness": 1,
+      "summary": "Out of fuel and out of time, a traveler feeds the very vessel beneath him to the fires to keep moving.",
+      "subject": "a determined traveler",
+      "verb": "burns",
+      "object": "his own steamship",
+      "setting": "a mid-ocean steamer",
+      "svos": "A determined traveler burns his own steamship in a mid-ocean steamer.",
+      "descriptors": [
+        "audacious",
+        "ruthless",
+        "calculated"
+      ],
+      "target_scene_id": "103-156",
+      "target_scene_title": "Ship sold and burned for fuel",
+      "target_scene_summary": "A traveler buys a ship for double its value and orders it dismantled for fuel to win a wager."
+    },
+    {
       "id": "q-103-2",
+      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 2,
@@ -242,7 +485,29 @@
       "target_scene_summary": "A servant impersonates a dead ruler to rescue a condemned woman from a funeral pyre."
     },
     {
+      "id": "q-103-2-amb",
+      "variant": "ambiguous",
+      "book_id": "103",
+      "book_title": "Around the World in Eighty Days",
+      "sharpness": 2,
+      "summary": "Amid the flames of a sacrifice, a servant's bold deception carries a doomed woman to safety.",
+      "subject": "a daring servant",
+      "verb": "snatches from the pyre",
+      "object": "a drugged widow",
+      "setting": "a funeral pyre",
+      "svos": "A daring servant snatches from the pyre a drugged widow in a funeral pyre.",
+      "descriptors": [
+        "audacious",
+        "clever",
+        "tense"
+      ],
+      "target_scene_id": "103-44",
+      "target_scene_title": "Passepartout's daring rescue and escape",
+      "target_scene_summary": "A servant impersonates a dead ruler to rescue a condemned woman from a funeral pyre."
+    },
+    {
       "id": "q-103-3",
+      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 3,
@@ -262,7 +527,29 @@
       "target_scene_summary": "A servant detaches a locomotive from a besieged train to save passengers from attackers."
     },
     {
+      "id": "q-103-3-amb",
+      "variant": "ambiguous",
+      "book_id": "103",
+      "book_title": "Around the World in Eighty Days",
+      "sharpness": 3,
+      "summary": "Under sudden attack, one man risks himself beneath the racing cars to save all aboard.",
+      "subject": "a brave servant",
+      "verb": "uncouples",
+      "object": "the locomotive",
+      "setting": "a besieged train",
+      "svos": "A brave servant uncouples the locomotive in a besieged train.",
+      "descriptors": [
+        "heroic",
+        "chaotic",
+        "daring"
+      ],
+      "target_scene_id": "103-132",
+      "target_scene_title": "Sioux attack thwarted by Passepartout's heroism",
+      "target_scene_summary": "A servant detaches a locomotive from a besieged train to save passengers from attackers."
+    },
+    {
       "id": "q-103-4",
+      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 4,
@@ -282,7 +569,29 @@
       "target_scene_summary": "A composed gentleman formalizes a twenty-thousand-pound wager and departs immediately for the journey."
     },
     {
+      "id": "q-103-4-amb",
+      "variant": "ambiguous",
+      "book_id": "103",
+      "book_title": "Around the World in Eighty Days",
+      "sharpness": 4,
+      "summary": "A coolly precise man stakes a fortune on a seemingly impossible undertaking and departs at once.",
+      "subject": "a precise gentleman",
+      "verb": "wagers a fortune on",
+      "object": "circling the globe",
+      "setting": "a gentlemen's club",
+      "svos": "A precise gentleman wagers a fortune on circling the globe in a gentlemen's club.",
+      "descriptors": [
+        "resolute",
+        "stoic",
+        "decisive"
+      ],
+      "target_scene_id": "103-8",
+      "target_scene_title": "Fogg seals the wager and departs at once",
+      "target_scene_summary": "A composed gentleman formalizes a twenty-thousand-pound wager and departs immediately for the journey."
+    },
+    {
       "id": "q-103-5",
+      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 5,
@@ -302,7 +611,29 @@
       "target_scene_summary": "A wager reaches its final seconds when the traveler appears just in time."
     },
     {
+      "id": "q-103-5-amb",
+      "variant": "ambiguous",
+      "book_id": "103",
+      "book_title": "Around the World in Eighty Days",
+      "sharpness": 5,
+      "summary": "Given up for lost, a man appears at the very last instant to claim his victory.",
+      "subject": "a traveler",
+      "verb": "arrives",
+      "object": "at the final second",
+      "setting": "a club room",
+      "svos": "A traveler arrives at the final second in a club room.",
+      "descriptors": [
+        "climactic",
+        "triumphant",
+        "tense"
+      ],
+      "target_scene_id": "103-170",
+      "target_scene_title": "Fogg appears at the final second",
+      "target_scene_summary": "A wager reaches its final seconds when the traveler appears just in time."
+    },
+    {
       "id": "q-215-1",
+      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 1,
@@ -322,7 +653,29 @@
       "target_scene_summary": "A cunning challenger defeats a seasoned champion in a deadly duel for dominance."
     },
     {
+      "id": "q-215-1-amb",
+      "variant": "ambiguous",
+      "book_id": "215",
+      "book_title": "The Call of the Wild",
+      "sharpness": 1,
+      "summary": "A creature at last turns on the rival that has long tormented it and destroys him to claim the top place.",
+      "subject": "a sled dog",
+      "verb": "kills",
+      "object": "his rival lead dog",
+      "setting": "a moonlit ring of snow",
+      "svos": "A sled dog kills his rival lead dog in a moonlit ring of snow.",
+      "descriptors": [
+        "primal",
+        "savage",
+        "triumphant"
+      ],
+      "target_scene_id": "215-27",
+      "target_scene_title": "Buck kills Spitz, claims primordial dominance",
+      "target_scene_summary": "A cunning challenger defeats a seasoned champion in a deadly duel for dominance."
+    },
+    {
       "id": "q-215-2",
+      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 2,
@@ -342,7 +695,29 @@
       "target_scene_summary": "A devoted dog pulls an impossible load for his beloved master."
     },
     {
+      "id": "q-215-2-amb",
+      "variant": "ambiguous",
+      "book_id": "215",
+      "book_title": "The Call of the Wild",
+      "sharpness": 2,
+      "summary": "Straining with all its strength, a devoted animal drags an impossible burden to prove its love.",
+      "subject": "a devoted dog",
+      "verb": "hauls",
+      "object": "a thousand-pound sled",
+      "setting": "a frozen street",
+      "svos": "A devoted dog hauls a thousand-pound sled in a frozen street.",
+      "descriptors": [
+        "triumphant",
+        "loving",
+        "tense"
+      ],
+      "target_scene_id": "215-48",
+      "target_scene_title": "Buck pulls the thousand pounds and wins",
+      "target_scene_summary": "A devoted dog pulls an impossible load for his beloved master."
+    },
+    {
       "id": "q-215-3",
+      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 3,
@@ -362,7 +737,29 @@
       "target_scene_summary": "A primordial dog hunts a massive bull moose across four relentless days."
     },
     {
+      "id": "q-215-3-amb",
+      "variant": "ambiguous",
+      "book_id": "215",
+      "book_title": "The Call of the Wild",
+      "sharpness": 3,
+      "summary": "After days of patient pursuit, a wild creature finally brings down the great beast it hunts.",
+      "subject": "a wild dog",
+      "verb": "pulls down",
+      "object": "a great bull moose",
+      "setting": "the wilderness",
+      "svos": "A wild dog pulls down a great bull moose in the wilderness.",
+      "descriptors": [
+        "relentless",
+        "primordial",
+        "savage"
+      ],
+      "target_scene_id": "215-54",
+      "target_scene_title": "The epic four-day moose hunt",
+      "target_scene_summary": "A primordial dog hunts a massive bull moose across four relentless days."
+    },
+    {
       "id": "q-215-4",
+      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 4,
@@ -382,7 +779,29 @@
       "target_scene_summary": "A sled dog witnesses a pack brutally kill a friendly companion and learns the law of fang."
     },
     {
+      "id": "q-215-4-amb",
+      "variant": "ambiguous",
+      "book_id": "215",
+      "book_title": "The Call of the Wild",
+      "sharpness": 4,
+      "summary": "A gentle newcomer's first friendly moment ends in sudden death beneath the whole group.",
+      "subject": "the pack",
+      "verb": "tears apart",
+      "object": "a friendly newcomer",
+      "setting": "the camp snow",
+      "svos": "The pack tears apart a friendly newcomer in the camp snow.",
+      "descriptors": [
+        "brutal",
+        "merciless",
+        "shocking"
+      ],
+      "target_scene_id": "215-9",
+      "target_scene_title": "Curly's death teaches the law of fang",
+      "target_scene_summary": "A sled dog witnesses a pack brutally kill a friendly companion and learns the law of fang."
+    },
+    {
       "id": "q-215-5",
+      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 5,
@@ -402,7 +821,29 @@
       "target_scene_summary": "A grieving dog slaughters his master's killers then mourns by the pool holding his body."
     },
     {
+      "id": "q-215-5-amb",
+      "variant": "ambiguous",
+      "book_id": "215",
+      "book_title": "The Call of the Wild",
+      "sharpness": 5,
+      "summary": "Coming back to find the one it loved lying lifeless, a creature gives itself over to grief and revenge.",
+      "subject": "a grieving dog",
+      "verb": "finds",
+      "object": "its dead master",
+      "setting": "a forest pool",
+      "svos": "A grieving dog finds its dead master in a forest pool.",
+      "descriptors": [
+        "vengeful",
+        "grieving",
+        "furious"
+      ],
+      "target_scene_id": "215-56",
+      "target_scene_title": "Rampage against Yeehats and Thornton's death",
+      "target_scene_summary": "A grieving dog slaughters his master's killers then mourns by the pool holding his body."
+    },
+    {
       "id": "q-1342-1",
+      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 1,
@@ -422,7 +863,29 @@
       "target_scene_summary": "A proud gentleman proposes insultingly to a woman who defies his expectation."
     },
     {
+      "id": "q-1342-1-amb",
+      "variant": "ambiguous",
+      "book_id": "1342",
+      "book_title": "Pride and Prejudice",
+      "sharpness": 1,
+      "summary": "A proud man confesses his love in terms so insulting that the woman refuses him outright.",
+      "subject": "a proud suitor",
+      "verb": "proposes insultingly to",
+      "object": "a woman who refuses him",
+      "setting": "a parlour",
+      "svos": "A proud suitor proposes insultingly to a woman who refuses him in a parlour.",
+      "descriptors": [
+        "proud",
+        "tense",
+        "insulted"
+      ],
+      "target_scene_id": "1342-142",
+      "target_scene_title": "Darcy arrives and makes his proud proposal",
+      "target_scene_summary": "A proud gentleman proposes insultingly to a woman who defies his expectation."
+    },
+    {
       "id": "q-1342-2",
+      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 2,
@@ -442,7 +905,29 @@
       "target_scene_summary": "A pompous clergyman proposes marriage with absurdly practical reasons."
     },
     {
+      "id": "q-1342-2-amb",
+      "variant": "ambiguous",
+      "book_id": "1342",
+      "book_title": "Pride and Prejudice",
+      "sharpness": 2,
+      "summary": "A self-important man offers marriage as a list of sensible arrangements and refuses to accept her no.",
+      "subject": "a pompous clergyman",
+      "verb": "proposes to",
+      "object": "a reluctant woman",
+      "setting": "a drawing room",
+      "svos": "A pompous clergyman proposes to a reluctant woman in a drawing room.",
+      "descriptors": [
+        "absurd",
+        "comic",
+        "pompous"
+      ],
+      "target_scene_id": "1342-78",
+      "target_scene_title": "Collins proposes with pompous absurdity",
+      "target_scene_summary": "A pompous clergyman proposes marriage with absurdly practical reasons."
+    },
+    {
       "id": "q-1342-3",
+      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 3,
@@ -462,7 +947,29 @@
       "target_scene_summary": "A young woman learns a proud gentleman secretly rescued her disgraced sister."
     },
     {
+      "id": "q-1342-3-amb",
+      "variant": "ambiguous",
+      "book_id": "1342",
+      "book_title": "Pride and Prejudice",
+      "sharpness": 3,
+      "summary": "A letter reveals that the man she scorned had quietly undone her family's disgrace.",
+      "subject": "a humbled young woman",
+      "verb": "learns of",
+      "object": "a suitor's secret rescue of her sister",
+      "setting": "a quiet copse",
+      "svos": "A humbled young woman learns of a suitor's secret rescue of her sister in a quiet copse.",
+      "descriptors": [
+        "grateful",
+        "humbled",
+        "moved"
+      ],
+      "target_scene_id": "1342-229",
+      "target_scene_title": "Elizabeth reads Mrs. Gardiner's revealing letter",
+      "target_scene_summary": "A young woman learns a proud gentleman secretly rescued her disgraced sister."
+    },
+    {
       "id": "q-1342-4",
+      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 4,
@@ -482,7 +989,29 @@
       "target_scene_summary": "A haughty man declines dancing and slights a young woman."
     },
     {
+      "id": "q-1342-4-amb",
+      "variant": "ambiguous",
+      "book_id": "1342",
+      "book_title": "Pride and Prejudice",
+      "sharpness": 4,
+      "summary": "At a crowded dance a proud stranger coolly declines to partner a young woman, dismissing her worth.",
+      "subject": "a haughty gentleman",
+      "verb": "slights",
+      "object": "a young woman",
+      "setting": "a country ball",
+      "svos": "A haughty gentleman slights a young woman in a country ball.",
+      "descriptors": [
+        "haughty",
+        "cold",
+        "dismissive"
+      ],
+      "target_scene_id": "1342-5",
+      "target_scene_title": "Darcy and Bingley debate dancing partners",
+      "target_scene_summary": "A haughty man declines dancing and slights a young woman."
+    },
+    {
       "id": "q-1342-5",
+      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 5,
@@ -502,7 +1031,29 @@
       "target_scene_summary": "A proud gentleman proposes again and a spirited woman accepts him."
     },
     {
+      "id": "q-1342-5-amb",
+      "variant": "ambiguous",
+      "book_id": "1342",
+      "book_title": "Pride and Prejudice",
+      "sharpness": 5,
+      "summary": "The two who once parted in anger meet again, and this time an offer of love is accepted.",
+      "subject": "a reconciled suitor",
+      "verb": "proposes again to",
+      "object": "the woman who once refused him",
+      "setting": "a country lane",
+      "svos": "A reconciled suitor proposes again to the woman who once refused him in a country lane.",
+      "descriptors": [
+        "joyful",
+        "tender",
+        "hopeful"
+      ],
+      "target_scene_id": "1342-271",
+      "target_scene_title": "Darcy proposes again and Elizabeth accepts",
+      "target_scene_summary": "A proud gentleman proposes again and a spirited woman accepts him."
+    },
+    {
       "id": "q-1661-1",
+      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 1,
@@ -522,7 +1073,29 @@
       "target_scene_summary": "A deadly snake strikes, prompting a fatal scream that signals the case's resolution."
     },
     {
+      "id": "q-1661-1-amb",
+      "variant": "ambiguous",
+      "book_id": "1661",
+      "book_title": "The Adventures of Sherlock Holmes",
+      "sharpness": 1,
+      "summary": "Waiting in the dark, an investigator beats back the silent deadly thing sent to kill and turns it on the one who loosed it.",
+      "subject": "a detective",
+      "verb": "strikes",
+      "object": "a venomous snake",
+      "setting": "a dark bedroom",
+      "svos": "A detective strikes a venomous snake in a dark bedroom.",
+      "descriptors": [
+        "horrifying",
+        "climactic",
+        "shocking"
+      ],
+      "target_scene_id": "1661-137",
+      "target_scene_title": "The snake strikes and the scream echoes",
+      "target_scene_summary": "A deadly snake strikes, prompting a fatal scream that signals the case's resolution."
+    },
+    {
       "id": "q-1661-2",
+      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 2,
@@ -542,7 +1115,29 @@
       "target_scene_summary": "A detective reveals a stolen jewel was hidden inside a goose."
     },
     {
+      "id": "q-1661-2-amb",
+      "variant": "ambiguous",
+      "book_id": "1661",
+      "book_title": "The Adventures of Sherlock Holmes",
+      "sharpness": 2,
+      "summary": "An investigator draws a precious stone from the unlikeliest hiding place — inside a bird.",
+      "subject": "a detective",
+      "verb": "reveals",
+      "object": "a stolen jewel hidden in a goose",
+      "setting": "a sitting room",
+      "svos": "A detective reveals a stolen jewel hidden in a goose in a sitting room.",
+      "descriptors": [
+        "dramatic",
+        "anticipatory",
+        "revealing"
+      ],
+      "target_scene_id": "1661-119",
+      "target_scene_title": "Holmes reveals the blue carbuncle hidden in the goose",
+      "target_scene_summary": "A detective reveals a stolen jewel was hidden inside a goose."
+    },
+    {
       "id": "q-1661-3",
+      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 3,
@@ -562,7 +1157,29 @@
       "target_scene_summary": "A detective washes a prisoner's face revealing the missing man in disguise."
     },
     {
+      "id": "q-1661-3-amb",
+      "variant": "ambiguous",
+      "book_id": "1661",
+      "book_title": "The Adventures of Sherlock Holmes",
+      "sharpness": 3,
+      "summary": "In a cell an investigator wipes away a disguise, revealing that a wretch is really a respectable missing man.",
+      "subject": "a detective",
+      "verb": "washes clean",
+      "object": "a beggar's disguised face",
+      "setting": "a jail cell",
+      "svos": "A detective washes clean a beggar's disguised face in a jail cell.",
+      "descriptors": [
+        "shocking",
+        "revelatory",
+        "astonishing"
+      ],
+      "target_scene_id": "1661-101",
+      "target_scene_title": "In the cell washing prisoner reveals Neville St Clair",
+      "target_scene_summary": "A detective washes a prisoner's face revealing the missing man in disguise."
+    },
+    {
       "id": "q-1661-4",
+      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 4,
@@ -582,7 +1199,29 @@
       "target_scene_summary": "A red-headed pawnbroker wins a lucrative copying job after a bizarre hair inspection."
     },
     {
+      "id": "q-1661-4-amb",
+      "variant": "ambiguous",
+      "book_id": "1661",
+      "book_title": "The Adventures of Sherlock Holmes",
+      "sharpness": 4,
+      "summary": "A man is taken on, purely for a quirk of his appearance, to do pointless work at generous pay.",
+      "subject": "a red-haired pawnbroker",
+      "verb": "is hired to copy",
+      "object": "an encyclopedia",
+      "setting": "a league office",
+      "svos": "A red-haired pawnbroker is hired to copy an encyclopedia in a league office.",
+      "descriptors": [
+        "surprising",
+        "lucky",
+        "gratifying"
+      ],
+      "target_scene_id": "1661-24",
+      "target_scene_title": "Wilson gets the League copying job",
+      "target_scene_summary": "A red-headed pawnbroker wins a lucrative copying job after a bizarre hair inspection."
+    },
+    {
       "id": "q-1661-5",
+      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 5,
@@ -602,7 +1241,29 @@
       "target_scene_summary": "A detective astounds his friend with precise deductions from tiny clues."
     },
     {
+      "id": "q-1661-5-amb",
+      "variant": "ambiguous",
+      "book_id": "1661",
+      "book_title": "The Adventures of Sherlock Holmes",
+      "sharpness": 5,
+      "summary": "From a few trifling details a sharp mind reconstructs a whole life, astonishing his companion.",
+      "subject": "a keen detective",
+      "verb": "deduces",
+      "object": "a man's history from tiny clues",
+      "setting": "his chambers",
+      "svos": "A keen detective deduces a man's history from tiny clues in his chambers.",
+      "descriptors": [
+        "clever",
+        "observant",
+        "intellectual"
+      ],
+      "target_scene_id": "1661-1",
+      "target_scene_title": "Watson visits Holmes; Holmes deduces Watson's life",
+      "target_scene_summary": "A detective astounds his friend with precise deductions from tiny clues."
+    },
+    {
       "id": "q-2147-1",
+      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 1,
@@ -622,7 +1283,29 @@
       "target_scene_summary": "An artist's portrait drains his young bride's life away."
     },
     {
+      "id": "q-2147-1-amb",
+      "variant": "ambiguous",
+      "book_id": "2147",
+      "book_title": "The Works of Edgar Allan Poe — Volume 1",
+      "sharpness": 1,
+      "summary": "An artist perfects his portrait only to turn and find the living model has faded into death.",
+      "subject": "an obsessive painter",
+      "verb": "finds dead",
+      "object": "his young bride",
+      "setting": "a turret room",
+      "svos": "An obsessive painter finds dead his young bride in a turret room.",
+      "descriptors": [
+        "uncanny",
+        "fatal",
+        "haunting"
+      ],
+      "target_scene_id": "2147-156",
+      "target_scene_title": "The painter's bride dies for his art",
+      "target_scene_summary": "An artist's portrait drains his young bride's life away."
+    },
+    {
       "id": "q-2147-2",
+      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 2,
@@ -642,7 +1325,29 @@
       "target_scene_summary": "A sailor confesses to witnessing an escaped ape brutally murder two women."
     },
     {
+      "id": "q-2147-2-amb",
+      "variant": "ambiguous",
+      "book_id": "2147",
+      "book_title": "The Works of Edgar Allan Poe — Volume 1",
+      "sharpness": 2,
+      "summary": "A witness tells how a savage animal climbs in and slaughters two women behind a sealed room.",
+      "subject": "an escaped ape",
+      "verb": "butchers",
+      "object": "two women",
+      "setting": "a locked bedroom",
+      "svos": "An escaped ape butchers two women in a locked bedroom.",
+      "descriptors": [
+        "gruesome",
+        "nightmarish",
+        "bloody"
+      ],
+      "target_scene_id": "2147-110",
+      "target_scene_title": "Sailor recounts beast's escape and murders",
+      "target_scene_summary": "A sailor confesses to witnessing an escaped ape brutally murder two women."
+    },
+    {
       "id": "q-2147-3",
+      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 3,
@@ -662,7 +1367,29 @@
       "target_scene_summary": "A treasure hunt yields an immense buried chest of gold and jewels."
     },
     {
+      "id": "q-2147-3-amb",
+      "variant": "ambiguous",
+      "book_id": "2147",
+      "book_title": "The Works of Edgar Allan Poe — Volume 1",
+      "sharpness": 3,
+      "summary": "Following a decoded riddle, searchers break open a buried hoard of gold and jewels.",
+      "subject": "treasure hunters",
+      "verb": "unearth",
+      "object": "a chest of gold and jewels",
+      "setting": "a forest pit",
+      "svos": "Treasure hunters unearth a chest of gold and jewels in a forest pit.",
+      "descriptors": [
+        "exhilarating",
+        "dazzling",
+        "triumphant"
+      ],
+      "target_scene_id": "2147-66",
+      "target_scene_title": "Second dig reveals bones, chest, and gold",
+      "target_scene_summary": "A treasure hunt yields an immense buried chest of gold and jewels."
+    },
+    {
       "id": "q-2147-4",
+      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 4,
@@ -682,7 +1409,29 @@
       "target_scene_summary": "A plummeting aeronaut crashes into a city of silent, grinning moon-dwellers."
     },
     {
+      "id": "q-2147-4-amb",
+      "variant": "ambiguous",
+      "book_id": "2147",
+      "book_title": "The Works of Edgar Allan Poe — Volume 1",
+      "sharpness": 4,
+      "summary": "A traveler of the skies plunges from a great height and comes to rest among a strange silent people.",
+      "subject": "a falling balloonist",
+      "verb": "crashes among",
+      "object": "silent moon-dwellers",
+      "setting": "the moon's surface",
+      "svos": "A falling balloonist crashes among silent moon-dwellers in the moon's surface.",
+      "descriptors": [
+        "surreal",
+        "frantic",
+        "vertiginous"
+      ],
+      "target_scene_id": "2147-51",
+      "target_scene_title": "Frantic descent, landing, and first contact with moon people",
+      "target_scene_summary": "A plummeting aeronaut crashes into a city of silent, grinning moon-dwellers."
+    },
+    {
       "id": "q-2147-5",
+      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 5,
@@ -702,7 +1451,29 @@
       "target_scene_summary": "A castaway boards a phantom ship that descends and destroys his vessel."
     },
     {
+      "id": "q-2147-5-amb",
+      "variant": "ambiguous",
+      "book_id": "2147",
+      "book_title": "The Works of Edgar Allan Poe — Volume 1",
+      "sharpness": 5,
+      "summary": "A lone castaway is swept up onto a vast, unearthly ship manned by the ancient and the dead.",
+      "subject": "a lone survivor",
+      "verb": "is cast onto",
+      "object": "a ghostly ship",
+      "setting": "a storm sea",
+      "svos": "A lone survivor is cast onto a ghostly ship in a storm sea.",
+      "descriptors": [
+        "supernatural",
+        "uncanny",
+        "sublime"
+      ],
+      "target_scene_id": "2147-149",
+      "target_scene_title": "Phantom ship descends; narrator boards",
+      "target_scene_summary": "A castaway boards a phantom ship that descends and destroys his vessel."
+    },
+    {
       "id": "q-2701-1",
+      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 1,
@@ -722,7 +1493,29 @@
       "target_scene_summary": "A captain offers gold for a specific white whale."
     },
     {
+      "id": "q-2701-1-amb",
+      "variant": "ambiguous",
+      "book_id": "2701",
+      "book_title": "Moby Dick",
+      "sharpness": 1,
+      "summary": "A captain fixes a coin where all can see and binds his crew by oath to the pursuit that possesses him.",
+      "subject": "an obsessed captain",
+      "verb": "swears his crew to hunt",
+      "object": "a white whale",
+      "setting": "the quarter-deck",
+      "svos": "An obsessed captain swears his crew to hunt a white whale in the quarter-deck.",
+      "descriptors": [
+        "obsessive",
+        "fervent",
+        "fierce"
+      ],
+      "target_scene_id": "2701-140",
+      "target_scene_title": "The catechism and the gold doubloon oath",
+      "target_scene_summary": "A captain offers gold for a specific white whale."
+    },
+    {
       "id": "q-2701-2",
+      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 2,
@@ -742,7 +1535,29 @@
       "target_scene_summary": "A captain dies harpooning a whale; ship sinks, flag nailed forever."
     },
     {
+      "id": "q-2701-2-amb",
+      "variant": "ambiguous",
+      "book_id": "2701",
+      "book_title": "Moby Dick",
+      "sharpness": 2,
+      "summary": "In the final reckoning the hunted turns on the ship, and the captain is dragged down with his prey as all is lost.",
+      "subject": "a doomed captain",
+      "verb": "is dragged under by",
+      "object": "his own harpoon line",
+      "setting": "the sinking ship",
+      "svos": "A doomed captain is dragged under by his own harpoon line in the sinking ship.",
+      "descriptors": [
+        "tragic",
+        "final",
+        "solemn"
+      ],
+      "target_scene_id": "2701-492",
+      "target_scene_title": "Ahab's death; ship sinks; flag nailed forever",
+      "target_scene_summary": "A captain dies harpooning a whale; ship sinks, flag nailed forever."
+    },
+    {
       "id": "q-2701-3",
+      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 3,
@@ -762,7 +1577,29 @@
       "target_scene_summary": "A sleeper wakes to find a stranger's tattooed arm embracing him like a quilt."
     },
     {
+      "id": "q-2701-3-amb",
+      "variant": "ambiguous",
+      "book_id": "2701",
+      "book_title": "Moby Dick",
+      "sharpness": 3,
+      "summary": "A traveler wakes to find a stranger's arm thrown over him in the shared bed, closer than he expected.",
+      "subject": "a sailor",
+      "verb": "wakes to find",
+      "object": "a harpooneer's tattooed arm around him",
+      "setting": "an inn bed at dawn",
+      "svos": "A sailor wakes to find a harpooneer's tattooed arm around him in an inn bed at dawn.",
+      "descriptors": [
+        "intimate",
+        "tender",
+        "wonder"
+      ],
+      "target_scene_id": "2701-25",
+      "target_scene_title": "Waking beside Queequeg's tattooed arm on quilt",
+      "target_scene_summary": "A sleeper wakes to find a stranger's tattooed arm embracing him like a quilt."
+    },
+    {
       "id": "q-2701-4",
+      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 4,
@@ -782,7 +1619,29 @@
       "target_scene_summary": "An aged former harpooneer climbs a ship's ladder to his isolated pulpit."
     },
     {
+      "id": "q-2701-4-amb",
+      "variant": "ambiguous",
+      "book_id": "2701",
+      "book_title": "Moby Dick",
+      "sharpness": 4,
+      "summary": "An old seaman turned preacher climbs to a lofty pulpit and draws the way up behind him.",
+      "subject": "an old former harpooneer",
+      "verb": "climbs into",
+      "object": "a ship-shaped pulpit",
+      "setting": "a seamen's chapel",
+      "svos": "An old former harpooneer climbs into a ship-shaped pulpit in a seamen's chapel.",
+      "descriptors": [
+        "reverent",
+        "dignified",
+        "weathered"
+      ],
+      "target_scene_id": "2701-36",
+      "target_scene_title": "Father Mapple ascends to his impregnable pulpit",
+      "target_scene_summary": "An aged former harpooneer climbs a ship's ladder to his isolated pulpit."
+    },
+    {
       "id": "q-2701-5",
+      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 5,
@@ -802,7 +1661,29 @@
       "target_scene_summary": "A castaway sailor experiences divine visions while abandoned at sea."
     },
     {
+      "id": "q-2701-5-amb",
+      "variant": "ambiguous",
+      "book_id": "2701",
+      "book_title": "Moby Dick",
+      "sharpness": 5,
+      "summary": "Abandoned in the immense sea when the others leave him behind, a boy's mind slips into madness.",
+      "subject": "an abandoned cabin boy",
+      "verb": "is left behind in",
+      "object": "the open sea",
+      "setting": "a shoreless ocean",
+      "svos": "An abandoned cabin boy is left behind in the open sea in a shoreless ocean.",
+      "descriptors": [
+        "mystical",
+        "terrifying",
+        "solitary"
+      ],
+      "target_scene_id": "2701-331",
+      "target_scene_title": "Pip's abandonment and mystical transformation",
+      "target_scene_summary": "A castaway sailor experiences divine visions while abandoned at sea."
+    },
+    {
       "id": "q-4300-1",
+      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 1,
@@ -822,7 +1703,29 @@
       "target_scene_summary": "A thrown biscuit tin sparks a mock-apocalyptic catastrophe report."
     },
     {
+      "id": "q-4300-1-amb",
+      "variant": "ambiguous",
+      "book_id": "4300",
+      "book_title": "Ulysses",
+      "sharpness": 1,
+      "summary": "A furious man hurls a heavy object after a fleeing outsider, and the moment swells into grotesque spectacle.",
+      "subject": "a raging nationalist",
+      "verb": "hurls a biscuit tin at",
+      "object": "a fleeing Jewish man",
+      "setting": "outside a pub",
+      "svos": "A raging nationalist hurls a biscuit tin at a fleeing Jewish man in outside a pub.",
+      "descriptors": [
+        "absurd",
+        "mock-heroic",
+        "chaotic"
+      ],
+      "target_scene_id": "4300-286",
+      "target_scene_title": "Chase, catastrophe, and aftermath",
+      "target_scene_summary": "A thrown biscuit tin sparks a mock-apocalyptic catastrophe report."
+    },
+    {
       "id": "q-4300-2",
+      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 2,
@@ -842,7 +1745,29 @@
       "target_scene_summary": "A medical student performs a mock religious ritual while shaving, mocking his housemate."
     },
     {
+      "id": "q-4300-2-amb",
+      "variant": "ambiguous",
+      "book_id": "4300",
+      "book_title": "Ulysses",
+      "sharpness": 2,
+      "summary": "High on a tower a mocking young man turns his morning shave into an irreverent parody of sacred ritual.",
+      "subject": "a mocking student",
+      "verb": "parodies a priest over",
+      "object": "his sullen housemate",
+      "setting": "a seaside tower",
+      "svos": "A mocking student parodies a priest over his sullen housemate in a seaside tower.",
+      "descriptors": [
+        "irreverent",
+        "blasphemous",
+        "theatrical"
+      ],
+      "target_scene_id": "4300-0",
+      "target_scene_title": "Buck Mulligan's mock priestly ritual",
+      "target_scene_summary": "A medical student performs a mock religious ritual while shaving, mocking his housemate."
+    },
+    {
       "id": "q-4300-3",
+      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 3,
@@ -862,7 +1787,29 @@
       "target_scene_summary": "A young woman performs for a watching man during a fireworks display."
     },
     {
+      "id": "q-4300-3-amb",
+      "variant": "ambiguous",
+      "book_id": "4300",
+      "book_title": "Ulysses",
+      "sharpness": 3,
+      "summary": "On a darkening shore a young woman offers herself to a stranger's gaze as lights burst overhead.",
+      "subject": "a young woman",
+      "verb": "displays herself to",
+      "object": "a watching stranger",
+      "setting": "a twilight beach",
+      "svos": "A young woman displays herself to a watching stranger in a twilight beach.",
+      "descriptors": [
+        "voyeuristic",
+        "dreamy",
+        "tense"
+      ],
+      "target_scene_id": "4300-302",
+      "target_scene_title": "Gerty and Bloom share fireworks climax alone",
+      "target_scene_summary": "A young woman performs for a watching man during a fireworks display."
+    },
+    {
       "id": "q-4300-4",
+      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 4,
@@ -882,7 +1829,29 @@
       "target_scene_summary": "A middle-aged man prepares breakfast, feeds his cat, and quietly leaves his sleeping wife."
     },
     {
+      "id": "q-4300-4-amb",
+      "variant": "ambiguous",
+      "book_id": "4300",
+      "book_title": "Ulysses",
+      "sharpness": 4,
+      "summary": "In the quiet of early morning a man tends his cat and his breakfast while the house still sleeps.",
+      "subject": "a middle-aged man",
+      "verb": "feeds",
+      "object": "his cat",
+      "setting": "a morning kitchen",
+      "svos": "A middle-aged man feeds his cat in a morning kitchen.",
+      "descriptors": [
+        "domestic",
+        "gentle",
+        "warm"
+      ],
+      "target_scene_id": "4300-40",
+      "target_scene_title": "Bloom's morning kitchen ritual with cat",
+      "target_scene_summary": "A middle-aged man prepares breakfast, feeds his cat, and quietly leaves his sleeping wife."
+    },
+    {
       "id": "q-4300-5",
+      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 5,
@@ -902,7 +1871,29 @@
       "target_scene_summary": "A wife lies awake as desire and memory flood her consciousness."
     },
     {
+      "id": "q-4300-5-amb",
+      "variant": "ambiguous",
+      "book_id": "4300",
+      "book_title": "Ulysses",
+      "sharpness": 5,
+      "summary": "Sleepless in the dark, a woman drifts through a rising tide of memory, desire, and old loves.",
+      "subject": "a sleepless wife",
+      "verb": "recalls",
+      "object": "old passions and lovers",
+      "setting": "her bed at night",
+      "svos": "A sleepless wife recalls old passions and lovers in her bed at night.",
+      "descriptors": [
+        "sensual",
+        "nostalgic",
+        "earthy"
+      ],
+      "target_scene_id": "4300-511",
+      "target_scene_title": "Molly's sexual reverie, desire for Monday",
+      "target_scene_summary": "A wife lies awake as desire and memory flood her consciousness."
+    },
+    {
       "id": "q-64317-1",
+      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 1,
@@ -922,7 +1913,29 @@
       "target_scene_summary": "A neighbor stands alone on his lawn at night, reaching toward a distant green light across the water."
     },
     {
+      "id": "q-64317-1-amb",
+      "variant": "ambiguous",
+      "book_id": "64317",
+      "book_title": "The Great Gatsby",
+      "sharpness": 1,
+      "summary": "Alone in the dark, a man reaches out toward a faint, distant glow that holds everything he longs for.",
+      "subject": "a solitary man",
+      "verb": "reaches toward",
+      "object": "a distant green light",
+      "setting": "his dark lawn",
+      "svos": "A solitary man reaches toward a distant green light in his dark lawn.",
+      "descriptors": [
+        "yearning",
+        "haunting",
+        "solitary"
+      ],
+      "target_scene_id": "64317-15",
+      "target_scene_title": "Gatsby reaches toward the green light",
+      "target_scene_summary": "A neighbor stands alone on his lawn at night, reaching toward a distant green light across the water."
+    },
+    {
       "id": "q-64317-2",
+      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 2,
@@ -942,7 +1955,29 @@
       "target_scene_summary": "A wealthy man displays his possessions to a former lover who weeps at their beauty."
     },
     {
+      "id": "q-64317-2-amb",
+      "variant": "ambiguous",
+      "book_id": "64317",
+      "book_title": "The Great Gatsby",
+      "sharpness": 2,
+      "summary": "Amid the beautiful things his wealth has gathered, a man watches a woman he once lost dissolve into tears.",
+      "subject": "a wealthy man",
+      "verb": "displays",
+      "object": "piles of fine shirts",
+      "setting": "his bedroom",
+      "svos": "A wealthy man displays piles of fine shirts in his bedroom.",
+      "descriptors": [
+        "overwhelming",
+        "bittersweet",
+        "tender"
+      ],
+      "target_scene_id": "64317-55",
+      "target_scene_title": "Shirts of many colours make Daisy weep",
+      "target_scene_summary": "A wealthy man displays his possessions to a former lover who weeps at their beauty."
+    },
+    {
       "id": "q-64317-3",
+      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 3,
@@ -962,7 +1997,29 @@
       "target_scene_summary": "A lover demands his beloved deny her marriage, but she confesses she loved both men."
     },
     {
+      "id": "q-64317-3-amb",
+      "variant": "ambiguous",
+      "book_id": "64317",
+      "book_title": "The Great Gatsby",
+      "sharpness": 3,
+      "summary": "Forced to choose between two men, a woman admits at last that her heart was never wholly one man's.",
+      "subject": "a torn wife",
+      "verb": "confesses",
+      "object": "loving two men",
+      "setting": "a stifling hotel room",
+      "svos": "A torn wife confesses loving two men in a stifling hotel room.",
+      "descriptors": [
+        "devastating",
+        "tense",
+        "heartbreaking"
+      ],
+      "target_scene_id": "64317-78",
+      "target_scene_title": "The core confrontation: She never loved you",
+      "target_scene_summary": "A lover demands his beloved deny her marriage, but she confesses she loved both men."
+    },
+    {
       "id": "q-64317-4",
+      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 4,
@@ -982,11 +2039,54 @@
       "target_scene_summary": "A dreamer floats in his pool waiting for a call that never comes and dies."
     },
     {
+      "id": "q-64317-4-amb",
+      "variant": "ambiguous",
+      "book_id": "64317",
+      "book_title": "The Great Gatsby",
+      "sharpness": 4,
+      "summary": "A man waits in vain for word that never comes, and death finds him alone in the water.",
+      "subject": "a lonely dreamer",
+      "verb": "is shot dead",
+      "object": "",
+      "setting": "his swimming pool",
+      "svos": "A lonely dreamer is shot dead in his swimming pool.",
+      "descriptors": [
+        "tragic",
+        "hollow",
+        "final"
+      ],
+      "target_scene_id": "64317-97",
+      "target_scene_title": "Gatsby's death in the swimming pool",
+      "target_scene_summary": "A dreamer floats in his pool waiting for a call that never comes and dies."
+    },
+    {
       "id": "q-64317-5",
+      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 5,
       "summary": "Almost no one comes to the rainy funeral of a man whose parties once drew hundreds.",
+      "subject": "a few mourners",
+      "verb": "attend",
+      "object": "a sparse funeral",
+      "setting": "a rainy cemetery",
+      "svos": "A few mourners attend a sparse funeral in a rainy cemetery.",
+      "descriptors": [
+        "lonely",
+        "bleak",
+        "ironic"
+      ],
+      "target_scene_id": "64317-109",
+      "target_scene_title": "Sparse funeral in the rain with owl-eyed man",
+      "target_scene_summary": "Only a handful of mourners attend a once-popular man's rainy funeral."
+    },
+    {
+      "id": "q-64317-5-amb",
+      "variant": "ambiguous",
+      "book_id": "64317",
+      "book_title": "The Great Gatsby",
+      "sharpness": 5,
+      "summary": "Almost no one comes to mourn a man who was once surrounded by crowds.",
       "subject": "a few mourners",
       "verb": "attend",
       "object": "a sparse funeral",

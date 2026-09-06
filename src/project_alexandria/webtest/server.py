@@ -11,6 +11,7 @@ from qdrant_client import QdrantClient
 from utils import SrcPaths, read_json
 from utils import relational
 from utils import subjects          # book-level subject trie (the folder pre-filter)
+from utils import tags              # Tone/Intensity/Arc vocabularies for the facet-filter dropdowns
 import search
 
 # ---- local read-path test server (no LLM) ----
@@ -245,8 +246,17 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/datasets":
             tq = json.loads((GOLD / "test_queries.json").read_text())["test_queries"]
             dq = json.loads((GOLD / "descriptor_queries.json").read_text())["descriptor_queries"]
-            return self._json({"test_queries": tq, "descriptor_queries": dq,
+            # live enum vocab for the tone/intensity/arc hard-filter dropdowns (source of truth = tags.py)
+            facets = {"tone": [t.value for t in tags.Tone],
+                      "intensity": [t.value for t in tags.Intensity],
+                      "arc": [t.value for t in tags.Arc]}
+            return self._json({"test_queries": tq, "descriptor_queries": dq, "facets": facets,
                                "books": [{"book_id": b, "title": t} for b, t in sorted(_book_title.items())]})
+        if p == "/api/weights":
+            fw = search.active_field_weights()   # tuned override (evals --tune) if present, else schema defaults
+            return self._json({"field_weights": {k: round(float(v), 6) for k, v in fw.items()},
+                               "channels": list(search.SCENES_VECTORS),
+                               "tuned": search.SrcPaths.TUNED_WEIGHTS_PATH.exists()})
         if p == "/api/scene":
             sid = (parse_qs(u.query).get("id") or [""])[0]
             rec = _scenes.get(sid)
@@ -307,6 +317,11 @@ class Handler(BaseHTTPRequestHandler):
             # pinned book (book_id). Its book count comes from the SQL tree and drives exact-vs-walk.
             subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]
             book_id = body.get("book_id") or None
+            # flavor-facet hard filters (each a single value or any-of a list): ORTHOGONAL to the
+            # book/subject scope, so ANDed onto whichever primary filter wins below.
+            facets = search._and_filters(search.tone_filter(body.get("tone")),
+                                         search.intensity_filter(body.get("intensity")),
+                                         search.arc_filter(body.get("arc")))
             if subject_path:
                 n = subjects.count_branch(_conn, subject_path)     # books in the branch
                 if n == 0:
@@ -314,13 +329,13 @@ class Handler(BaseHTTPRequestHandler):
                               "meta": q.get("meta", {}), "target_book_id": q.get("target_book_id"),
                               "results": []} for q in queries]
                     return self._json({"columns": empty})
-                flt = search.subject_filter(subject_path)          # branch pre-filter
+                flt = search._and_filters(search.subject_filter(subject_path), facets)   # branch + facets
                 exact = n <= EXACT_BOOK_THRESHOLD              # few books -> brute-force the set
             elif book_id:
-                flt = search.book_filter(book_id)                  # single-book pre-filter
+                flt = search._and_filters(search.book_filter(book_id), facets)   # single-book + facets
                 exact = True                                   # one book is maximally selective
             else:
-                flt = None
+                flt = facets                                   # facets only (or None)
                 exact = False
             cols = [_run_query(q, limit, flt, exact, tuning) for q in queries]   # one column per query
             return self._json({"columns": cols})

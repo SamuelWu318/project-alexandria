@@ -24,5 +24,6 @@ class SrcPaths:
     DB_PATH: Path         = MASTER_DIR / "databases" / "scenes.db"       # local on-disk SQLite mirror (no server needed)
     QDRANT_DIR: Path      = MASTER_DIR / "databases" / "qdrant_db"       # local on-disk Qdrant (no server needed)
     SEGMENTS_DIR: Path    = MASTER_DIR / "segments"                 # pre-segmentation staging (Book.to_json)
+    TUNED_WEIGHTS_PATH: Path = MASTER_DIR / "tuned_weights.json"     # evals --tune writes field_weights here; search() reads it as its live default (webtest picks it up)
     # scene-record registry: a CODE asset shipped with the package (utils/schema/), NOT master data
     SCHEMA_PATH: Path     = UTILS_DIR / "schema" / "scene_schema.json"

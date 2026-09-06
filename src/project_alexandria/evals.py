@@ -413,6 +413,32 @@ def format_tuning(field: dict, best_score: float, history: list, metric: str) ->
     return "\n".join(L)
 
 
+# ---- persist tuned weights so the read path (search + webtest) picks them up automatically ----
+# Write the tuned field_weights to SrcPaths.TUNED_WEIGHTS_PATH; search.active_field_weights() then uses them as
+# the live default for every None-weight query, so the webtest read path applies them with no restart. Returns the path.
+def save_tuned_weights(field: dict, metric: str, best_score: float) -> str:
+    import time
+    from utils.storage import SrcPaths
+    from utils.read_write import write_json
+    payload = {
+        "field_weights": {k: round(float(v), 6) for k, v in field.items()},
+        "metric": metric, "best_score": round(float(best_score), 6),
+        "source": "evals --tune", "written_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    write_json(SrcPaths.TUNED_WEIGHTS_PATH, payload)             # atomic JSON write
+    return str(SrcPaths.TUNED_WEIGHTS_PATH)
+
+
+# Delete the tuned-weights override so the read path reverts to the schema defaults. Returns a status line.
+def reset_tuned_weights() -> str:
+    from utils.storage import SrcPaths
+    p = SrcPaths.TUNED_WEIGHTS_PATH
+    if p.exists():
+        p.unlink()
+        return f"removed tuned weights: {p} (read path now uses schema defaults)"
+    return f"no tuned weights to remove at {p}"
+
+
 # ---- CLI ----
 
 # ** LOCKED **
@@ -470,7 +496,15 @@ def main():
                     help="tune objective (rank-1 emphasis): top1 | scene@1 | book@1 | mrr | scene_mrr | hit@K | scene_hit@K | p@K")
     ap.add_argument("--label-scenes", action="store_true",
                     help="auto-label each gold query's target_scene_id (rank-1 in-book, default weights) and write it back")
+    ap.add_argument("--no-save", action="store_true",
+                    help="with --tune: do NOT write the tuned field_weights (skip auto-applying them to the read path)")
+    ap.add_argument("--reset-weights", action="store_true",
+                    help="delete the tuned field_weights override so search + webtest revert to the schema defaults")
     args = ap.parse_args()
+
+    if args.reset_weights:
+        print(reset_tuned_weights())
+        return
 
     queries, gold = load_gold(args.gold)                       # gold entries + judgments
 
@@ -487,11 +521,19 @@ def main():
             client.close()
         field, best_score, history = coordinate_ascent(                       # free re-blends
             cached, gold, metric=args.metric, combine=args.combine, limit=args.limit)
-        base_run = blend_run(cached, None, combine=args.combine, limit=args.limit)     # default weights
+        base_run = blend_run(cached, search.SCENES_DEFAULT_WEIGHTS,            # explicit schema baseline (not the live/tuned default)
+                             combine=args.combine, limit=args.limit)
         tuned_run = blend_run(cached, field, combine=args.combine, limit=args.limit)   # tuned weights
         cmp = compare_runs(base_run, tuned_run, gold, label_a="default", label_b="tuned")
         print(format_comparison(cmp))
         print(format_tuning(field, best_score, history, args.metric))
+        if args.no_save:
+            print("\n[--no-save] tuned weights NOT written; read path keeps its current default.")
+        else:
+            path = save_tuned_weights(field, args.metric, best_score)         # search() + webtest now use these
+            print(f"\napplied: wrote tuned field_weights -> {path}\n"
+                  f"  the webtest read path now uses them automatically (restart not required).\n"
+                  f"  revert with:  python -m evals --reset-weights")
         return
 
     client = search.open_client()
