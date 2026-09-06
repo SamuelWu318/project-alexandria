@@ -3,7 +3,8 @@ __pycache__
 .remember
 .venv
 .env
-example html
-master
-test
+logs
+CLAUDE.md
+web
+src
 _prompts.py
