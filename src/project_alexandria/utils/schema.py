@@ -37,7 +37,6 @@ JSON_FIELDS = tuple(f for f in FIELDS if FIELDS[f]["json"])  # keys that live in
 CORE = frozenset(f for f in FIELDS if FIELDS[f]["kind"] == "core")
 ENRICHMENT = frozenset(f for f in FIELDS if FIELDS[f]["kind"] == "enrichment")
 LLM_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("source") == "llm")
-QUERY_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("vector"))  # == distiller frame
 
 # vector store (search.py)
 VECTOR_NAMES = tuple(f for f in FIELDS if FIELDS[f].get("vector"))
@@ -280,12 +279,10 @@ def _check() -> int:
     eq("VECTOR_NAMES", set(VECTOR_NAMES), set(search.VECTOR_NAMES))
     eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(search.MULTIVECTOR_NAMES))
     eq("DEFAULT_WEIGHTS", DEFAULT_WEIGHTS, dict(search.DEFAULT_FIELD_WEIGHTS))
-    eq("SCHEMA_VERSION", SCHEMA_VERSION, __import__("utils").SCHEMA_VERSION)
+    # (SCHEMA_VERSION is no longer cross-checked: it lives ONLY here now, read from scene_schema.json —
+    #  the old utils/llm.py duplicate + its parity check were removed.)
     llm = {n for n in embed.SceneEnrichment.model_fields if n != "index"}
     eq("LLM_FIELDS", set(LLM_FIELDS), llm)
-    # QUERY_FIELDS <-> QueryFrame parity is SUSPENDED during the svos transition (query input is
-    # manual now). Restore when QueryFrame is rewritten for moments — see the matching note in embed.py.
-    # eq("QUERY_FIELDS", set(QUERY_FIELDS), set(embed.QueryFrame.model_fields))
 
     if problems:
         print("SCHEMA PARITY FAIL:")

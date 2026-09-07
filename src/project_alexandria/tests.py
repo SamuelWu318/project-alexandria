@@ -7,7 +7,7 @@ from embed import enrich_file, index_records
 import embed
 import search
 
-from utils import write_json, read_json, relational, subjects, log, SCHEMA_VERSION, SrcPaths, llm, llm_ready_up
+from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up
 from qdrant_client import QdrantClient
 
 # ---- interactive test / smoke harness (run by hand, not pytest) ----

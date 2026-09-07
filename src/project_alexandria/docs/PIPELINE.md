@@ -51,7 +51,7 @@ Fields fall into two classes:
 |---|---|---|
 | 2 — segment | filled | all `null` (`enriched: false`) |
 | 3 — enrich | filled | filled (`enriched: true`) + denormalized `prev/next_tone` |
-| 3 — index | → SQLite row (via `to_row`) + Qdrant payload (full record) + 6 named vectors | |
+| 3 — index | → SQLite row (via `to_row`) + Qdrant payload (full record) + 7 named vectors | |
 
 ---
 
@@ -134,8 +134,9 @@ words — and drop non-story "noise".
 - `_expected_indices` / `_validate_coverage` — the coverage check: every indexed paragraph
   covered exactly once (no gaps, dupes, or out-of-input indices), run *before* noise is
   dropped.
-- `_retry_note` / `_inject_retry_notes` — build the corrective reminder and slot it into the
-  system prompt (thread-safe; never mutates the module prompt).
+- `_retry_note` — builds the segmenter's corrective reminder text; the shared
+  `utils.llm.inject_retry_notes` slots it into the system prompt (thread-safe; never mutates
+  the module prompt). Enrichment has its own `_retry_note` and reuses the same splice.
 - `segment_book(book, checkpoint_base)` — orchestrates one whole book: one `break_chunk` call
   per chunk, run in parallel (`SEGMENT_WORKERS`), each chunk **checkpointed** so a crash
   resumes instead of re-paying. `ex.map` preserves reading order. Returns the flat, ordered
@@ -166,14 +167,14 @@ words — and drop non-story "noise".
   per scene, `dominant_tone`, `intensity`, `arc`, `descriptors` (3–5), the decomposed frame
   `subject`/`verb`/`object`/`setting`, and a general `summary`. Validators clean each field
   (lowercase descriptors, capital-and-period summary, whitespace-collapsed frame).
-- `BATCH_SYSTEM_PROMPT` / `BATCH_TOOL` — the enrichment instructions + forced tool. **This is
-  the user's tuning surface** (do not edit unless asked).
+- `EMBED_PROMPT` (in `utils/llm.py`) / `BATCH_TOOL` — the enrichment instructions + forced tool.
+  **This is the user's tuning surface** (do not edit unless asked).
 - `_plain` — strips markup for the LLM input (not stored).
 - `_batches` — packs scenes into prompt-sized batches by text length (`BATCH_CHAR_LIMIT`),
   never splitting a scene.
 - `_run_tool` — one forced, validated tool call reusing the segmenter's retry policy (fresh
-  convo per retry, misses replayed, temperature climb-then-freeze). Generic over
-  `(system_prompt, tool, model_cls)` so enrichment and the query distiller share it.
+  convo per retry, misses replayed via `utils.llm.inject_retry_notes`, temperature climb-then-
+  freeze). Generic over `(system_prompt, tool, model_cls, note_fn)`.
 - `_enrich_batch` — one LLM call per batch → per-scene `{tags, frame, summary}`, coverage-
   validated (one item per scene, in order).
 - `_apply(rec, enriched)` — writes the returned tags/frame/summary onto the record and sets
@@ -195,24 +196,21 @@ words — and drop non-story "noise".
      point carries every vector), then upserts one `PointStruct{id, vectors, payload=full
      record}`. `id` is a stable uuid5 of `scene_id`, so re-runs overwrite.
 
-### 3c. Query distillation (the read-side mirror)
+> **Schema drift guard:** at import, `embed.py` asserts `SceneEnrichment`'s field set equals the
+> registry's (`schema.LLM_FIELDS`) — so editing the schema can't silently desync what the LLM
+> returns from what the index stores.
 
-Symmetric with enrichment, so a writer's raw sentence meets the index in the same register:
-- `QueryFrame` / `QUERY_TOOL` / `QUERY_SYSTEM_PROMPT` — distill a raw query into the same
-  `{summary, subject, verb, object, setting, descriptors}` frame the index stores.
-- `distill_query(text)` — one forced `output_query_frame` call (reusing `_run_tool`) →
-  the frame dict `search.search_fused` consumes.
-
-> **Schema drift guard:** at import, `embed.py` asserts the model field sets equal the
-> registry's (`schema.LLM_FIELDS`, `schema.QUERY_FIELDS`) — so editing the schema can't
-> silently desync what the LLM returns from what the index stores.
+> The old LLM **query distiller** that used to live here (`QueryFrame` / `distill_query` /
+> `QUERY_SYSTEM_PROMPT`) is **deleted**. The read side is now `query.py` (Stage 4), which builds the
+> query object with no LLM call.
 
 ---
 
-## Stage 4 — Search & Read → `search.py` + `utils/relational.py`
+## Stage 4 — Search & Read → `query.py` + `search.py` + `utils/relational.py`
 
-**In:** a writer's query (raw sentence → `distill_query` → frame, or a direct
-summary/descriptor query).
+**In:** a writer's query. `query.py` is the front door: `to_query_object(summary)` wraps the raw text
+as a **single beat** (`{summary, moments:[{sentence: summary}]}`, no splitting, no facet extraction);
+`run()` hands it to `search.search`. Descriptor/flavor and filter args can be passed straight through.
 **Out:** ranked `ScoredPoints` (payload = the full scene record) and relational query results.
 
 Two stores answer two different questions, joined on `scene_id`: **Qdrant** ranks by
@@ -221,26 +219,31 @@ similarity, **SQLite** answers exact-match / navigation / counts.
 ### Vector search — `search.py`
 
 Config/primitives shared with the write path: `COLLECTION`, `EMBED_MODEL`, `QUERY_PREFIX`,
-`point_id`, `open_client`, `book_filter`, `embed`. `VECTOR_NAMES` and
-`DEFAULT_FIELD_WEIGHTS` are **derived from the schema registry**.
+`SUBJECT_PATHS_FIELD`, `point_id`, `open_client`, `book_filter`, `embed`. `VECTOR_NAMES` and
+`DEFAULT_FIELD_WEIGHTS` are **derived from the schema registry** (the per-field `weight` is
+legacy — kept for the drift check; it does not drive the live blend).
 
-- `search_summary` — the precision path: the `summary` vector gates the candidate pool;
-  optional `descriptors` rerank *within* it (`0.7·summary + 0.3·descriptor`), so a stray
-  descriptor can't drag in an off-topic scene.
-- `_unit` / `_check_weights` / `weighted_vector` — build a weighted centroid of individual
-  descriptor embeddings (each L2-normalized first, so no term dominates by magnitude).
-- `search_weighted_descriptors` — pure-vibe recall: a weighted descriptor centroid, with
-  optional **anti-descriptors** subtracted to tilt away from a flavor.
-- `search_combined` — `search_summary`'s gate + `search_weighted_descriptors`'s per-term
-  weighting: summary gates, a weighted descriptor centroid reranks.
-- `search_fused` — the general form: fuse **every** named vector by weighted cosine. Split
-  into two halves so a weight sweep can reuse the expensive part:
-  - `_fused_pool` — the expensive half: summary-gate the pool + pull each present field's raw
-    cosines over it (embeds + Qdrant).
-  - `_normalize_pool` — z-scores (or min-max) each field's cosines across the pool, so the
-    **weights** govern influence instead of each field's accidental cosine spread.
-  - `_fuse` — the pure-math half: normalize + weighted-sum + sort. Cheap enough to sweep
-    thousands of weightings (see `evals.py`).
+- `search` — the **one entry** (imported by `query.py`, tests, evals, webtest). Runs the active
+  retrievers over one ANDed filter (`book_id`, `subject_branch`, `tone`/`intensity`/`arc`) and
+  merges them by **weighted RRF**. Two knobs: `method_weights` (the scenes-vs-flavor RRF balance,
+  default `{"scenes":0.7,"flavor":0.3}`) and `normalize` (z-norm inside the what-happens blend).
+- **What-happens + frame** — `search_scenes`: fuse the `summary`, `svos`, and
+  `subject`/`verb`/`object`/`setting` channels by a per-channel z-normalized weighted blend, so no
+  channel overpowers by raw cosine scale. Split so `evals.py` can re-blend cheaply while tuning:
+  - `_channel_queries` / `_moment_sentences` / `_frame_query_terms` — turn the manual query
+    (`summary`, `moments`, optional `frame`) into a query vector per active channel (summary → one
+    vector; svos + facets → MAX_SIM matrices).
+  - `score_channels` — prefetch each channel, then score every channel over one **union** candidate
+    pool and `_normalize_pool` (z-score / min-max) it.
+  - `blend_channels` — the pure-math half: per-channel z-score × weight, combined by weighted **sum**
+    (blend) or **max** (greatest single match); sort.
+- **Flavor** — `search_weighted_descriptors`: a weighted descriptor centroid, with optional
+  **anti-descriptors** subtracted to tilt away from a flavor. `_unit` / `_check_weights` /
+  `weighted_vector` build the centroid (each term L2-normalized first, so none dominates by magnitude).
+- `search_frame` — query ONE multivector facet on its own as a MAX_SIM matrix (a scene scores by its
+  best-matching stored facet term).
+- `_rrf` — weighted reciprocal-rank fusion: reconcile the scenes vs flavor rankings without a shared
+  score scale.
 
 ### Relational store — `utils/relational.py`
 
@@ -274,8 +277,9 @@ across scenes JSON + SQLite + Qdrant payloads. Full details in [SCHEMA.md](SCHEM
   `os.replace`).
 - `checkpoint.py` — `Checkpoint`: the resume cache both LLM stages use (per-item json under a
   per-book dir; `None` on missing/corrupt → recompute; `clear()` on completion).
-- `llm.py` — the shared OpenRouter `CLIENT`, `MODEL`, `SCHEMA_VERSION`, and
-  `classify_llm_error` (transient vs fatal) — the retry policy's backbone.
+- `llm.py` — the shared OpenRouter `CLIENT`, `MODEL`, `SCHEMA_VERSION`, `classify_llm_error`
+  (transient vs fatal), and `inject_retry_notes` (the retry-note prompt splice both stages reuse)
+  — the retry policy's backbone.
 - `tags.py` — the controlled `Tone` / `Intensity` / `Arc` vocabularies (the allowed values
   for those fields).
 
@@ -284,7 +288,8 @@ across scenes JSON + SQLite + Qdrant payloads. Full details in [SCHEMA.md](SCHEM
 ## The conductor → `tests.py`
 
 `tests.py` is the hand-run harness (not pytest) that ties every stage together. `main()`
-runs the three build steps over `FILE_IDS` (15 canonical books); the read-path helpers are
+runs the three build steps over `FILE_IDS` (10 active books; more are commented out in the list);
+the read-path helpers are
 run by hand.
 
 **Build path** (`main`):
@@ -310,8 +315,8 @@ restores normal sleep on exit (even on Ctrl-C).
 - `search_test(book_id, limit)` — canned queries against the live index: summary-only
   (`TEST_QUERIES`), summary+weighted-descriptors (`COMBINED_QUERIES`), and pure-descriptor
   (`DESCRIPTOR_QUERIES`); `_show` prints each hit's score, tags, title, summary, descriptors.
-- `distill_and_search(sentence)` — the full read path on one raw sentence: `distill_query`
-  → frame → `search_fused` → print.
+- `manual_search(summary, moments, descriptors, ...)` — the hand-driven read path: run the unified
+  `search.search()` over a manual summary / moments / descriptors query and print the hits.
 - `payload_dump_test()` — dumps every book's chunk payloads for eyeballing (Stage 1 output).
 
 **Related:** [`evals.py`](../evals.py) grades and A/B-tests the read path against the gold

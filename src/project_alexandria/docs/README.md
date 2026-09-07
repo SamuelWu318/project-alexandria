@@ -1,8 +1,9 @@
 # Project Alexandria — Developer Docs
 
 A **flavor search engine for fiction**: turn Project Gutenberg books into short,
-tonally-pure scenes and retrieve them by emotional *flavor* (vibe / tone / decomposed
-frame), not plot — so a writer can find and study how a kind of scene is built.
+tonally-pure scenes and retrieve them by emotional *flavor* (vibe / tone) and by
+*what happens* (summary + SVOS moments) — so a writer can find and study how a kind
+of scene is built.
 
 ## Start here
 
@@ -20,7 +21,7 @@ frame), not plot — so a writer can find and study how a kind of scene is built
 | 1 · Acquire & Parse | `data.py` | `pg{code}-h.zip` → `Book → Chunk → Paragraph` tree (+ recall cache) |
 | 2 · Segment | `process.py` | chunk of paragraphs → `pg{code}-s.json` scene records (enrichment null) |
 | 3 · Enrich & Index | `embed.py` | null records → enriched records + Qdrant vectors + SQLite rows |
-| 4 · Search & Read | `search.py`, `utils/relational.py` | query → ranked scenes + relational queries |
+| 4 · Search & Read | `query.py`, `search.py`, `utils/relational.py` | raw summary → single-beat `QueryObject` (`query.py`) → ranked scenes + relational queries |
 
 ## Running things
 
@@ -29,7 +30,7 @@ All commands run from `src/project_alexandria/` with the venv active
 (`logs/test/`); books, scenes, checkpoints, and the two databases live under it.
 
 ```bash
-# Full build over the 15 canonical books (download → segment → enrich → index):
+# Full build over the 10 active FILE_IDS books (download → segment → enrich → index):
 ../../.venv/bin/python tests.py
 
 # Verify the schema contract after editing scene_schema.json:
@@ -48,6 +49,7 @@ All commands run from `src/project_alexandria/` with the venv active
 
 ## Ownership
 
-The **prompts and model-call tuning** (`BATCH_SYSTEM_PROMPT`, `QUERY_SYSTEM_PROMPT`,
-`SYSTEM_PROMPT`, retry/temperature policy, `MODEL`, effort) are the maintainer's surface —
-don't edit unless asked. Plumbing, assembly, schema wiring, and docs are fair game.
+The **prompts and model-call tuning** (`PROCESS_PROMPT`, `EMBED_PROMPT` in `utils/llm.py`,
+retry/temperature policy in `process.break_chunk` + `embed._run_tool`, `MODEL`, `MODEL_PARAMS`,
+effort) are the maintainer's surface — don't edit unless asked. Plumbing, assembly, schema wiring,
+and docs are fair game.

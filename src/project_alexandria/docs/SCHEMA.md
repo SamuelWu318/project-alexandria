@@ -70,8 +70,8 @@ re-embed**. Adding, removing, or renaming a `vector: true` field also needs a re
 
 - `python -m utils.schema --check` asserts the derived `SQL_COLS` / `INT_COLS` / `FILTERABLE`
   / `VECTOR_NAMES` / `DEFAULT_WEIGHTS` match the store constants, `SCHEMA_VERSION` matches
-  `utils.SCHEMA_VERSION`, and the `SceneEnrichment` / `QueryFrame` field sets match the
-  registry. Run it after any schema edit.
+  `utils.SCHEMA_VERSION`, and the `SceneEnrichment` field set matches the registry
+  (`schema.LLM_FIELDS`). Run it after any schema edit.
 - `embed.py` runs the model asserts at **import**, so a desync fails loudly the moment the
   package loads, not silently at write time.
 

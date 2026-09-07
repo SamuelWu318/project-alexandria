@@ -6,8 +6,8 @@ from pydantic import BaseModel, ValidationError
 from typing import Literal
 
 from data import MetadataParser, parse_rights
-from utils import (read_json, write_json, SCHEMA_VERSION, MODEL, MODEL_PARAMS, CLIENT, WORKERS, PROCESS_PROMPT,
-                   classify_llm_error, Checkpoint, log, schema)
+from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, WORKERS, PROCESS_PROMPT,
+                   classify_llm_error, Checkpoint, log, schema, inject_retry_notes)
 
 # ---- Stage 2: segmentation (cut chunks into flavor-pure scenes) ----
 # SceneBreaker.break_chunk sends one section (Chunk.scene_payload) to the LLM, forces an
@@ -76,7 +76,8 @@ def _validate_coverage(data: MultiSceneData, expected: set[int]):
     return False, "; ".join(parts)
 
 
-# The retry-reminder SECTION (prompt's `#`-section style), or "" on the first attempt.
+# The segmentation retry-reminder SECTION (prompt's `#`-section style), or "" on the first attempt.
+# The generic slot-[1] splice lives in utils.llm.inject_retry_notes; this is just the segmenter's wording.
 def _retry_note(notes: list[str]) -> str:
     if not notes:
         return ""
@@ -84,13 +85,6 @@ def _retry_note(notes: list[str]) -> str:
     return ("# RETRY — SEGMENT WHILE AVOIDING THESE ERRORS\n"
             "Earlier attempts on this section had these errors. FIX THIS: "
             f"\n{lines}\n")
-
-
-# Rebuild the system prompt with the retry reminder in slot [1] (copies the list first — thread-safe, never mutates PROCESS_PROMPT).
-def _inject_retry_notes(prompt: list, notes: list[str]) -> str:
-    temp = prompt.copy()
-    temp[1] = _retry_note(notes)
-    return "".join(temp)
 
 
 # ---- SceneBreaker: one section -> scenes, with the retry loop (retry/temperature policy is the user's) ----
@@ -113,7 +107,7 @@ class SceneBreaker:
             # FRESH conversation every attempt: no chat history is carried; the paragraphs
             # missed on earlier tries are replayed as a note appended to the system prompt.
             messages = [
-                {"role": "system", "content": _inject_retry_notes(PROCESS_PROMPT, notes)},
+                {"role": "system", "content": inject_retry_notes(PROCESS_PROMPT, notes, _retry_note)},
                 {"role": "user", "content": chunk},
             ]
             try:

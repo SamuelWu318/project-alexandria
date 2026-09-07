@@ -23,6 +23,10 @@ VECTOR_NAMES = schema.VECTOR_NAMES
 # queried with a matrix (list of vectors), even a 1-row one — a flat vector is rejected by the index.
 MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
 
+# Qdrant payload label for subject-branch filtering (subject_filter reads it; embed.py imports it to
+# stamp + index it). Part of the read/write contract, so it is defined ONCE here, the contract owner.
+SUBJECT_PATHS_FIELD = "subject_paths"
+
 # bge query-side instruction prefix (summary path only). Set to "" to A/B without re-indexing.
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
@@ -79,7 +83,7 @@ def subject_filter(branch) -> models.Filter | None:
         return None
     suffix = branch if isinstance(branch, str) else " -- ".join(reversed(list(branch)))
     return models.Filter(must=[models.FieldCondition(
-        key="subject_paths", match=models.MatchValue(value=suffix))])
+        key=SUBJECT_PATHS_FIELD, match=models.MatchValue(value=suffix))])
 
 
 # ** LOCKED **
@@ -300,7 +304,12 @@ def _frame_query_terms(moments, frame=None) -> dict:
 
 
 # Build the query for each active vector channel: summary -> one vector, svos + frame facets -> matrices.
-def _channel_queries(summary, moments, frame) -> dict:
+# `channel_vectors` (optional) supplies PRE-EMBEDDED query vectors per channel — bypassing bge for those
+# channels (used by the learned query adapter, which emits vectors, not text). A supplied vector OVERRIDES
+# the text-derived one for that channel; other channels still come from text. Value shape must match the
+# channel: a single vector (list[float]) for summary/descriptors, a matrix (list[list[float]]) for a
+# multivector field. Pass text, vectors, or a mix.
+def _channel_queries(summary, moments, frame, channel_vectors: dict | None = None) -> dict:
     channels: dict = {}
     summ = (summary or "").strip()
     if summ:
@@ -310,6 +319,9 @@ def _channel_queries(summary, moments, frame) -> dict:
         channels["svos"] = embed([QUERY_PREFIX + s for s in sents])    # MAX_SIM matrix of clause sentences
     for f, terms in _frame_query_terms(moments, frame).items():
         channels[f] = embed([QUERY_PREFIX + t for t in terms])         # per-facet MAX_SIM matrix
+    if channel_vectors:                                                 # pre-embedded vectors win over text
+        for name, v in channel_vectors.items():
+            channels[name] = v.tolist() if isinstance(v, np.ndarray) else v
     return channels
 
 
@@ -327,11 +339,12 @@ def _resolve_field_weights(field_weights, names: list) -> dict:
 # ** MAIN ** — search_scenes blends these; evals caches them once to re-blend offline while tuning
 # Score every active vector channel over ONE union candidate pool and z-normalize each; returns {"channels": {name: {id: z}}, "cand": {id: point}, "ids": [...]}.
 def score_channels(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
+                   channel_vectors: dict | None = None,
                    normalize: str | None = "zscore", flt: models.Filter | None = None,
                    prefetch: int = 50, exact: bool = False) -> dict:
-    channels = _channel_queries(summary, moments, frame)
+    channels = _channel_queries(summary, moments, frame, channel_vectors)
     if not channels:
-        raise ValueError("score_channels needs a summary, moment sentence, or frame term")
+        raise ValueError("score_channels needs a summary, moment sentence, frame term, or channel_vectors")
     cand: dict = {}                                            # union of every channel's prefetch
     for name, q in channels.items():
         for p in client.query_points(COLLECTION, query=q, using=name, limit=prefetch,
@@ -368,12 +381,14 @@ def blend_channels(scored: dict, field_weights: dict | None = None, combine: str
 # ** MAIN ** — search() runs the what-happens/frame channel here; evals A/Bs it
 # What-happens + frame search: the summary, svos, and subject/verb/object/setting channels fused by a per-channel z-normalized weighted blend (no channel overpowers by scale; field_weights tilt it). Returns ScoredPoints, pool-relative score.
 def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
+                  channel_vectors: dict | None = None,
                   field_weights: dict | None = None, combine: str = "sum",
                   limit: int = 5, flt: models.Filter | None = None,
                   prefetch: int | None = None, normalize: str | None = "zscore",
                   exact: bool = False):
     prefetch = prefetch or max(limit * 5, 50)
     scored = score_channels(client, summary=summary, moments=moments, frame=frame,   # prefetch + z-norm each channel
+                            channel_vectors=channel_vectors,                         # pre-embedded (adapter) vectors, if any
                             normalize=normalize, flt=flt, prefetch=prefetch, exact=exact)
     fused = blend_channels(scored, field_weights, combine)                           # weighted blend over the pool
     out = []
@@ -419,8 +434,9 @@ def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
 
 
 # ** MAIN ** — the ONE search entry: imported by tests, evals, webtest, embed's read side
-# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Hard pre-filters (ANDed): book_id, subject_branch, tone/intensity/arc (each a single value or any-of a list). Returns ScoredPoints best-first.
+# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Inputs — text (summary/moments/frame) and/or channel_vectors (pre-embedded per-channel query vectors from the learned adapter; override the text-derived ones) drive the scenes method; descriptors drive the flavor method. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Hard pre-filters (ANDed): book_id, subject_branch, tone/intensity/arc (each a single value or any-of a list). Returns ScoredPoints best-first.
 def search(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
+           channel_vectors: dict | None = None,
            descriptors: list[str] | None = None, weights: list[float] | None = None,
            anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
            anti_strength: float = 1.0, book_id: str | None = None, subject_branch=None,
@@ -436,9 +452,10 @@ def search(client: QdrantClient, *, summary: str | None = None, moments=None, fr
     prefetch = prefetch or max(limit * 5, 50)
 
     rankings: dict = {}
-    if summary or moments or frame:
+    if summary or moments or frame or channel_vectors:
         rankings["scenes"] = search_scenes(                    # what-happens + frame: z-normed weighted blend
-            client, summary=summary, moments=moments, frame=frame, field_weights=field_weights,
+            client, summary=summary, moments=moments, frame=frame, channel_vectors=channel_vectors,
+            field_weights=field_weights,
             combine=combine, limit=prefetch, flt=flt, normalize=normalize, exact=exact)
     if descriptors:
         rankings["flavor"] = search_weighted_descriptors(       # flavor: weighted descriptor centroid
@@ -446,7 +463,7 @@ def search(client: QdrantClient, *, summary: str | None = None, moments=None, fr
             anti_weights=anti_weights, anti_strength=anti_strength, limit=prefetch,
             flt=flt, exact=exact)
     if not rankings:
-        raise ValueError("search needs at least one of: summary, moments, frame, descriptors")
+        raise ValueError("search needs at least one of: summary, moments, frame, channel_vectors, descriptors")
     if len(rankings) == 1:
         return next(iter(rankings.values()))[:limit]           # one method -> its ranking, untouched
     mw = method_weights or DEFAULT_METHOD_WEIGHTS

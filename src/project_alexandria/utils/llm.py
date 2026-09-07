@@ -10,15 +10,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# --- LLM client + shared config (model / error policy / schema version) --- #
+# --- LLM client + shared config (model / error policy) --- #
 # The single OpenRouter client + model id + error policy, shared by both LLM stages
-# (segmentation in process.py, enrichment + query distillation in embed.py). It lives
-# here because storage already loads .env, so os.environ["OPENROUTER_KEY"] is ready.
-# MODEL and the retry policy stay the user's tuning surface; SCHEMA_VERSION stamps the
-# record shape (embed.py reads it).
-
-SCHEMA_VERSION = 3   # bump when the scene-record shape changes (embed.py reads it).
-                     # history: decomposed frame (subject/verb/object/setting) -> moments + svos multivector.
+# (segmentation in process.py, enrichment in embed.py). It lives here because storage
+# already loads .env, so os.environ["OPENROUTER_KEY"] is ready.
+# MODEL and the retry policy stay the user's tuning surface. SCHEMA_VERSION is NOT here — the record
+# shape is versioned in exactly one place, utils/schema.py, read from scene_schema.json as
+# `schema.SCHEMA_VERSION` (the old hardcoded duplicate here was removed).
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 #MODEL = "minimax/minimax-m3:free"
@@ -309,6 +307,19 @@ Ground the beat in the prose. Fold a crowd into one collective ("mob"). Drop bar
     ]}
   ]}
 """]
+
+
+# ---- retry-note prompt assembly (shared plumbing for both LLM stages) ----
+
+# ** MAIN ** — process.break_chunk + embed._run_tool splice their per-stage retry note through here
+# Rebuild a system prompt with a retry reminder spliced into slot [1]. Copies the prompt list first
+# (thread-safe — never mutates the shared PROCESS_PROMPT / EMBED_PROMPT), then calls `note_fn(notes)` for
+# the reminder text and joins to one string. The stage-specific wording (segmentation vs enrichment) lives
+# in each caller's own `note_fn`; empty `notes` -> note_fn returns "" -> the prompt is left unchanged.
+def inject_retry_notes(prompt: list, notes: list[str], note_fn) -> str:
+    temp = prompt.copy()
+    temp[1] = note_fn(notes)
+    return "".join(temp)
 
 
 # ---- error policy + readiness probe (MAIN — imported by process.py, embed.py, tests.py) ----
