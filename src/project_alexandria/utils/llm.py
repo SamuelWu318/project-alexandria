@@ -39,6 +39,21 @@ MODEL_PARAMS = {
 }
 
 WORKERS = 6
+
+# ============================ RESTRUCTURE NOTE (prompts are STALE) ============================
+# PROCESS_PROMPT and EMBED_PROMPT below still describe the PRE-restructure framework and MUST be
+# rewritten to the new design — do this AFTER the new stage code lands (segment.py / enrich.py) so the
+# rewrite can target the real tool schemas as a reference (owner's surface; deliberately NOT done yet):
+#   * PROCESS_PROMPT -> segmentation is now PER-PARAGRAPH BOUNDARY CLASSIFICATION
+#     (SCENE_START / CONTINUE / NOISE), cutting DRAMATIC-UNIT boundaries (place/time/POV/goal shift),
+#     NOT "one-flavor / tonal-purity" spans. Coverage becomes one label per paragraph; drop the
+#     span-emission + open-flag tool shape. (PLAN §5.2, Phase 4.)
+#   * EMBED_PROMPT -> enrichment now returns, per scene: a richer multi-clause `summary`; up to 6
+#     `moments`, each {sentence, subject, verb, object, setting, PLUS a per-beat `tone` + `intensity`
+#     WORD}; `descriptors`; and the new facets `pov`, `tense`, `prose_word`. DROP the scene-level
+#     dominant_tone / intensity / arc (demoted / derived). Keep comprehend-before-judge order. (§5.3, Phase 5.)
+# The tool-call name in MODEL_PARAMS ("output_enrichment") and the tool schemas move with these.
+# =============================================================================================
 PROCESS_PROMPT = ["""
 # ROLE
 You split ONE book section into an ordered list of segments. Give each segment TWO labels:

@@ -7,9 +7,10 @@
 > 2. Find the **current phase**: the first entry in the §6 Progress checklist not marked ✅.
 > 3. For that phase read its **§5 stage design** *and* its **Appendix A** block (the keep/change/move/drop
 >    checklist for the file it touches).
-> 4. Run the phase loop: **create** the new file → **port** survivors (rewritten to §1 — comment
->    framework, downward-only method order, one-door imports) → **delete** the old file → run the phase's
->    **Checks** → meet its **Done-criteria**.
+> 4. Run the phase loop: **author the new file FROM SCRATCH** to the `CLAUDE.md` house style (comment
+>    framework, downward-only method order, one-door imports) — the old file is a **behavior reference
+>    only** (via its Appendix A block), NEVER a copy-paste port; carry a survivor's *behavior*, not its
+>    lines → **delete** the old file → run the phase's **Checks** → meet its **Done-criteria**.
 > 5. Flip that phase to ✅ in the §6 Progress checklist, update the **Status** line just below, commit.
 > 6. **One phase per session** unless told otherwise; then report and stop.
 >
@@ -427,10 +428,16 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ☐ 9  `query.py` + harness + `webtest/`
 - ☐ 10 full rebuild → HyDE
 
-Each phase: **create** new file(s), **port** the survivors from the old file (rewritten to the new design
-+ comment framework + downward ordering), **delete** the old file, then run the phase's **checks** and
-meet its **done-criteria**. **Diff every phase against Appendix A** — that is the keep/change/move/drop
-checklist for the file(s) it touches; a behavior tagged `[KEEP]` there must still work after the phase.
+Each phase: **author the new file(s) FROM SCRATCH** to the new design + `CLAUDE.md` house style (comment
+framework + downward ordering + one-door imports), **delete** the old file, then run the phase's **checks**
+and meet its **done-criteria**. The new stage files are **ground-up rewrites, not mechanical ports** — the
+old code is a *behavior* reference (through Appendix A), not a source to copy lines from; this is how the
+new files actually adopt the house style instead of inheriting old shape. **Diff every phase against
+Appendix A** — that is the keep/change/move/drop checklist for the file(s) it touches; a behavior tagged
+`[KEEP]` there must still work after the phase. **Prompt rewrites are DEFERRED:** `PROCESS_PROMPT` /
+`EMBED_PROMPT` in `llm.py` are the owner's surface and are rewritten to the new framework *after* the
+matching stage code lands (so they target the real tool schemas) — see the RESTRUCTURE NOTE in `llm.py`;
+a stage phase's code may land against the old prompt and is re-pointed when the prompt is rewritten.
 **Every phase's done-criteria also include: update `CLAUDE.md`'s affected architecture lines (pipeline
 diagram, invariants, ownership, run-reference) + the `docs/` for what the phase landed**, so the
 always-loaded map never lies. The binding house style now lives in `CLAUDE.md` → "Code principles"

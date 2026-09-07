@@ -141,6 +141,18 @@ class ProseRegister(str, Enum):
 # is a payload REFRESH (re-run derive) — only changing the *vocabulary* costs a re-enrich.
 # All coordinates are in [0, 1]; the values are DEFAULTS meant to be tuned. Keep every
 # tone's (valence, dominance) distinct so a coordinate round-trips back to its word.
+#
+# SOURCE OF THE COORDINATES. valence and dominance use the SAME [0,1] axes as the empirical
+# affect lexicons, so the defaults below can be replaced word-for-word with looked-up norms:
+#   - NRC VAD Lexicon v2 (Mohammad 2025, arXiv:2503.23547): human valence/arousal/DOMINANCE in
+#     [0,1] for 55k+ terms (v 0=unpleasant..1=pleasant, d 0=weak..1=powerful) — the direct source.
+#     e.g. despair ~ (v .11, d .25); nice ~ (v .93, d .65).
+#   - Russell & Mehrabian (1977) PAD: 22 emotions on a signed -1..1 pleasure/arousal/dominance grid
+#     (afraid d -.6 = victim, angry d +.28 = dominant) — the same valence x dominance intuition.
+#   - Fontaine, Scherer, Roesch & Ellsworth (2007), already cited by `Tone` above (power/control = d).
+# The values here are HAND-SET defaults on that scale, sanity-checked against those sources but not
+# yet looked up per word. TODO (post-rebuild, cheap): back TONE_VD with an NRC-VAD lookup for every
+# in-vocab tone; it is a derive-only payload refresh, never a re-enrich.
 
 # tone WORD -> (valence, dominance). valence: unpleasant 0 .. pleasant 1; dominance: weak/victim 0 .. strong/threatening 1.
 TONE_VD: dict[Tone, tuple[float, float]] = {
