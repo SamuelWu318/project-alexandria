@@ -97,8 +97,15 @@ Three lanes, each stored and queried differently.
 | field | shape | source | notes |
 |---|---|---|---|
 | `summary` | single vector | LLM | one **richer, multi-clause** sentence (closer to a real request's register) |
-| `svos` | **multivector** (MAX-SIM) | derived from `moments[].sentence` | the ordered beats; a query beat hits its best-matching scene beat |
+| `svos` | **multivector** (MAX-SIM) | derived from `moments[].sentence` | the beats; a query beat hits its best-matching scene beat |
 | `descriptors` | single vector | LLM | open-vocabulary vibe (holds non-emotions like "analytical" that the tone axes cannot) |
+
+**MAX-SIM is order-independent** (applies to `svos` and all four facet multivectors): a scene stores a
+matrix (one vector per moment/term), the query is a matrix (one per beat), and the score is
+`Σ_qbeat max_scenebeat cos(q, s)` — each query beat greedily grabs its single best scene beat regardless
+of position, and query/scene matrix lengths need not match. Do **not** try to encode sequence into these
+vectors. Beat **order** is carried separately by the ordered `vdi_curve` (§3.3), matched positionally in
+the stage-3 re-rank (§5.6); the `moments[]` payload keeps reading order for display.
 
 `subject`/`verb`/`object`/`setting` as **separate** multivectors were **on probation**. **Ablation gate
 (Phase 0b, §6) RESOLVED 2026-09-07: KEEP them.** On the current stores, adding the 4 facet vectors lifted
