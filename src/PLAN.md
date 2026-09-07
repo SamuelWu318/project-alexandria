@@ -13,10 +13,11 @@
 > 5. Flip that phase to ✅ in the §6 Progress checklist, update the **Status** line just below, commit.
 > 6. **One phase per session** unless told otherwise; then report and stop.
 >
-> **STATUS (single source of truth):** design frozen · **D1–D5 resolved (§8)** · **nothing built yet**.
-> **▶ NEXT ACTION: Phase 0b — the vector-set ablation (§6).** It decides the committed vector set and
-> therefore gates the Phase 1 schema; every later phase is blocked on its result. Do not start Phase 1
-> until 0b is recorded.
+> **STATUS (single source of truth):** design frozen · **D1–D5 resolved (§8)** · **Phase 0b resolved
+> (2026-09-07): KEEP the 4 facet vectors — committed vector set = 7 named vectors** (§3.1) · **nothing
+> built yet**.
+> **▶ NEXT ACTION: Phase 1 — schema + tags (`utils/`).** The vector set is frozen at 7
+> (`summary`/`svos`/`descriptors` + `subject`/`verb`/`object`/`setting`); build the Phase 1 schema to it.
 
 **What this document is:** the one reference for (a) the redesigned product + data model (§2–§5) and
 (b) the exact, ordered, file-by-file restructure that lands it (§6, checklisted against Appendix A).
@@ -99,9 +100,12 @@ Three lanes, each stored and queried differently.
 | `svos` | **multivector** (MAX-SIM) | derived from `moments[].sentence` | the ordered beats; a query beat hits its best-matching scene beat |
 | `descriptors` | single vector | LLM | open-vocabulary vibe (holds non-emotions like "analytical" that the tone axes cannot) |
 
-`subject`/`verb`/`object`/`setting` as **separate** multivectors are **on probation** — the production
-read path never queries them. **Ablation gate (see §6, Phase 0b) decides**: default is to collapse to
-the three vectors above.
+`subject`/`verb`/`object`/`setting` as **separate** multivectors were **on probation**. **Ablation gate
+(Phase 0b, §6) RESOLVED 2026-09-07: KEEP them.** On the current stores, adding the 4 facet vectors lifted
+**book@1 to a perfect 1.000** (from .920 — bias-free, book labels are human ground truth) and **scene@1
+by +.19** (.66→.85), improving *every* one of the 5 sharpness buckets. The committed set is therefore
+**7 named vectors** (the three above + the four facets), not three. (Phase 8 search must retain the frame
+what-happens channel accordingly.)
 
 ### 3.2 Hard facets (payload filter, categorical)
 
@@ -311,7 +315,8 @@ Because these are pure word→number / text→number, re-tuning the `tags.py` ta
 
 `index_scenes(file_ids)` (single door). Uses `vectorstore.py` for the Qdrant contract and
 `utils.relational` + `utils.subjects` for SQLite. Order preserved from today: **SQLite mirror first**
-(every record, enriched or not), then vectors (the 3 semantic named vectors), one `PointStruct` per
+(every record, enriched or not), then vectors (the 7 named vectors — `summary`/`svos`/`descriptors` +
+`subject`/`verb`/`object`/`setting`, per 0b), one `PointStruct` per
 scene with the full payload (**including** `pov`, `tense`, `prose_register`, `dialogue_ratio`,
 `vdi_curve`, and `subject_paths`). `point_id = uuid5(scene_id)` so re-runs overwrite. Rebuild is
 explicit (no import-time side effects — already true).
@@ -323,8 +328,9 @@ Four stages, only the last is new. Semantic stage and the `channel_vectors` HyDE
 ```
 search(request):
   1  HARD PRE-FILTER  flt = and(book_filter, facet_filter("pov"), facet_filter("tense"))
-  2  SEMANTIC RANK    pool = rank(summary, moments, descriptors, flt, limit=PREFETCH)   # PREFETCH >> limit
-                       #  summary + svos(multivector, MAX-SIM) + descriptors ; z-norm per channel ; RRF
+  2  SEMANTIC RANK    pool = rank(summary, moments, frame, descriptors, flt, limit=PREFETCH)   # PREFETCH >> limit
+                       #  what-happens = summary + svos + subject/verb/object/setting (all per 0b), z-norm+blend;
+                       #  flavor = descriptors ; the two methods merged by RRF (channel_vectors= feeds HyDE)
                        #  (channel_vectors= lets the HyDE adapter feed pre-embedded query vectors)
   3  SOFT RE-RANK     if any slider set:
                          U = { m: resample(request.tones, m) for m in MOMENT_RANGE }   # precompute per length
@@ -398,9 +404,9 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 **Progress checklist** (the current phase = the first one not ✅; flip to ✅ when its Done-criteria pass):
 
 - ✅ 0a  PLAN.md written
-- ☐ **0b  vector-set ablation** ← **NEXT** (gates Phase 1; record the result in the Phase 0 block)
+- ✅ 0b  vector-set ablation — **KEEP the 4 facet vectors (7-vec set)**; numbers in the Phase 0 block
 - ✅ 0c  D1–D5 resolved (§8)
-- ☐ 1  schema + tags (`utils/`)
+- ☐ **1  schema + tags (`utils/`)** ← **NEXT**
 - ☐ 2  `utils/vectorstore.py`
 - ☐ 3  `data.py`
 - ☐ 4  `segment.py` (delete `process.py`)
@@ -428,9 +434,26 @@ restructure branch.
 
 ### Phase 0 — scaffolding
 - 0a. This `PLAN.md` committed.
-- 0b. **Ablation gate** (deps-free, decides §3.1): with the *current* stores, `evals.run_search(use_frame=False)`
-  vs `True`, per-sharpness scene@1. Outcome → freeze the vector set (default: drop the 4 facet vectors).
-  Record the result here.
+- 0b. **Ablation gate** (deps-free, decides §3.1) — **DONE 2026-09-07.** Ran `evals.run_search(use_frame=False)`
+  (summary+svos, the 3-vec candidate) vs `True` (+ the 4 `subject/verb/object/setting` facet vectors) over
+  the 100-query gold on the current stores; `combine=sum, normalize=zscore`. **Outcome: KEEP the facets →
+  the committed set is 7 named vectors, NOT 3** (the plan's original "collapse to 3" default is overturned
+  by the data). Numbers (OFF = 3-vec, ON = 7-vec):
+  | metric | OFF | ON | Δ |
+  |---|---|---|---|
+  | scene@1 (aggregate) | .660 | .850 | +.190 |
+  | book@1 (aggregate, bias-free) | .920 | **1.000** | +.080 |
+  | scene_mrr | .745 | .901 | +.156 |
+  | top1 composite | .790 | .925 | +.135 |
+
+  Per-sharpness **scene@1** (1 unique .. 5 generic): OFF .65/.80/.55/.70/.60 → ON .80/.95/.85/.80/.85
+  (**every bucket up**, +.10 to +.30). Per-sharpness **book@1** (bias-free): ON = 1.000 in all 5 buckets
+  (OFF .95/.95/.95/.95/.80). Head-to-head on top1: frame ON wins 26, OFF wins 3, 71 ties.
+
+  Caveat handled: gold `target_scene_id` was auto-labelled by a frame-ON search, so scene@1 mildly favours
+  ON by construction — but **book@1 uses human ground-truth labels and still improves to a perfect 1.000**,
+  so the "keep" decision does not depend on the scene-label provenance. Driver:
+  `scratchpad/ablation_0b.py` (uses `evals.run_search` / `score_run` / `by_sharpness`).
 - 0c. **DONE** — D1–D5 resolved (§8); answers written into §3/§5. Only the 0b ablation remains open.
 
 ### Phase 1 — schema + tags (`utils/`)
@@ -468,8 +491,8 @@ restructure branch.
   curve; re-running derive after a `tags.py` table edit changes payloads *without* re-enrichment.
 
 ### Phase 7 — `index.py` (delete `embed.py`)
-- Build Qdrant (3 vectors) + SQLite + subject trie + full payload with the soft fields (§5.5), via
-  `vectorstore.py`. Delete `embed.py`.
+- Build Qdrant (7 vectors — `summary`/`svos`/`descriptors` + `subject`/`verb`/`object`/`setting`, per 0b) +
+  SQLite + subject trie + full payload with the soft fields (§5.5), via `vectorstore.py`. Delete `embed.py`.
 - **Checks:** `python -m utils.schema --check` **green** (schema wave closes here); one book indexes;
   payload carries `pov/tense/prose_register/dialogue_ratio/vdi_curve`.
 
@@ -518,8 +541,10 @@ restructure branch.
   fixed in code (§5.6).
 - **Also decided:** keep the redundant `derive` call inside `index` as a safety net (idempotent — cheap
   insurance that a scene is never indexed with an un-derived frame/curve).
-- **STILL OPEN — Ablation (Phase 0b):** the committed vector set — 3 vectors (`summary`/`svos`/
-  `descriptors`, *default*) vs keeping the `subject/verb/object/setting` facet vectors. Decide with data.
+- **Ablation (Phase 0b) — RESOLVED 2026-09-07:** committed vector set = **7 named vectors** (`summary`/
+  `svos`/`descriptors` + the four `subject/verb/object/setting` facets). The facets earn their place —
+  book@1 → 1.000 (bias-free), scene@1 +.19, every sharpness bucket up (numbers in the Phase 0 block). The
+  plan's original "collapse to 3" default is overturned by the data.
 
 ## 9. Eval plan (gates the risky changes)
 
