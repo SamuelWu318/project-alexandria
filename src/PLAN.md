@@ -414,7 +414,11 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 Each phase: **create** new file(s), **port** the survivors from the old file (rewritten to the new design
 + comment framework + downward ordering), **delete** the old file, then run the phase's **checks** and
 meet its **done-criteria**. **Diff every phase against Appendix A** — that is the keep/change/move/drop
-checklist for the file(s) it touches; a behavior tagged `[KEEP]` there must still work after the phase. Keep the tree importable at phase boundaries where noted; the schema wave
+checklist for the file(s) it touches; a behavior tagged `[KEEP]` there must still work after the phase.
+**Every phase's done-criteria also include: update `CLAUDE.md`'s affected architecture lines (pipeline
+diagram, invariants, ownership, run-reference) + the `docs/` for what the phase landed**, so the
+always-loaded map never lies. The binding house style now lives in `CLAUDE.md` → "Code principles"
+(promoted from §1); §1 here is the same rules, kept for local reference. Keep the tree importable at phase boundaries where noted; the schema wave
 (Phases 1–2 + 5–7) is coupled and may be transiently red until Phase 7 closes — that is expected on a
 restructure branch.
 
