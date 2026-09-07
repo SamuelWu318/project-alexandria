@@ -38,16 +38,17 @@ CORE = frozenset(f for f in FIELDS if FIELDS[f]["kind"] == "core")
 ENRICHMENT = frozenset(f for f in FIELDS if FIELDS[f]["kind"] == "enrichment")
 LLM_FIELDS = frozenset(f for f in FIELDS if FIELDS[f].get("source") == "llm")
 
-# vector store (search.py)
+# vector store (index.py write contract + search.py read). The per-field `weight` was RETIRED
+# (PLAN D3): search tunes with method_weights + the soft-rank knobs, never per-vector weights.
 VECTOR_NAMES = tuple(f for f in FIELDS if FIELDS[f].get("vector"))
-DEFAULT_WEIGHTS = {f: FIELDS[f]["weight"] for f in VECTOR_NAMES}
-# multivector fields (svos): a LIST of per-item vectors scored by MAX_SIM (max-pooling).
+# multivector fields (svos + subject/verb/object/setting): a LIST of per-item vectors scored by MAX_SIM.
 MULTIVECTOR_NAMES = tuple(f for f in VECTOR_NAMES if FIELDS[f].get("multivector"))
 
 # relational store (relational.py)
 SQL_COLS = tuple(f for f in FIELDS if FIELDS[f]["sql"].get("col"))
 SQL_TYPES = {f: FIELDS[f]["sql"]["type"] for f in SQL_COLS}
 INT_COLS = frozenset(f for f in SQL_COLS if SQL_TYPES[f] == "INTEGER")
+REAL_COLS = frozenset(f for f in SQL_COLS if SQL_TYPES[f] == "REAL")   # float-affinity cols (the soft facets)
 JSON_STORE_COLS = tuple(f for f in SQL_COLS if FIELDS[f]["sql"].get("store") == "json")
 FILTERABLE = frozenset(f for f in FIELDS if FIELDS[f].get("filterable"))
 
@@ -87,6 +88,9 @@ def to_row(rec: dict) -> tuple:
             out.append(1 if rec.get(name) else 0)
         elif store == "json":
             out.append(json.dumps(rec.get(name) or [], ensure_ascii=False))
+        elif store == "float":
+            v = rec.get(name)
+            out.append(float(v) if v is not None else None)   # REAL affinity; None stays SQL NULL
         else:
             out.append(rec.get(name))
     return tuple(out)
@@ -264,8 +268,9 @@ def sync_qdrant() -> int:
 # ---- CLI ----
 
 # Assert the derived contract matches every store's constants + pydantic models. Returns an exit code.
+# During the restructure's schema wave a pipeline store may not be migrated yet; its import is guarded
+# so --check RUNS and REPORTS the lag instead of crashing (relational is foundation, always importable).
 def _check() -> int:
-    import search, embed
     from utils import relational
     problems = []
 
@@ -276,13 +281,25 @@ def _check() -> int:
     eq("SQL_COLS", list(SQL_COLS), list(relational._COLS))
     eq("INT_COLS", set(INT_COLS), set(relational._INT_COLS))
     eq("FILTERABLE", set(FILTERABLE), set(relational._FILTERABLE))
-    eq("VECTOR_NAMES", set(VECTOR_NAMES), set(search.VECTOR_NAMES))
-    eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(search.MULTIVECTOR_NAMES))
-    eq("DEFAULT_WEIGHTS", DEFAULT_WEIGHTS, dict(search.DEFAULT_FIELD_WEIGHTS))
-    # (SCHEMA_VERSION is no longer cross-checked: it lives ONLY here now, read from scene_schema.json —
-    #  the old utils/llm.py duplicate + its parity check were removed.)
-    llm = {n for n in embed.SceneEnrichment.model_fields if n != "index"}
-    eq("LLM_FIELDS", set(LLM_FIELDS), llm)
+    # (SCHEMA_VERSION is not cross-checked: it lives ONLY here, read from scene_schema.json. The
+    #  per-field `weight` parity check is GONE — weight was retired, PLAN D3.)
+
+    try:
+        import search
+        eq("VECTOR_NAMES", set(VECTOR_NAMES), set(search.VECTOR_NAMES))
+        eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(search.MULTIVECTOR_NAMES))
+    except Exception as ex:
+        problems.append(f"search not migrated yet ({type(ex).__name__}: {ex})")
+
+    try:
+        try:
+            import enrich as _enr          # Stage-3a home after the embed.py split (Phase 5)
+        except ModuleNotFoundError:
+            import embed as _enr            # pre-split fallback (until Phase 7 deletes embed.py)
+        llm = {n for n in _enr.SceneEnrichment.model_fields if n != "index"}
+        eq("LLM_FIELDS", set(LLM_FIELDS), llm)
+    except Exception as ex:
+        problems.append(f"enrichment model not migrated yet ({type(ex).__name__}: {ex})")
 
     if problems:
         print("SCHEMA PARITY FAIL:")
