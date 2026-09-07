@@ -244,8 +244,8 @@ def sync_db() -> int:
 
 # Overwrite every indexed point's payload from the reconciled jsons (payload-only; vectors untouched). Returns points.
 def sync_qdrant() -> int:
-    import search
-    client = search.open_client()
+    from utils import vectorstore          # the Qdrant contract (COLLECTION / point_id / open_client)
+    client = vectorstore.open_client()
     try:
         n = 0
         for f in _scene_files():
@@ -255,8 +255,8 @@ def sync_qdrant() -> int:
                     continue
                 try:
                     client.overwrite_payload(
-                        search.COLLECTION, payload=r,
-                        points=[search.point_id(r["scene_id"])])
+                        vectorstore.COLLECTION, payload=r,
+                        points=[vectorstore.point_id(r["scene_id"])])
                     n += 1
                 except Exception:
                     pass                         # point not indexed yet — skip
@@ -285,11 +285,11 @@ def _check() -> int:
     #  per-field `weight` parity check is GONE — weight was retired, PLAN D3.)
 
     try:
-        import search
-        eq("VECTOR_NAMES", set(VECTOR_NAMES), set(search.VECTOR_NAMES))
-        eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(search.MULTIVECTOR_NAMES))
+        from utils import vectorstore     # the Qdrant contract owns the named-vector set now (was search.py)
+        eq("VECTOR_NAMES", set(VECTOR_NAMES), set(vectorstore.VECTOR_NAMES))
+        eq("MULTIVECTOR_NAMES", set(MULTIVECTOR_NAMES), set(vectorstore.MULTIVECTOR_NAMES))
     except Exception as ex:
-        problems.append(f"search not migrated yet ({type(ex).__name__}: {ex})")
+        problems.append(f"vectorstore not importable ({type(ex).__name__}: {ex})")
 
     try:
         try:

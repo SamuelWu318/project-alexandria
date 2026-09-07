@@ -1,104 +1,25 @@
-import uuid
 import numpy as np
 from qdrant_client import QdrantClient, models
-from fastembed import TextEmbedding
-from utils import SrcPaths, schema # scene-record registry (single source of truth) — drives the named vectors
-from utils.read_write import read_json   # to load the tuned field_weights override written by evals --tune
+from utils import SrcPaths
+from utils.read_write import read_json   # tuned field_weights override (legacy weight stack, retired in Phase 8)
+from utils.vectorstore import (COLLECTION, EMBED_MODEL, VECTOR_NAMES, MULTIVECTOR_NAMES,   # the Qdrant contract:
+                               SUBJECT_PATHS_FIELD, QUERY_PREFIX, NAMESPACE, point_id, embed,  # defined ONCE in
+                               open_client, book_filter, subject_filter, facet_filter,         # utils/vectorstore.py,
+                               _search_params, _as_terms)                                      # re-exposed here for now
 
 # ---- Read path: query the scene vector DB (import THIS from the app / API) ----
-# Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. It also
-# OWNS the vector-store primitives (COLLECTION, vector config, embedder, point id, filters) that the
-# write path (embed.py) imports to index. Invariants (see CLAUDE.md): EMBED_MODEL must match the index;
-# point_id is a stable uuid5 so re-index overwrites; bge is asymmetric (queries are prefixed).
+# Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. The
+# vector-store CONTRACT (COLLECTION, vector set, embedder, point id, filters) now lives in
+# utils/vectorstore.py — the ONE home both this reader and the writer (index.py) import; extracting it
+# removed the old embed->search coupling (principle #4). This file is read LOGIC only. Invariants
+# (CLAUDE.md): EMBED_MODEL must match the index; point_id is a stable uuid5; bge is asymmetric (queries prefixed).
 
-# ---- vector store config (shared with embed.py's indexer) ----
-
-# Qdrant collection name — the read/write join key (embed.py writes here, search.py queries here).
-COLLECTION = "scenes"
-
-EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
-# named vectors == the registry's vector:true fields (summary + descriptors + the svos multivector).
-VECTOR_NAMES = schema.VECTOR_NAMES
-# multivector:true fields (svos): a LIST of per-item vectors scored by MAX_SIM (max-pool). MUST be
-# queried with a matrix (list of vectors), even a 1-row one — a flat vector is rejected by the index.
-MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
-
-# Qdrant payload label for subject-branch filtering (subject_filter reads it; embed.py imports it to
-# stamp + index it). Part of the read/write contract, so it is defined ONCE here, the contract owner.
-SUBJECT_PATHS_FIELD = "subject_paths"
-
-# bge query-side instruction prefix (summary path only). Set to "" to A/B without re-indexing.
-QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
-
-# stable per-scene Qdrant id namespace: uuid5(NAMESPACE, scene_id) -> same point
-NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "projectalexandria.scenes")
-
-
-# ** LOCKED **  ** MAIN ** — embed.py + schema.sync_qdrant address points by this id
-# Stable Qdrant point id for a scene (uuid5, so re-index overwrites).
-def point_id(scene_id: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, scene_id))
-
-
-# ---- embedder (same model for index + query) ----
-
-_EMBEDDER = None
-
-# ** LOCKED **
-# Lazily construct and cache the shared TextEmbedding model.
-def _embedder() -> TextEmbedding:
-    global _EMBEDDER
-    if _EMBEDDER is None:
-        _EMBEDDER = TextEmbedding(model_name=EMBED_MODEL)
-    return _EMBEDDER
-
-
-# ** LOCKED **  ** MAIN ** — embed.py imports this as `_embed` to build every vector
-# Embed a batch of texts into plain float lists.
-def embed(texts: list[str]) -> list[list[float]]:
-    return [v.tolist() for v in _embedder().embed(texts)]
-
-
-# ---- client + filters ----
-
-# ** MAIN ** — evals + schema.sync_qdrant open the on-disk store here
-# Open the on-disk Qdrant client (first call downloads the embed model).
-def open_client() -> QdrantClient:
-    return QdrantClient(path=str(SrcPaths.QDRANT_DIR))
-
-
-# ** MAIN ** — tests + webtest restrict a search to one book here
-# Filter that restricts a search to one book, or None for all books.
-def book_filter(book_id: str | None) -> models.Filter | None:
-    if not book_id:
-        return None
-    return models.Filter(must=[models.FieldCondition(
-        key="book_id", match=models.MatchValue(value=book_id))])
-
-
-# ** MAIN ** — webtest restricts a search to one subject branch here
-# Restrict a search to one subject branch via the indexed `subject_paths` payload label (one exact keyword term).
-def subject_filter(branch) -> models.Filter | None:
-    if not branch:
-        return None
-    suffix = branch if isinstance(branch, str) else " -- ".join(reversed(list(branch)))
-    return models.Filter(must=[models.FieldCondition(
-        key=SUBJECT_PATHS_FIELD, match=models.MatchValue(value=suffix))])
-
-
-# ** LOCKED **
-# Hard-filter on one enum payload facet: a single value (MatchValue) or any-of a list (MatchAny); None -> no restriction.
-def facet_filter(key: str, value) -> models.Filter | None:
-    if not value:
-        return None
-    if isinstance(value, str):
-        match = models.MatchValue(value=value)
-    else:
-        vals = [v for v in value if v]
-        if not vals:
-            return None
-        match = models.MatchAny(any=vals)
-    return models.Filter(must=[models.FieldCondition(key=key, match=match)])
+# ---- vector-store contract (imported from utils/vectorstore.py, the ONE home) ----
+# COLLECTION, EMBED_MODEL, VECTOR_NAMES, MULTIVECTOR_NAMES, SUBJECT_PATHS_FIELD, QUERY_PREFIX, NAMESPACE,
+# point_id, embed, open_client, book_filter, subject_filter, facet_filter, _search_params and _as_terms
+# are imported at the top of this file. They are re-exposed as `search.*` for the not-yet-migrated
+# read-path consumers (evals / tests / webtest); utils/vectorstore.py is where they are DEFINED.
+# tone/intensity/arc below are read-side hard filters (retired in the Phase 8 rewrite), so they stay here.
 
 
 # ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
@@ -117,12 +38,6 @@ def intensity_filter(intensity) -> models.Filter | None:
 # Restrict a search to scene(s) whose narrative arc matches (payload col `arc`).
 def arc_filter(arc) -> models.Filter | None:
     return facet_filter("arc", arc)
-
-
-# ** LOCKED **
-# Pick the retrieval STRATEGY: exact brute-force over the filtered set (few books) vs the filtered HNSW walk (broad).
-def _search_params(exact: bool):
-    return models.SearchParams(exact=True) if exact else None
 
 
 # ---- weighted + negative descriptor search (per-descriptor weighting is a QUERY-time op) ----
@@ -196,14 +111,14 @@ def search_weighted_descriptors(
     ).points
 
 
-# ---- field weights (registry) — the per-channel tuning surface ----
-# Per-vector `weight` from scene_schema.json, now LIVE: search_scenes blends its vector channels
-# (summary, svos, subject, verb, object, setting) as a per-channel z-normalized WEIGHTED SUM, and
-# these are the defaults for that blend. z-norm equalizes each channel's cosine band (no channel
-# overpowers by raw scale); the weights tilt influence (none is overpowered unless you lower it).
-# Still sourced from the registry so the schema<->search drift check stays meaningful; override per
-# call with search()/search_scenes `field_weights` (webtest + evals tune them).
-DEFAULT_FIELD_WEIGHTS = dict(schema.DEFAULT_WEIGHTS)   # per-vector `weight` from the registry
+# ---- field weights (LEGACY — retired in Phase 8) ----
+# The per-field `weight` is RETIRED (PLAN D3): the read path will tune with method_weights + the
+# soft-rank knobs, not per-vector weights. The whole weight stack here — DEFAULT_FIELD_WEIGHTS /
+# SCENES_DEFAULT_WEIGHTS / active_field_weights / _resolve_field_weights and their use in
+# score_channels / blend_channels — is deleted in the Phase 8 read-path rewrite. Frozen below (the
+# pre-D3 scene_schema.json values) ONLY so the read path keeps its exact current blend through the wave.
+DEFAULT_FIELD_WEIGHTS = {"summary": 0.25, "descriptors": 0.25, "svos": 0.5,   # frozen legacy weights
+                        "subject": 0.2, "verb": 0.1, "object": 0.15, "setting": 0.05}
 
 # the vector channels fused INSIDE search_scenes (descriptors is the separate `flavor` method + RRF)
 SCENES_VECTORS = ("summary", "svos", "subject", "verb", "object", "setting")

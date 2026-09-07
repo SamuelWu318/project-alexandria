@@ -15,13 +15,14 @@
 > 6. **One phase per session** unless told otherwise; then report and stop.
 >
 > **STATUS (single source of truth):** design frozen · **D1–D5 resolved (§8)** · **0b: committed set =
-> 7 named vectors** · **Phase 1 DONE (2026-09-07): `scene_schema.json` v4 + `utils/schema.py` +
-> `utils/tags.py` rewritten to the target** — 7 vectors, `pov`/`tense` hard facets, `prose_register`/
-> `dialogue_ratio`/`vdi_curve` soft facets (float→REAL codec), per-moment tone/intensity words + `tags.py`
-> word→coord tables, per-field `weight` retired (D3).
-> **▶ NEXT ACTION: Phase 2 — extract `utils/vectorstore.py`** (Qdrant contract out of `search.py`).
-> Note: the schema wave is RED (`import search` / `import embed` break on the retired weight; `--check`
-> reports the lag) until Phase 7 closes it — expected on this branch.
+> 7 named vectors** · **Phases 1–2 DONE (2026-09-07):** *(1)* `scene_schema.json` v4 + `utils/schema.py` +
+> `utils/tags.py` to the target (7 vectors, `pov`/`tense` hard facets, `prose_register`/`dialogue_ratio`/
+> `vdi_curve` soft facets via float→REAL codec, per-moment tone/intensity words + word→coord tables,
+> `weight` retired D3). *(2)* Qdrant contract extracted to **`utils/vectorstore.py`** (the ONE home);
+> `search` / `embed` / `schema` repointed to it — the embed→search coupling is gone and **`import search`
+> is clean again** (legacy weight stack frozen inline in `search.py`, deleted in Phase 8).
+> **▶ NEXT ACTION: Phase 3 — `data.py`** (confirm §7 invariants; fold the pre-gate into one door for `segment`).
+> Schema wave: `import embed` stays RED on its drift assert until Phase 5/7; `--check` now reports only that lag.
 
 **What this document is:** the one reference for (a) the redesigned product + data model (§2–§5) and
 (b) the exact, ordered, file-by-file restructure that lands it (§6, checklisted against Appendix A).
@@ -418,8 +419,8 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ✅ 0b  vector-set ablation — **KEEP the 4 facet vectors (7-vec set)**; numbers in the Phase 0 block
 - ✅ 0c  D1–D5 resolved (§8)
 - ✅ 1  schema + tags (`utils/`) — schema v4 (7 vec, pov/tense, soft facets, float/REAL), tags word→coord tables, weight retired
-- ☐ **2  `utils/vectorstore.py`** ← **NEXT**
-- ☐ 3  `data.py`
+- ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from search; embed/schema repointed; `import search` clean
+- ☐ **3  `data.py`** ← **NEXT**
 - ☐ 4  `segment.py` (delete `process.py`)
 - ☐ 5  `enrich.py`
 - ☐ 6  `derive.py`

@@ -6,9 +6,9 @@ from pydantic import BaseModel, ValidationError, Field, field_validator
 from openai import pydantic_function_tool
 from qdrant_client import QdrantClient, models
 
-# vector-store primitives shared with the read path (search.py owns them)
-from search import (COLLECTION, VECTOR_NAMES, MULTIVECTOR_NAMES, SUBJECT_PATHS_FIELD, embed as _embed,
-                    point_id as _point_id, _as_terms)
+# vector-store contract shared with the read path — utils/vectorstore.py is the ONE home (was search.py)
+from utils.vectorstore import (COLLECTION, VECTOR_NAMES, MULTIVECTOR_NAMES, SUBJECT_PATHS_FIELD,
+                               embed as _embed, point_id as _point_id, _as_terms)
 # relational mirror (SQLite) — the exact-match / navigation store beside the vectors
 from utils import CLIENT, MODEL, MODEL_PARAMS, WORKERS, EMBED_PROMPT, Arc, Checkpoint, Intensity, SrcPaths, Tone, classify_llm_error, inject_retry_notes, log, read_json, write_json
 from utils import relational, schema # scene-record registry: the drift guard below checks the models against it
@@ -21,7 +21,7 @@ from utils import subjects           # subject-path expansion for the filterable
 # BATCHES (one call returns flavor + summary +
 # 2-3 SVOS moments per scene, in order); neighbor tones are denormalized; each scene upserts as one
 # point + mirrors into SQLite. OWNERSHIP: prompt/model tuning is the user's (EMBED_PROMPT in utils/llm.py,
-# BATCH_CHAR_LIMIT / BATCH_SCENE_LIMIT here). The read-path contract comes from search.py.
+# BATCH_CHAR_LIMIT / BATCH_SCENE_LIMIT here). The vector-store contract comes from utils/vectorstore.py.
 
 # ---- tuning constants (model/prompt surface — the user's to tune) ----
 
@@ -381,7 +381,7 @@ def derive_frame_scenes(file_ids=None) -> int:
     return n
 
 
-# ---- qdrant index (write path; config/embedder/id come from search.py) ----
+# ---- qdrant index (write path; config/embedder/id come from utils/vectorstore.py) ----
 
 # VectorParams for one named vector — MAX_SIM multivector for the list field (svos), single vector otherwise.
 def _vec_params(name: str, dim: int) -> models.VectorParams:
@@ -407,8 +407,8 @@ def _ensure_collection(client: QdrantClient, dim: int):
     log.info(f"built '{COLLECTION}' with {len(want)} vectors: {', '.join(want)}")
 
 
-# SUBJECT_PATHS_FIELD (the payload label filtered by subject branch) is imported from search.py, the
-# Qdrant-contract owner; the write side just stamps + indexes it.
+# SUBJECT_PATHS_FIELD (the payload label filtered by subject branch) is imported from utils/vectorstore.py,
+# the Qdrant-contract owner; the write side just stamps + indexes it.
 
 
 # ** MAIN ** — tests.backfill_subject_paths ensures this index too
