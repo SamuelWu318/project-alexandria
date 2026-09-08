@@ -22,12 +22,19 @@
 > `search` / `embed` / `schema` repointed to it — the embed→search coupling is gone and **`import search`
 > is clean again** (legacy weight stack frozen inline in `search.py`, deleted in Phase 8).
 > **Phase 3 DONE (2026-09-08):** `data.py` gained `gate_facts(file_code, md, data_path)` — the single
-> pre-gate door for `segment` (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in the gate);
-> §7 invariants re-confirmed (round-trip / contiguous index verified); purely additive, `parse_rights` +
-> `MetadataParser` kept for `process.py` until Phase 4.
-> **▶ NEXT ACTION: Phase 4 — `segment.py`** (per-paragraph boundary classification; delete `process.py`;
-> its gate imports the one `data.gate_facts` door).
-> Schema wave: `import embed` stays RED on its drift assert until Phase 5/7; `--check` now reports only that lag.
+> pre-gate door for `segment` (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in the gate).
+> **Phase 4 DONE (2026-09-08):** new **`segment.py`** (from scratch) + **`process.py` DELETED**.
+> Per-paragraph boundary classification (SCENE_START/CONTINUE/NOISE, forced `output_labels` tool);
+> scenes, cross-chunk stitch and noise-drop all fall out of the merged global label stream; soft word-cap
+> (`SOFT_MAX_WORDS`) splits over-long scenes at a paragraph break. One door `segment_book(book, md) ->
+> records` folds the pre-gate (via `data.gate_facts`) + labelling + reconstruction; `tests.segment_test`
+> rewired to it. `content_form` / OTHER_SKIP_RATIO within-book non-prose gate is **retired** (content_form
+> left the v4 schema); whole poetry/play books still caught by the subject pre-gate. `scene_title` is now
+> None at segment time (the labeller authors no title; downstream shows `summary`).
+> **▶ NEXT ACTION: Phase 5 — `enrich.py`** (LLM enrichment: richer `summary`, up to 6 `moments` each with
+> per-beat tone+intensity words, `descriptors`, `pov`, `tense`, `prose_word`; from `embed.py` enrich half).
+> Schema wave: `import embed`/`import tests` stay RED on the embed drift assert until Phase 5/7 closes it
+> (Phase 5 replaces `SceneEnrichment`); `--check` reports only that lag.
 
 **What this document is:** the one reference for (a) the redesigned product + data model (§2–§5) and
 (b) the exact, ordered, file-by-file restructure that lands it (§6, checklisted against Appendix A).
@@ -426,8 +433,8 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ✅ 1  schema + tags (`utils/`) — schema v4 (7 vec, pov/tense, soft facets, float/REAL), tags word→coord tables, weight retired
 - ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from search; embed/schema repointed; `import search` clean
 - ✅ 3  `data.py` — `gate_facts` one-door pre-gate added (folds `parse_rights` + `MetadataParser.to_dict`); §7 invariants re-confirmed; purely additive (old symbols kept for `process.py` until Phase 4)
-- ☐ **4  `segment.py` (delete `process.py`)** ← **NEXT**
-- ☐ 5  `enrich.py`
+- ✅ 4  `segment.py` (deleted `process.py`) — per-paragraph boundary classification (SCENE_START/CONTINUE/NOISE); scenes + cross-chunk stitch + noise-drop fall out of the global label stream; soft word-cap; one door `segment_book(book, md) -> records` folds the pre-gate via `data.gate_facts`; `tests.segment_test` rewired to it
+- ☐ **5  `enrich.py`** ← **NEXT**
 - ☐ 6  `derive.py`
 - ☐ 7  `index.py` (delete `embed.py`)
 - ☐ 8  `search.py` rewrite
@@ -530,11 +537,32 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   `ensure_book(<id>)` on one of `tests.FILE_IDS` and compare `to_dict`→`from_dict`. `import data` is clean
   today (unaffected by the schema wave; `import embed` stays red until Phase 5/7).
 
-### Phase 4 — `segment.py` (delete `process.py`)
+### Phase 4 — `segment.py` (delete `process.py`) — ✅ DONE 2026-09-08
 - Implement per-paragraph boundary classification + reconstruction + stitch + soft cap (§5.2).
 - Port `scenes_to_records` (flattening/stitch) into `segment.py`, rewritten. Delete `process.py`.
 - **Checks:** segment one book; every input paragraph labelled once; scenes are dramatic units; capped
   lengths ≤ `SOFT_MAX_WORDS`; records start from `blank_record()`.
+- **Landed:** `segment.py` authored from scratch. Forced `output_labels` tool → `ChunkLabels` (one
+  `{index, label∈{SCENE_START,CONTINUE,NOISE}}` per indexed paragraph). `_expected_indices` +
+  `_validate_labels` shrank to "every index labelled once" (coverage now automatic). `SceneBreaker.
+  break_chunk` keeps the retry loop verbatim (fresh convo, temp climb-then-freeze, fatal-only raise);
+  MODEL_PARAMS' `extra_body` kept, its `tool_choice` overridden per-stage to `output_labels`.
+  `_label_book` merges all chunks' labels into ONE global `{index: label}` — so reconstruction
+  (`_scenes_from_labels`) + the cross-chunk stitch fall out of the sorted stream: SCENE_START opens,
+  CONTINUE extends, NOISE drops (never breaks a scene), a dangling CONTINUE at stream start = broken.
+  `_cap_split` (soft `SOFT_MAX_WORDS=2000`) + `_stitch_status` (complete | stitched | broken_stitch,
+  derived from the piece's chunk span). `_build_records` starts from `blank_record()`, joins only kept
+  paragraphs (interior noise skipped), chains prev/next ids. One door `segment_book(book, md, …) ->
+  records` folds `_presegmentation_gate` (over `data.gate_facts` facts) + `_label_book` + `_build_records`
+  ([] when gated out). `tests.segment_test` rewired to the one door; `process.py` deleted.
+- **Verified:** `import segment` clean; deterministic reconstruction unit-checked on a synthetic 2-chunk /
+  7-paragraph label stream — noise-drop, cross-chunk stitch, dangling-CONTINUE→broken, soft-cap split
+  (broken flag on first piece only), interior-noise-skipped `text_html`/`word_count`, id chain, records
+  from `blank_record` (enrichment null, `schema_version` stamped), and all 3 gate branches. **Live LLM
+  segmentation NOT run** — `PROCESS_PROMPT` is stale/deferred (still span-emission wording), so real
+  boundary *quality* awaits the prompt rewrite; the mechanical path is fully exercised without it.
+- **Deferred consequence:** the within-book non-prose `OTHER_SKIP_RATIO` gate is dormant (its
+  `content_form` input is gone from v4); `tests.OTHER_SKIP_RATIO` kept but unused — revisit in Phase 9.
 
 ### Phase 5 — `enrich.py` (from `embed.py` enrichment half)
 - New `Moment`/`SceneEnrichment` models per §3.4/§5.3; comprehend-before-judge order; drift guard.

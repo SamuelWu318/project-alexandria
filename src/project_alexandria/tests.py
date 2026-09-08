@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess, os, sys, time, re, contextlib, zipfile
 
 from data import build_library, ensure_book
-from process import scenes_to_records, segment_book, presegmentation_gate
+from segment import segment_book
 from embed import enrich_file, index_records
 import embed
 import search
@@ -15,7 +15,10 @@ from qdrant_client import QdrantClient
 # (download -> segment -> enrich + index), plus search_test / manual_search (read path) and the subject-tree
 # tests. Each ** ENTRY ** function is one you run yourself; their internal calls are annotated inline.
 
-# book-level embed gate: skip a book when non-prose "other" (poetry/plays) exceeds this fraction of its non-noise text
+# DORMANT since Phase 4: the within-book non-prose gate rode process.py's per-paragraph `content_form`,
+# which the v4 schema + the new SCENE_START/CONTINUE/NOISE labeller dropped. Whole poetry/play BOOKS are
+# still caught by segment._presegmentation_gate (subject). Reintroduce a within-book "other" signal in
+# Phase 9 if needed; kept here until then.
 OTHER_SKIP_RATIO = 0.70
 
 # ---- test book ids (uncomment a line to include that book) ----
@@ -159,46 +162,20 @@ def segment_test(metadata: dict, books: dict, desired: str):
     # from metadata, so skip rather than KeyError.
     if desired not in metadata:
         log.warn(f"book {desired}: no metadata (missing / invalid source) — skip")
+        return
 
     log.step(f"segmenting book {desired}")
 
-    desired_book = []
     md = metadata[desired]
     # recall is lazy + per-book: ensure_book parses + writes the shard if it does not exist.
     if desired not in books:
         books[desired] = ensure_book(desired, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR, md.get("Title"))
     book = books[desired]
 
-    # pre-segmentation gates (public-domain + non-prose)
-    if presegmentation_gate(desired, md, SrcPaths.DATA_DIR, SrcPaths.RECALL_DIR): return
-
-    # LLM orchestration (parallel per-chunk calls + resumable checkpoints)
-    scenes = segment_book(book, SrcPaths.CHECKPOINT_DIR)
-
-    # remove noise scenes, tally "other" scenes to check for poetry/plays to remove.
-    kept_paras, noise_paras, other_paras = 0, 0, 0
-    for scene in scenes:
-        span = scene.end_paragraph_index - scene.start_paragraph_index + 1
-        if scene.paragraph_type == "noise" or scene.title == "NOISE":
-            noise_paras += span
-            continue
-        kept_paras += span
-        if scene.content_form == "other":
-            other_paras += span
-        desired_book.append(scene)
-
-    log.info(f"noise: dropped {noise_paras} paragraphs, kept {kept_paras} "
-             f"({noise_paras + kept_paras} total covered)")
-
-    # book-level gate: if non-prose "other" (poetry/plays) is > 70% text, skip it.
-    other_ratio = other_paras / kept_paras if kept_paras else 0.0
-    if other_ratio > OTHER_SKIP_RATIO:
-        log.skip(f"book {desired}: 'other' (poetry/plays) is {other_paras}/{kept_paras} "
-                 f"= {other_ratio:.0%} of non-noise text (> {OTHER_SKIP_RATIO:.0%}) — not embedding")
+    # one door: pre-gate + parallel per-chunk labelling + reconstruction -> flat records ([] if gated out)
+    records = segment_book(book, md)   # segment.segment_book folds the old gate + scenes_to_records
+    if not records:
         return
-
-    # stitch + flatten the kept scenes into ingest-ready records
-    records = scenes_to_records(desired, desired_book, books[desired], metadata[desired])
 
     out_path = f"{SrcPaths.SCENES_DIR}/pg{desired}-s.json"
     write_json(out_path, records)
