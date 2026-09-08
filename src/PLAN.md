@@ -453,7 +453,7 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ✅ 1  schema + tags (`utils/`) — schema v4 (7 vec, pov/tense, soft facets, float/REAL), tags word→coord tables, weight retired
 - ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from search; embed/schema repointed; `import search` clean
 - ✅ 3  `data.py` — `gate_facts` one-door pre-gate added (folds `parse_rights` + `MetadataParser.to_dict`); §7 invariants re-confirmed; purely additive (old symbols kept for `process.py` until Phase 4)
-- ✅ 4  `segment.py` (deleted `process.py`) — per-paragraph boundary classification (SCENE_START/CONTINUE/NOISE); scenes + cross-chunk stitch + noise-drop fall out of the global label stream; soft word-cap; one door `segment_book(book, md) -> records` folds the pre-gate via `data.gate_facts`; `tests.segment_test` rewired to it
+- ✅ 4  `segment.py` (deleted `process.py`) — SPARSE boundary labelling (SCENE_START / one trailing SCENE_CONTINUE / NOISE; unlabelled = continuation); scenes + cross-chunk stitch + noise-drop fall out of the merged stream; **book-parallel, chunks sequential with a real `PROCESS_CONTINUE_NOTE` flag** (live-verified); `SOFT_MAX_WORDS=1500`, ~200-1200-word target; `scene_title` + `OTHER_SKIP_RATIO` removed; one door `segment_book(book, md) -> records`; `PROCESS_PROMPT` rewritten
 - ☐ **5  `enrich.py`** ← **NEXT**
 - ☐ 6  `derive.py`
 - ☐ 7  `index.py` (delete `embed.py`)
@@ -612,9 +612,48 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   stitch statuses, all validation branches, and both prompt examples (sparse, in-range, ≤1 trailing
   continue) all pass; a live chunk-17 (P&P) call returns valid sparse labels end-to-end.
 
-### Phase 5 — `enrich.py` (from `embed.py` enrichment half)
+### Phase 5 — `enrich.py` (from `embed.py` enrichment half) ← **NEXT**
 - New `Moment`/`SceneEnrichment` models per §3.4/§5.3; comprehend-before-judge order; drift guard.
 - **Checks:** enrich a handful of scenes; every LLM field present; words are in-vocabulary.
+
+**KICKOFF NOTE (start here for a cold session).** Phase 5 authors **`enrich.py` FROM SCRATCH** to the
+house style (behavior reference = the `embed.py` enrichment half via Appendix A — do NOT copy-port).
+`embed.py` is **NOT deleted** here (that is Phase 7); enrich/derive live beside it until then.
+
+- **The drift target (the whole point of the phase).** `SceneEnrichment`'s field set must equal
+  `schema.LLM_FIELDS` = **`{summary, descriptors, moments, pov, tense, prose_word}`** (verified today).
+  The OLD model in `embed.py` is `{summary, descriptors, moments, dominant_tone, intensity, arc}` — so
+  **drop `dominant_tone`/`intensity`/`arc`** (demoted/derived) and **add `pov`, `tense`, `prose_word`**.
+  `enrich.py` re-asserts its own drift guard at import (`{fields}-{index} == schema.LLM_FIELDS`), which
+  **passes** at Phase 5. But `embed.py`'s OWN import-time assert (`embed.py:513`) still describes the old
+  set, so **`import embed` / `import tests` / `python -m utils.schema --check` stay RED until Phase 7
+  deletes `embed.py`** — this is the schema-wave lag, expected.
+- **`Moment` (schema v4 → 7 fields).** Keep the LOAD-BEARING order: `sentence` FIRST (model writes the
+  bound SVOS clause, then extracts `subject`/`verb`/`object`/`setting` from its own sentence). **Add per-beat
+  `tone` + `intensity` WORDS** (D1). Cap **6** moments (D4, up from 3 — fix the `_cap_moments` validator).
+  Keep the `_clean_sentence` / `_coerce_part` / `_clean_part` validators; add validators asserting `tone`
+  is a `utils.tags` tone word and `intensity` an intensity word (store WORDS only — coords are Phase 6).
+- **`SceneEnrichment` order = comprehend-before-judge (§5.3):** `summary` (richer, multi-clause) →
+  `moments[]` → `descriptors` (3–5) → `pov` (`tags.POV` enum) → `tense` (`tags.Tense`) → `prose_word`
+  (a `tags.ProseRegister` word). No scene-level tone/intensity/arc.
+- **Keep from the embed enrich half (adjust to the new fields):** `BatchEnrichment`/`BATCH_TOOL`,
+  `_run_tool` (forced call + retry/temp policy + `inject_retry_notes`), `_plain` (strip HTML for the LLM),
+  `_batches` (`BATCH_CHAR_LIMIT=12000` / `BATCH_SCENE_LIMIT=4`), `_enrich_batch` (one call/batch, one item
+  per scene, coverage-validate), `_apply` (write enrichment onto the record — NEW field set), `enrich_file`
+  (resume/checkpoint, parallel, rewrite in place). **DROP** the neighbour-tone denorm block (D2 —
+  `prev_tone`/`next_tone` gone). `enrich_file(path)` is the single door.
+- **Tool-call name:** unlike `segment` (which overrides `tool_choice`), enrich's tool IS what
+  `MODEL_PARAMS.tool_choice` already names (`output_enrichment`) — so `_run_tool` can splat `MODEL_PARAMS`
+  directly. Confirm the `pydantic_function_tool` name matches `output_enrichment`.
+- **`EMBED_PROMPT` rewrite (owner's surface, Phase 5):** now targets the real enrich tool schema —
+  richer `summary`, up to 6 `moments` each `{sentence, subject, verb, object, setting, tone, intensity}`,
+  `descriptors`, `pov`, `tense`, `prose_word`; comprehend-before-judge; drop the old input-format line that
+  named `scene_title` (removed). See the RESTRUCTURE NOTE in `llm.py`.
+- **Run/verify (this machine):** `PYTHONPATH=…/src/project_alexandria …/.venv/bin/python`. Needs a scenes
+  json (run Phase 4 `segment` on a book first) OR hand a synthetic `schema.blank_record()` with `text_html`.
+  Check: `import enrich` clean (its own drift guard passes), a few scenes enrich, every LLM field present,
+  `tone`/`intensity`/`prose_word` are in-vocabulary. `tests.py` still imports `embed.enrich_file` — repoint
+  to `enrich.enrich_file` when convenient (harness rework is Phase 9).
 
 ### Phase 6 — `derive.py`
 - `svos`, `vdi_curve`, `dialogue_ratio`, `arc`, neighbour tones — all mechanical (§5.4).
@@ -713,11 +752,12 @@ is smuggled in unnoticed. Legend: **[KEEP]** survives ~as-is · **[CHANGE]** beh
 - **Edit:** give `segment` one door for its pre-gate instead of reaching for both `MetadataParser` and
   `parse_rights` (principle #4).
 
-### `process.py` — Stage 2 → **new `segment.py`; DELETE `process.py`**
+### `process.py` — Stage 2 → **`segment.py` (DONE Phase 4); `process.py` DELETED**
 - `SceneData`/`MultiSceneData` + `output_scenes` TOOL (span emission: start/end/type/content_form/open
-  flags/title). **[CHANGE]** → per-paragraph label model (`SCENE_START`/`CONTINUE`/`NOISE`).
-- `_expected_indices` + `_validate_coverage` (every index covered exactly once). **[DROP]** — coverage is
-  automatic with one label per paragraph; keep only a trivial "all labelled" check.
+  flags/title). **[DONE]** → SPARSE label model `ChunkLabels` (`SCENE_START` / one trailing
+  `SCENE_CONTINUE` / `NOISE`; unlabelled paragraphs = implicit continuation), forced `output_labels`.
+- `_expected_indices` **[KEPT]** + `_validate_coverage` **[DROP]** — coverage is NOT required (sparse);
+  `_validate_labels` only guards in-range / no-dupes + the `SCENE_CONTINUE` contract (≤1, last).
 - `_retry_note` (segmentation wording). **[MOVE→segment.py]** (wording updated; splice stays
   `utils.llm.inject_retry_notes`).
 - `SceneBreaker.break_chunk` (forced call + fresh-convo retry, temp climb-then-freeze). **[CHANGE]** same
