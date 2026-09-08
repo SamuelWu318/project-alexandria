@@ -1,4 +1,5 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import subprocess, os, sys, time, re, contextlib, zipfile
 
 from data import build_library, ensure_book
@@ -7,7 +8,7 @@ from embed import enrich_file, index_records
 import embed
 import search
 
-from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up
+from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS
 from qdrant_client import QdrantClient
 
 # ---- interactive test / smoke harness (run by hand, not pytest) ----
@@ -326,17 +327,16 @@ def step_one_retrieval(file_ids, force=False):
         p.wait()                                 # block until every download finishes
 
 # ** ENTRY ** — step 2: segment every downloaded book into scenes (build library, then segment_test each).
+# Books segment in PARALLEL (up to WORKERS at once); each book's chunks run sequentially inside
+# segment_book so the cross-section continue-flag threads chunk->chunk (segment_test handles a missing
+# book gracefully via its metadata check).
 def step_two_processing(file_ids):
     if not llm_ready_up(): sys.exit("LLM issue")     # fail fast if the LLM is unreachable
 
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
-        for file_id in file_ids:
-            # is_zipfile is False for BOTH a missing file and a corrupt one — the same books
-            # build_library skipped, so this keeps segment_test's metadata lookup from KeyError-ing.
-            if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
-                log.warn(f"book {file_id}: missing or invalid zip — skip")
-            segment_test(metadata, books, file_id)   # segment one book
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            list(ex.map(lambda fid: segment_test(metadata, books, fid), file_ids))   # one book per lane
 
 # ** ENTRY ** — step 3: enrich + index each book that has a scenes json.
 def step_three_embedding(file_ids):

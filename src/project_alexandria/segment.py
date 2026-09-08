@@ -1,12 +1,11 @@
 import json, re, time, math, threading
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from openai import pydantic_function_tool
 from pydantic import BaseModel, ValidationError
 from typing import Literal
 
 from data import gate_facts
-from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, WORKERS, PROCESS_PROMPT,
+from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, PROCESS_PROMPT, PROCESS_CONTINUE_NOTE,
                    classify_llm_error, Checkpoint, log, schema, inject_retry_notes, SrcPaths)
 
 # ---- Stage 2: segmentation (SPARSE boundary labels -> reconstruct dramatic-unit scenes) ----
@@ -16,13 +15,13 @@ from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, WORKERS, 
 # (apparatus, dropped). Unlabelled paragraphs are IMPLICITLY part of the currently open scene. Scenes,
 # the cross-chunk stitch, and the noise drop all FALL OUT of the merged global stream: a start opens a
 # scene, unlabelled paras fill it to the next start, NOISE is dropped and never breaks the open scene, an
-# open tail is rejoined by the next section's unlabelled opening. Sections are labelled INDEPENDENTLY in
-# parallel; the prompt teaches the model to read read_only_context and, when the previous section ends
-# mid-scene, withhold the first SCENE_START until a major change (so the halves stitch). A soft word-cap
-# then splits any over-long scene at a paragraph break. segment_book is the single door: it runs the
-# pre-gate, labels every chunk (parallel + checkpointed), reconstructs, and returns flat ingest-ready
-# records (enrichment fields still null). The prompt (PROCESS_PROMPT, in utils/llm.py) and the retry/
-# temperature policy are the USER'S tuning surface — do not touch unless asked. Reference: PLAN §5.2.
+# open tail is rejoined by the next section's unlabelled opening. A book's chunks are labelled
+# SEQUENTIALLY (the DRIVER runs books in parallel), so each chunk is told via PROCESS_CONTINUE_NOTE when
+# the previous one left a scene open (a SCENE_CONTINUE); the model then withholds the first SCENE_START so
+# the halves stitch. A soft word-cap then splits any over-long scene at a paragraph break. segment_book is
+# the single door: it runs the pre-gate, labels every chunk (sequential + checkpointed), reconstructs, and
+# returns flat ingest-ready records (enrichment fields still null). The prompt (PROCESS_PROMPT, in
+# utils/llm.py) and the retry/temperature policy are the USER'S tuning surface — do not touch unless asked.
 
 # ---- LLM boundary-classification schema (forced output_labels tool) ----
 
@@ -98,10 +97,12 @@ def _retry_note(notes: list[str]) -> str:
 
 class SceneBreaker:
 
-    # ** MAIN ** — segment._label_book calls this once per chunk
+    # ** MAIN ** — segment._label_book calls this once per chunk, in order
     # Label one chunk's boundaries via a forced output_labels call, retrying (fresh convo + note) until
-    # the sparse labels validate (in-range, no dupes, one trailing continue); only a fatal API error raises.
-    def break_chunk(self, file_code: str, chunk: str, chunk_index) -> ChunkLabels:
+    # the sparse labels validate (in-range, no dupes, one trailing continue); only a fatal API error
+    # raises. `pending_continue` (the previous chunk left a scene open) splices PROCESS_CONTINUE_NOTE so
+    # the model continues, not restarts, at the section's opening.
+    def break_chunk(self, file_code: str, chunk: str, chunk_index, pending_continue: bool = False) -> ChunkLabels:
         TEMP_FREEZE_ATTEMPTS = 10   # attempts before the temperature stops climbing (hard cap)
         expected = _expected_indices(chunk)                 # indices this chunk must label
         notes = []                  # label misses from earlier attempts, replayed in the system note
@@ -114,8 +115,11 @@ class SceneBreaker:
             temp = 0 if attempt == 0 else min(0.75, math.log(attempt ** 0.20) + 0.15)
             # FRESH conversation every attempt: no chat history is carried; the paragraphs mislabelled
             # on earlier tries are replayed as a note appended to the system prompt.
+            system = inject_retry_notes(PROCESS_PROMPT, notes, _retry_note)   # splice the segmenter's retry wording
+            if pending_continue:
+                system += "\n" + PROCESS_CONTINUE_NOTE                        # tell it the prior section left a scene open
             messages = [
-                {"role": "system", "content": inject_retry_notes(PROCESS_PROMPT, notes, _retry_note)},  # splice the segmenter's retry wording
+                {"role": "system", "content": system},
                 {"role": "user", "content": chunk},
             ]
             try:
@@ -164,36 +168,32 @@ class SceneBreaker:
             log.warn(f"validation retry {validation_tries} (fresh convo, temp held ~{temp}): {reason[:140]}")
 
 
-# ---- label a whole book (parallel per-chunk, checkpointed) ----
+# ---- label a whole book (SEQUENTIAL per-chunk, checkpointed) ----
 
-# Label every chunk of a book (one forced LLM call each, parallel + per-chunk checkpointed) and merge
-# into one global, SPARSE {paragraph index -> label} map (only boundary paragraphs appear). Chunk order
-# is irrelevant — reconstruction walks all indices in order, so the cross-chunk stitch falls straight out.
-def _label_book(book, checkpoint_base, workers: int) -> dict:
+# Label a book's chunks IN ORDER (one forced LLM call each, per-chunk checkpointed) and merge into one
+# global, SPARSE {paragraph index -> label} map (only boundary paragraphs appear). Sequential is what
+# carries the cross-section handshake: after each chunk, `pending` = it emitted a SCENE_CONTINUE, and that
+# flag is fed to the NEXT chunk so the model continues (not restarts) the carried-over scene. The DRIVER
+# runs whole books in parallel; within a book, order matters, so this stays single-threaded.
+def _label_book(book, checkpoint_base) -> dict:
     ckpt = Checkpoint(checkpoint_base, f"pg{book.file_code}",       # per-book resume cache (typed codec)
                       load=ChunkLabels.model_validate,
                       dump=lambda d: d.model_dump(mode="json"))
     sb = SceneBreaker()
-    log_lock = threading.Lock()
-
-    # Label one chunk with a single LLM call, reusing a checkpoint if present.
-    def work(chunk):
+    label_of, pending = {}, False
+    for chunk in book.chunks:
         key = f"chunk-{chunk.chunk_index}"
-        cached = ckpt.load(key)                                     # resume: skip the LLM if cached
-        if cached is not None:
-            with log_lock:
-                log.info(f"book {book.file_code}: chunk {chunk.chunk_index} cached (skip LLM)")
-            return cached
-        data = sb.break_chunk(book.file_code, chunk.scene_payload(), chunk.chunk_index)   # forced LLM label
-        ckpt.save(key, data)   # persist before returning, so a crash survives
-        with log_lock:
+        data = ckpt.load(key)                                       # resume: skip the LLM if cached
+        if data is not None:
+            log.info(f"book {book.file_code}: chunk {chunk.chunk_index} cached (skip LLM)")
+        else:
+            data = sb.break_chunk(book.file_code, chunk.scene_payload(), chunk.chunk_index, pending)   # forced LLM label
+            ckpt.save(key, data)                                    # persist before continuing, so a crash survives
             log.info(f"book {book.file_code}: chunk {chunk.chunk_index} verified")
-        return data
+        for lab in data.labels:
+            label_of[lab.index] = lab.label
+        pending = any(lab.label == "SCENE_CONTINUE" for lab in data.labels)   # open tail -> next chunk continues it
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        results = list(ex.map(work, book.chunks))                  # parallel per-chunk labelling
-
-    label_of = {lab.index: lab.label for data in results for lab in data.labels}
     ckpt.clear()   # book fully labelled: checkpoints no longer needed
     return label_of
 
@@ -303,14 +303,17 @@ def _build_records(book, metadata: dict, label_of: dict) -> list[dict]:
 
 EXCLUDE_SUBJECT_WORDS = ("poems", "poetry", "plays", "drama")   # non-prose by Gutenberg subject
 EXCLUDED_BOOKS_FILE = "excluded-books.json"                     # running log of rejected books
+_EXCLUDE_LOCK = threading.Lock()                               # books segment in parallel; this file is shared
 
 
 # Append one rejected book to the running excluded-books json (auditable: reason + matched detail).
+# Locked: the driver segments books in parallel and this one file is shared (read-modify-write).
 def _log_exclusion(exclude_dir, code, metadata: dict, reason, detail=None):
     path = f"{exclude_dir}/{EXCLUDED_BOOKS_FILE}"
-    excluded = read_json(path, {})
-    excluded[code] = {"reason": reason, "detail": detail, "metadata": metadata}
-    write_json(path, excluded)
+    with _EXCLUDE_LOCK:
+        excluded = read_json(path, {})
+        excluded[code] = {"reason": reason, "detail": detail, "metadata": metadata}
+        write_json(path, excluded)
 
 
 # Decide whether ONE book may be segmented from its pre-gate facts: US-public-domain (dc.rights) +
@@ -335,16 +338,15 @@ def _presegmentation_gate(code, facts: dict, exclude_dir) -> str | None:
 
 # ---- segment a whole book (the one door) ----
 
-# ** MAIN ** — tests.segment_test segments each book through this single door
-# Segment ONE whole book end to end: run the pre-gate, label every chunk (parallel + checkpointed),
-# reconstruct dramatic-unit scenes from the labels, soft-cap, and return flat ingest-ready records
-# (an empty list if the book is gated out). Keep DB-agnostic.
+# ** MAIN ** — tests.segment_test segments each book through this single door (the driver runs books in parallel)
+# Segment ONE whole book end to end: run the pre-gate, label its chunks in order (sequential +
+# checkpointed, threading the continue-flag), reconstruct dramatic-unit scenes from the labels, soft-cap,
+# and return flat ingest-ready records (an empty list if the book is gated out). Keep DB-agnostic.
 def segment_book(book, md: dict, checkpoint_base=SrcPaths.CHECKPOINT_DIR,
-                 data_path=SrcPaths.DATA_DIR, exclude_dir=SrcPaths.RECALL_DIR,
-                 workers: int = WORKERS) -> list[dict]:
+                 data_path=SrcPaths.DATA_DIR, exclude_dir=SrcPaths.RECALL_DIR) -> list[dict]:
     facts = gate_facts(book.file_code, md, data_path)      # data: rights + subjects + serialized metadata (one door)
     if _presegmentation_gate(book.file_code, facts, exclude_dir):
         return []                                          # excluded: no records
 
-    label_of = _label_book(book, checkpoint_base, workers)          # forced LLM label per chunk -> {index: label}
+    label_of = _label_book(book, checkpoint_base)                   # sequential forced LLM label per chunk -> {index: label}
     return _build_records(book, facts["metadata"], label_of)        # labels -> scenes -> flat records

@@ -44,9 +44,9 @@ WORKERS = 6
 # PROCESS_PROMPT was rewritten (2026-09-08) to the new framework: SPARSE boundary labelling (forced
 # `output_labels` tool) — the model marks ONLY boundary paragraphs (SCENE_START, one optional trailing
 # SCENE_CONTINUE, NOISE); unlabelled paragraphs are implicit continuation. Cuts DRAMATIC-UNIT boundaries
-# (place/time/POV/goal shift — a tonal turn is NOT a boundary), targets ~200-1200-word scenes, and reads
-# read_only_context to continue (not restart) a scene carried over from the previous section. Sections
-# are labelled independently in parallel. It matches segment.py's `ChunkLabels` tool. (PLAN §5.2, Phase 4.)
+# (place/time/POV/goal shift — a tonal turn is NOT a boundary), targets ~200-1200-word scenes. A book's
+# chunks are labelled SEQUENTIALLY (books run in parallel), so each chunk is told via PROCESS_CONTINUE_NOTE
+# when the previous one left a scene open. It matches segment.py's `ChunkLabels` tool. (PLAN §5.2, Phase 4.)
 # EMBED_PROMPT below STILL describes the pre-restructure enrichment and MUST be rewritten AFTER enrich.py
 # lands (Phase 5), so the rewrite can target the real tool schema:
 #   * EMBED_PROMPT -> enrichment now returns, per scene: a richer multi-clause `summary`; up to 6
@@ -77,9 +77,9 @@ Aim for scenes of roughly 200-1200 words. Do NOT cut so fine that a "scene" is a
 Non-prose STORY is still story, never NOISE: verse, a sung ballad, an embedded letter or document, a passage of a play — all carry the narrative and belong to the scene around them. NOISE is book apparatus only, never the dramatic or poetic text itself.
 
 # CONTINUING FROM THE PREVIOUS SECTION
-"read_only_context_paragraphs" is the tail of the PREVIOUS section, shown for context only — NEVER label it. Read it to judge how the previous section ended:
-- If it ends MID-SCENE (the scene was still running, with no clean close), then the FIRST indexed paragraph is a CONTINUATION of that scene. Do NOT put a SCENE_START on it. Withhold your first SCENE_START until the first real place/time/POV/goal change; the opening paragraphs stay UNLABELLED (they belong to the carried-over scene).
-- Only if the context ends AT a clean boundary, or there is no context (the section is the book's or chapter's start), does the first indexed paragraph open a fresh scene — mark it SCENE_START.
+"read_only_context_paragraphs" is the tail of the PREVIOUS section, shown for context only — NEVER label it.
+- If a "CONTINUE PENDING" note is present, the previous section left a scene OPEN and it runs straight into this one: the FIRST indexed paragraph is that scene's continuation. Do NOT put a SCENE_START on it — leave the opening paragraphs UNLABELLED and wait for the first real place/time/POV/goal change to place your first SCENE_START.
+- With no such note, judge from the context: if it ends MID-SCENE, treat the opening the same way (a continuation — no SCENE_START yet); if it ends at a clean boundary, or there is no context (the book's or chapter's start), the first indexed paragraph opens a fresh scene — mark it SCENE_START.
 
 # INPUT
 You receive one JSON object (one section) with:
@@ -166,6 +166,17 @@ Call output_labels with a {"index", "label"} entry for ONLY the boundary paragra
     {"index": 28, "label": "SCENE_CONTINUE"}
   ]}
 """]
+
+# Spliced onto PROCESS_PROMPT (by segment.break_chunk) only when the PREVIOUS section left a scene open —
+# the explicit cross-section continue-flag. Books are segmented sequentially per book so this flag is the
+# real previous-section result; without it the model falls back to judging continuation from the context.
+PROCESS_CONTINUE_NOTE = (
+    "# CONTINUE PENDING (from the previous section)\n"
+    "The previous section ended with a scene STILL OPEN, and it runs directly into THIS section. So the "
+    "FIRST indexed paragraph here is that scene's CONTINUATION, never a new scene: do NOT put a "
+    "SCENE_START on it. Leave the opening paragraphs unlabelled and wait for the first real "
+    "place/time/POV/goal change before placing your first SCENE_START.\n"
+)
 
 EMBED_PROMPT = ["""
 # ROLE

@@ -27,8 +27,10 @@
 > **SPARSE boundary labelling** (revised): the model marks ONLY boundary paragraphs — `SCENE_START`, one
 > optional trailing `SCENE_CONTINUE`, `NOISE` — and every unlabelled paragraph is implicit continuation;
 > reconstruction walks all indices so scenes + cross-chunk stitch + noise-drop fall out of the merged
-> stream. Sections labelled **in parallel**; the prompt teaches continuation from `read_only_context`
-> (no sequential flag). Soft cap `SOFT_MAX_WORDS=1500`; model targets ~200-1200-word scenes. One door
+> stream. A book's chunks label **sequentially**, threading a real continue-flag (`PROCESS_CONTINUE_NOTE`,
+> when a chunk emits `SCENE_CONTINUE`) into the next chunk; the **driver runs up to `WORKERS` books in
+> parallel** (concurrency/throughput ~unchanged). Soft cap `SOFT_MAX_WORDS=1500`; model targets
+> ~200-1200-word scenes. One door
 > `segment_book(book, md) -> records` folds the pre-gate (via `data.gate_facts`) + labelling +
 > reconstruction; `tests.segment_test` rewired to it. **`scene_title` REMOVED from the schema** (summary
 > suffices) and **`OTHER_SKIP_RATIO` / `content_form` within-book non-prose gate REMOVED** (whole
@@ -297,11 +299,16 @@ open scene, `NOISE` is dropped (never breaks it). An open tail is rejoined by th
 unlabelled opening (the stitch). `stitch_status` (complete | stitched | broken_stitch) is derived from a
 piece's chunk span, not asked of the model.
 
-**Parallel + context continuation** (decided 2026-09-08): sections are labelled INDEPENDENTLY in parallel
-(no cross-section result dependency). The prompt teaches the model to read `read_only_context_paragraphs`
-and, when the previous section ends mid-scene, WITHHOLD the first `SCENE_START` and leave the opening
-paragraphs unlabelled until the first real change — so the carried-over scene stitches. (The sequential
-"inject the previous section's continue-flag" alternative was declined to keep the 6-way parallelism.)
+**Book-parallel, chunks sequential, real continue-flag** (revised 2026-09-08). A book's chunks are
+labelled IN ORDER: after each chunk, `pending = (it emitted a SCENE_CONTINUE)` is fed to the NEXT chunk's
+prompt via `PROCESS_CONTINUE_NOTE` — the explicit cross-section handshake. Told the previous section left
+a scene open, the model withholds the opening `SCENE_START` and leaves the carried-over scene's opening
+unlabelled (it reconstructs as continuation). Parallelism moves to the **driver**
+(`tests.step_two_processing`), which segments up to `WORKERS` **books** at once — concurrency stays ~6
+in-flight calls, so corpus throughput is ~unchanged (a single book alone is slower, its chunks run one at
+a time). `read_only_context` reading is the fallback when there is no flag (a book's first chunk). Chosen
+over chunk-parallel + context-inference so the continue signal is the real previous-section result, not a
+guess from the 3-paragraph context window.
 
 **Soft word cap (deterministic post-process).** After reconstruction, if a scene exceeds `SOFT_MAX_WORDS`
 (=1500), insert a soft cut at the nearest paragraph break (a lone over-cap paragraph kept whole). The LLM
@@ -592,9 +599,14 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   `_scenes_from_labels(order, label_of)` now walks ALL indices (order = every paragraph index): a
   start/continue opens a scene, unlabelled paras fill it, NOISE drops, a leading unlabelled run = broken.
   Cross-chunk stitch = an open tail's unlabelled fill flowing across the boundary (verified: a
-  pass-through all-unlabelled chunk extends the open scene). **Parallel kept** (user chose parallel +
-  context inference over a sequential injected flag); the prompt teaches continuation from
-  `read_only_context`. `PROCESS_PROMPT` re-rewritten to sparse: 2 examples (small noise+trailing-continue;
+  pass-through all-unlabelled chunk extends the open scene). **Book-parallel + real continue-flag** (revised
+  again, user-directed): a book's chunks label SEQUENTIALLY, threading `pending = (chunk emitted a
+  SCENE_CONTINUE)` into the next chunk via `PROCESS_CONTINUE_NOTE` (the explicit cross-section handshake);
+  the DRIVER (`tests.step_two_processing`) runs up to `WORKERS` BOOKS in parallel, so concurrency (~6
+  in-flight) and corpus throughput are ~unchanged (a lone book is slower). `read_only_context` is the
+  fallback when no flag (a book's first chunk). `break_chunk` gained `pending_continue`; `_label_book` is
+  now the sequential flag-threading loop; `segment_book` lost its `workers` param + internal pool.
+  `PROCESS_PROMPT` re-rewritten to sparse: 2 examples (small noise+trailing-continue;
   a bigger multi-scene breakdown with context continuation + interior footnote), ~200-1200-word target.
   Verified: import clean; sparse reconstruction (fill / pass-through stitch / dangling / all-noise),
   stitch statuses, all validation branches, and both prompt examples (sparse, in-range, ≤1 trailing
