@@ -493,6 +493,30 @@ restructure branch.
 - Light edits: confirm §7 invariants; add the single pre-gate door `segment` needs (§5.1).
 - **Checks:** `build_library()` + `ensure_book()` round-trip a book unchanged.
 
+**KICKOFF NOTE (investigated 2026-09-08 — start here).** Phase 3 is **light edits to `data.py` IN PLACE**
+(it is `[KEEP]`, NOT a from-scratch stage file — the from-scratch rule is for segment/enrich/derive/
+index/query). Purely **additive**: add the new door + confirm invariants; do NOT remove `parse_rights`
+or `MetadataParser` yet — `process.py` still imports them and is only deleted in Phase 4.
+- **The coupling to fold (§4.4 `segment → data.parse_rights/metadata`, one door):** today
+  `process.py:8` does `from data import MetadataParser, parse_rights` — TWO symbols — for its pre-gate.
+  `process.presegmentation_gate(code, md, data_path, exclude_dir)` (process.py ~176) reasons over:
+  `parse_rights(code, data_path)` (dc.rights string, `data.py:405`), the book **subjects** (inside `md`,
+  checked against `EXCLUDE_SUBJECT_WORDS`), and `MetadataParser.to_dict(md)` (for the exclusion log).
+  `scenes_to_records` also calls `MetadataParser.to_dict(metadata)`.
+- **Add ONE `data`-side door** returning the pre-gate FACTS the gate reasons over — e.g.
+  `gate_facts(file_code, md, data_path) -> {"rights": str|None, "subjects": [...], "metadata": dict}` —
+  so `segment.py` (Phase 4) imports one door for the gate, not two. Keep the **policy** (public-domain +
+  non-prose thresholds, `EXCLUDE_SUBJECT_WORDS`, exclusion logging) in segment; `data` owns only the
+  parsing/serialization. `build_library()` + `ensure_book()` stay separate legit Stage-1 doors.
+- **Invariants to re-confirm (§7):** global contiguous `Paragraph.index` (`all_paras[k].index == k`);
+  lossless extraction (loose `<p>` → "Front Matter"); lossless `to_dict`/`from_dict` recall round-trip;
+  `_pack` caps (`TARGET_CHARS` / `MAX_PARAGRAPHS`); sharded lazy recall (`ensure_book` per-book shard).
+- **Run/verify (this machine):** `PYTHONPATH=/Users/samuelwu/Code/ProjectAlexandria/src/project_alexandria
+  /Users/samuelwu/Code/ProjectAlexandria/.venv/bin/python …` — `SrcPaths` is `__file__`-anchored so cwd
+  doesn't matter; stores + `logs/` are at the REPO ROOT. Round-trip check: `build_library()` then
+  `ensure_book(<id>)` on one of `tests.FILE_IDS` and compare `to_dict`→`from_dict`. `import data` is clean
+  today (unaffected by the schema wave; `import embed` stays red until Phase 5/7).
+
 ### Phase 4 — `segment.py` (delete `process.py`)
 - Implement per-paragraph boundary classification + reconstruction + stitch + soft cap (§5.2).
 - Port `scenes_to_records` (flattening/stitch) into `segment.py`, rewritten. Delete `process.py`.
