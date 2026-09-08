@@ -15,12 +15,6 @@ from qdrant_client import QdrantClient
 # (download -> segment -> enrich + index), plus search_test / manual_search (read path) and the subject-tree
 # tests. Each ** ENTRY ** function is one you run yourself; their internal calls are annotated inline.
 
-# DORMANT since Phase 4: the within-book non-prose gate rode process.py's per-paragraph `content_form`,
-# which the v4 schema + the new SCENE_START/CONTINUE/NOISE labeller dropped. Whole poetry/play BOOKS are
-# still caught by segment._presegmentation_gate (subject). Reintroduce a within-book "other" signal in
-# Phase 9 if needed; kept here until then.
-OTHER_SKIP_RATIO = 0.70
-
 # ---- test book ids (uncomment a line to include that book) ----
 
 FILE_IDS = [
@@ -229,12 +223,12 @@ def embed_test(file_ids=None):
 
 # ---- search ----
 
-# Print each hit: score, scene id, flavor tags, title, summary, descriptors.
+# Print each hit: score, scene id, flavor tags, summary, descriptors.
 def _show(hits):
     for h in hits:
         p = h.payload
         print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
-              f"/{p.get('intensity')}/{p.get('arc')}]  {p.get('scene_title')}")
+              f"/{p.get('intensity')}/{p.get('arc')}]")
         print(f"     {p.get('summary')}  << {p.get('descriptors')}")
 
 

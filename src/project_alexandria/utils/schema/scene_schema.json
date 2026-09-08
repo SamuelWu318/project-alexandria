@@ -25,7 +25,6 @@
     "word_count":            {"kind": "core", "source": "segment", "json": true, "type": "int",  "default": null,  "sql": {"col": true, "type": "INTEGER", "store": "direct"}},
     "start_paragraph_index": {"kind": "core", "source": "segment", "json": true, "type": "int",  "default": null,  "sql": {"col": true, "type": "INTEGER", "store": "direct"}},
     "end_paragraph_index":   {"kind": "core", "source": "segment", "json": true, "type": "int",  "default": null,  "sql": {"col": true, "type": "INTEGER", "store": "direct"}},
-    "scene_title":           {"kind": "core", "source": "segment", "json": true, "type": "str",  "default": null,  "sql": {"col": true, "type": "TEXT",    "store": "direct"}},
     "chapter_title":         {"kind": "core", "source": "segment", "json": true, "type": "str",  "default": null,  "sql": {"col": true, "type": "TEXT",    "store": "direct"}},
 
     "pov":                   {"kind": "enrichment", "source": "llm",     "json": true, "type": "str",  "default": null, "sql": {"col": true, "type": "TEXT", "store": "direct"}, "filterable": true, "enum": "POV"},

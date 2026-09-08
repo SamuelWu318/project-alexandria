@@ -22,7 +22,7 @@ from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, WORKERS, 
 
 # ---- LLM boundary-classification schema (forced output_labels tool) ----
 
-SOFT_MAX_WORDS = 2000   # mechanical safety valve: split a longer scene at a paragraph break (tunable)
+SOFT_MAX_WORDS = 1500   # mechanical safety valve: split a longer scene at a paragraph break (tunable)
 
 
 class ParagraphLabel(BaseModel):
@@ -275,7 +275,6 @@ def _build_records(book, metadata: dict, label_of: dict) -> list[dict]:
             "book_id": code,
             "prev_scene_id": f"{code}-{i-1}" if i > 0 else None,
             "next_scene_id": f"{code}-{i+1}" if i < last else None,
-            "scene_title": None,                # the label tool authors no title; downstream shows `summary`
             "chapter_title": chapter_of.get(start),
             "stitch_status": _stitch_status(idxs, chunk_of, broken_head),   # complete | stitched | broken_stitch
             "start_paragraph_index": start,

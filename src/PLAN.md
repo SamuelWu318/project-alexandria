@@ -28,9 +28,11 @@
 > scenes, cross-chunk stitch and noise-drop all fall out of the merged global label stream; soft word-cap
 > (`SOFT_MAX_WORDS`) splits over-long scenes at a paragraph break. One door `segment_book(book, md) ->
 > records` folds the pre-gate (via `data.gate_facts`) + labelling + reconstruction; `tests.segment_test`
-> rewired to it. `content_form` / OTHER_SKIP_RATIO within-book non-prose gate is **retired** (content_form
-> left the v4 schema); whole poetry/play books still caught by the subject pre-gate. `scene_title` is now
-> None at segment time (the labeller authors no title; downstream shows `summary`).
+> rewired to it. Soft cap `SOFT_MAX_WORDS=1500`. **`scene_title` REMOVED from the schema** (summary
+> suffices) and **`OTHER_SKIP_RATIO` / `content_form` within-book non-prose gate REMOVED** (whole
+> poetry/play books still caught by the subject pre-gate). **`PROCESS_PROMPT` REWRITTEN** to the
+> boundary-classification framework (forced `output_labels`; cut on place/time/POV/goal, not tone) — no
+> longer deferred; only `EMBED_PROMPT` stays deferred to Phase 5.
 > **▶ NEXT ACTION: Phase 5 — `enrich.py`** (LLM enrichment: richer `summary`, up to 6 `moments` each with
 > per-beat tone+intensity words, `descriptors`, `pov`, `tense`, `prose_word`; from `embed.py` enrich half).
 > Schema wave: `import embed`/`import tests` stay RED on the embed drift assert until Phase 5/7 closes it
@@ -447,10 +449,10 @@ and meet its **done-criteria**. The new stage files are **ground-up rewrites, no
 old code is a *behavior* reference (through Appendix A), not a source to copy lines from; this is how the
 new files actually adopt the house style instead of inheriting old shape. **Diff every phase against
 Appendix A** — that is the keep/change/move/drop checklist for the file(s) it touches; a behavior tagged
-`[KEEP]` there must still work after the phase. **Prompt rewrites are DEFERRED:** `PROCESS_PROMPT` /
-`EMBED_PROMPT` in `llm.py` are the owner's surface and are rewritten to the new framework *after* the
-matching stage code lands (so they target the real tool schemas) — see the RESTRUCTURE NOTE in `llm.py`;
-a stage phase's code may land against the old prompt and is re-pointed when the prompt is rewritten.
+`[KEEP]` there must still work after the phase. **Prompt rewrites (owner's surface) land after the
+matching stage code, so they target the real tool schemas:** `PROCESS_PROMPT` was rewritten in Phase 4
+(boundary classification → `output_labels`); `EMBED_PROMPT` remains DEFERRED to Phase 5 — see the
+RESTRUCTURE NOTE in `llm.py`. A stage phase's code may land first and the prompt is re-pointed to it.
 **Every phase's done-criteria also include: update `CLAUDE.md`'s affected architecture lines (pipeline
 diagram, invariants, ownership, run-reference) + the `docs/` for what the phase landed**, so the
 always-loaded map never lies. The binding house style now lives in `CLAUDE.md` → "Code principles"
@@ -550,7 +552,7 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   `_label_book` merges all chunks' labels into ONE global `{index: label}` — so reconstruction
   (`_scenes_from_labels`) + the cross-chunk stitch fall out of the sorted stream: SCENE_START opens,
   CONTINUE extends, NOISE drops (never breaks a scene), a dangling CONTINUE at stream start = broken.
-  `_cap_split` (soft `SOFT_MAX_WORDS=2000`) + `_stitch_status` (complete | stitched | broken_stitch,
+  `_cap_split` (soft `SOFT_MAX_WORDS=1500`) + `_stitch_status` (complete | stitched | broken_stitch,
   derived from the piece's chunk span). `_build_records` starts from `blank_record()`, joins only kept
   paragraphs (interior noise skipped), chains prev/next ids. One door `segment_book(book, md, …) ->
   records` folds `_presegmentation_gate` (over `data.gate_facts` facts) + `_label_book` + `_build_records`
@@ -559,10 +561,18 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   7-paragraph label stream — noise-drop, cross-chunk stitch, dangling-CONTINUE→broken, soft-cap split
   (broken flag on first piece only), interior-noise-skipped `text_html`/`word_count`, id chain, records
   from `blank_record` (enrichment null, `schema_version` stamped), and all 3 gate branches. **Live LLM
-  segmentation NOT run** — `PROCESS_PROMPT` is stale/deferred (still span-emission wording), so real
-  boundary *quality* awaits the prompt rewrite; the mechanical path is fully exercised without it.
-- **Deferred consequence:** the within-book non-prose `OTHER_SKIP_RATIO` gate is dormant (its
-  `content_form` input is gone from v4); `tests.OTHER_SKIP_RATIO` kept but unused — revisit in Phase 9.
+  segmentation NOT run** — live boundary *quality* is exercised by the owner; the mechanical path is
+  fully verified without it.
+- **Follow-up tweaks (2026-09-08, user-directed):** `SOFT_MAX_WORDS` 2000→**1500**. **`scene_title`
+  REMOVED** from `scene_schema.json` + the segment write + the `tests._show` print (summary suffices; the
+  stale `.get("scene_title")` in evals/webtest/embed are safe no-ops cleaned in their Phase 7/9 rewrites).
+  **`OTHER_SKIP_RATIO` + the within-book non-prose gate REMOVED** (only subjects catch plays/poetry, at
+  the book pre-gate) — `tests.OTHER_SKIP_RATIO` deleted. **`PROCESS_PROMPT` REWRITTEN** (owner surface, at
+  the user's request) to boundary classification: ROLE + the 3 labels + a "what a scene is" section
+  (cut on place/time/POV/goal; a tonal turn is NOT a boundary; non-prose story is still story) + 4 worked
+  examples in the `output_labels` format. Verified: the prompt joins to one string (no `output_scenes`/
+  `content_form`/`open_start_index` left), and every example's `output_labels` JSON validates against
+  `ChunkLabels` and covers exactly its indexed paragraphs. `EMBED_PROMPT` stays deferred to Phase 5.
 
 ### Phase 5 — `enrich.py` (from `embed.py` enrichment half)
 - New `Moment`/`SceneEnrichment` models per §3.4/§5.3; comprehend-before-judge order; drift guard.
@@ -748,11 +758,12 @@ Indexing half → **`index.py`** (via `utils/vectorstore.py`):
 - `main` CLI. **[UPDATE]**.
 
 ### `tests.py` — build + smoke harness → **update (one door per stage)**
-- `FILE_IDS` (10 active). **[KEEP]**. `OTHER_SKIP_RATIO`. **[KEEP]**.
+- `FILE_IDS` (10 active). **[KEEP]**. `OTHER_SKIP_RATIO`. **[DROP — done Phase 4]** (the within-book
+  non-prose gate is gone; only the subject pre-gate catches plays/poetry).
 - `TEST_QUERIES`/`COMBINED_QUERIES`/`MOMENTS_QUERIES`/`DESCRIPTOR_QUERIES`. **[CHANGE]** new query shapes.
 - `subject_sql_test`/`backfill_subject_paths`/`payload_dump_test`. **[KEEP]**.
-- `segment_test` (gate + segment + noise drop + `OTHER_SKIP_RATIO` book gate + records). **[CHANGE]** new
-  segmenter; calls `segment.segment_book` (one door).
+- `segment_test` **[DONE Phase 4]** — rewired to the one door `segment.segment_book` (which folds the
+  gate); the noise/`content_form`/`OTHER_SKIP_RATIO` block is removed.
 - `_load_status`/`_mark_status` (status.json skip). **[KEEP]**.
 - `embed_test`. **[CHANGE]** → enrich + derive + index (the split).
 - `_show`/`search_test`/`manual_search`. **[CHANGE]** new search inputs.
