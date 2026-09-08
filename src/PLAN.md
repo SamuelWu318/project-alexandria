@@ -37,10 +37,37 @@
 > poetry/play books still caught by the subject pre-gate). **`PROCESS_PROMPT` REWRITTEN** to sparse
 > boundary labelling (forced `output_labels`; cut on place/time/POV/goal, not tone; 2 examples) — no
 > longer deferred; only `EMBED_PROMPT` stays deferred to Phase 5.
-> **▶ NEXT ACTION: Phase 5 — `enrich.py`** (LLM enrichment: richer `summary`, up to 6 `moments` each with
-> per-beat tone+intensity words, `descriptors`, `pov`, `tense`, `prose_word`; from `embed.py` enrich half).
-> Schema wave: `import embed`/`import tests` stay RED on the embed drift assert until Phase 5/7 closes it
-> (Phase 5 replaces `SceneEnrichment`); `--check` reports only that lag.
+> **Phase 5 DONE (2026-09-08):** new **`enrich.py`** (from scratch; `embed.py` NOT deleted — that is Phase 7,
+> enrich/derive live beside it). New `Moment` (sentence-first S/V/O/S **+ per-beat `tone` + `intensity`
+> WORDS**, D1) + `SceneEnrichment` (comprehend-before-judge order: `summary` → `moments` → `descriptors` →
+> `pov` → `tense` → `prose_word`; drops scene-level dominant_tone/intensity/arc). Moment cap = 6 (D4). Kept
+> from the embed enrich half: `BatchEnrichment`/`BATCH_TOOL`, `_run_tool` (forced call + retry/temp policy;
+> tool name == `MODEL_PARAMS.tool_choice` so it splats MODEL_PARAMS with NO override), `_plain`, `_batches`
+> (12000/4), `_enrich_batch` (coverage-validate), `_apply` (NEW field set), `enrich_file` (resume/checkpoint,
+> parallel). **DROPPED** the neighbour-tone denorm block (D2). enrich writes **only the LLM fields** — `svos`,
+> the per-facet lists, `vdi_curve`, `dialogue_ratio`, `arc`, `prose_register` are DERIVED (Phase 6). enrich.py
+> imports only `utils` (no feature files). Its import-time drift guard (`{fields}-{index} == schema.LLM_FIELDS`
+> = `{summary, descriptors, moments, pov, tense, prose_word}`) **passes**. **Verified (mechanical, no live
+> LLM):** `import enrich` clean; a realistic tool-args batch validates end-to-end (casing/whitespace on
+> tone/intensity/pov/tense/prose normalized; out-of-vocab words + <3 descriptors + 0 moments rejected;
+> 8 moments capped to 6); `_apply` writes only the LLM fields onto a `blank_record()` leaving every derived
+> field null; `_item_to_dict` is checkpoint-safe (enums → word strings, JSON round-trips). **`--check` is now
+> GREEN** (its `try import enrich` path meets the LLM_FIELDS target); `import embed`/`import tests` stay RED
+> on embed's OWN stale assert until Phase 7 deletes `embed.py`.
+> **`EMBED_PROMPT` REWRITTEN (2026-09-08, user-directed) — Phase 5 fully closed.** Rewritten to the enrich
+> tool schema (comprehend-before-judge; rich multi-clause `summary`; 2-6 **ordered distinct** `moments` each
+> `{sentence,subject,verb,object,setting,tone,intensity}` — the ordered tone/intensity pairs trace the arc,
+> NOT one beat reworded; tone vocabulary listed; `descriptors`; `pov`/`tense`/`prose_word`; `scene_title`
+> input line dropped). 3-element splice list preserved; both worked examples validate against
+> `BatchEnrichment` (coverage + in-vocab). **Live end-to-end confirmed:** one `_enrich_batch` call on two
+> real pg103 scenes returned schema-valid enrichment (rich no-name summaries, distinct ordered beats, in-vocab
+> per-beat tone/intensity, third/past/measured facets). A follow-up (user-directed) then EXPLICITLY ENFORCED
+> archetypal + general values across ALL four parts (subject/verb/object/setting), not just the sentence — in
+> the RULES, the two examples (proper names planted in the sources), and the example reasoning; re-verified
+> live, the pg103 leaks (`Reform Club`/`Saville Row`) now generalize to `townhouse`/`gentlemen's club`/`club`.
+> **▶ NEXT ACTION: Phase 6 — `derive.py`** (mechanical: `svos` from moment sentences; `vdi_curve` from
+> tone/intensity words via `utils.tags`; `dialogue_ratio`; `arc`; per-facet S/V/O/S lists; `prose_register`
+> float — a payload refresh, never a re-enrich).
 
 **What this document is:** the one reference for (a) the redesigned product + data model (§2–§5) and
 (b) the exact, ordered, file-by-file restructure that lands it (§6, checklisted against Appendix A).
@@ -454,8 +481,14 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from search; embed/schema repointed; `import search` clean
 - ✅ 3  `data.py` — `gate_facts` one-door pre-gate added (folds `parse_rights` + `MetadataParser.to_dict`); §7 invariants re-confirmed; purely additive (old symbols kept for `process.py` until Phase 4)
 - ✅ 4  `segment.py` (deleted `process.py`) — SPARSE boundary labelling (SCENE_START / one trailing SCENE_CONTINUE / NOISE; unlabelled = continuation); scenes + cross-chunk stitch + noise-drop fall out of the merged stream; **book-parallel, chunks sequential with a real `PROCESS_CONTINUE_NOTE` flag** (live-verified); `SOFT_MAX_WORDS=1500`, ~200-1200-word target; `scene_title` + `OTHER_SKIP_RATIO` removed; one door `segment_book(book, md) -> records`; `PROCESS_PROMPT` rewritten
-- ☐ **5  `enrich.py`** ← **NEXT**
-- ☐ 6  `derive.py`
+- ✅ 5  `enrich.py` (code) — from scratch: `Moment` (sentence-first S/V/O/S + per-beat tone/intensity WORDS,
+  D1) + `SceneEnrichment` (comprehend-before-judge; drops scene-level tone/intensity/arc; adds pov/tense/
+  prose_word), moment cap 6 (D4); kept `_run_tool`/`_batches`/`_enrich_batch`/`_apply`/`enrich_file`
+  (splat MODEL_PARAMS, no tool override); dropped neighbour-tone denorm (D2); writes LLM fields only
+  (svos/facets/vdi_curve/… are Phase 6). Drift guard passes; `--check` GREEN. `embed.py` kept until Phase 7.
+  **`EMBED_PROMPT` rewritten** (owner surface, user asked) to the enrich tool schema + live-confirmed on two
+  real scenes.
+- ☐ **6  `derive.py`** ← **NEXT**
 - ☐ 7  `index.py` (delete `embed.py`)
 - ☐ 8  `search.py` rewrite
 - ☐ 9  `query.py` + harness + `webtest/`
@@ -612,9 +645,44 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   stitch statuses, all validation branches, and both prompt examples (sparse, in-range, ≤1 trailing
   continue) all pass; a live chunk-17 (P&P) call returns valid sparse labels end-to-end.
 
-### Phase 5 — `enrich.py` (from `embed.py` enrichment half) ← **NEXT**
+### Phase 5 — `enrich.py` (from `embed.py` enrichment half) — ✅ DONE 2026-09-08 (code + EMBED_PROMPT + live-confirmed)
 - New `Moment`/`SceneEnrichment` models per §3.4/§5.3; comprehend-before-judge order; drift guard.
 - **Checks:** enrich a handful of scenes; every LLM field present; words are in-vocabulary.
+- **Landed:** `enrich.py` authored from scratch (imports only `utils`; `embed.py` kept until Phase 7).
+  `Moment` = `{sentence, subject, verb, object, setting, tone, intensity}` — sentence FIRST (write the bound
+  clause, extract S/V/O/S), then per-beat `tone`/`intensity` WORDS (D1), with a `mode="before"` lowercase/trim
+  normalizer so casing variants resolve in-vocab (the `Tone`/`Intensity` enum types reject the rest).
+  `SceneEnrichment` order = `index, summary, moments, descriptors, pov, tense, prose_word` (comprehend →
+  judge); moment cap `MAX_MOMENTS=6` (D4). Kept the embed enrich half rewritten to the new fields:
+  `BatchEnrichment`/`BATCH_TOOL` (`output_enrichment`, strict False), `_retry_note`, `_run_tool` (forced
+  call + fresh-convo retry/temp climb-then-freeze; since the tool name already == `MODEL_PARAMS.tool_choice`
+  it splats `MODEL_PARAMS` with NO per-stage override, unlike segment), `_plain`, `_batches` (12000/4),
+  `_enrich_batch` (drops the removed `scene_title` from the payload; coverage-validate one item/scene),
+  `_item_to_dict` + `_apply` (write LLM fields ONLY), `enrich_file` (resume/checkpoint, parallel, rewrite in
+  place). **DROPPED** the neighbour-tone denorm (D2). `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/
+  `prose_register` are NOT written here — they are derived (Phase 6). Import-time drift guard re-asserted.
+- **Verified (mechanical, no live LLM — as Phase 4):** `import enrich` clean (drift guard passes,
+  `{summary,descriptors,moments,pov,tense,prose_word}`); tool field order == comprehend-before-judge; a
+  realistic tool-args batch round-trips (summary/descriptor normalization; tone/intensity/pov/tense/prose
+  casing+whitespace coerced; out-of-vocab tone, `"third person"`, 2 descriptors, 0 moments all rejected;
+  8 moments → 6); `_apply` onto `blank_record()` sets only the LLM fields, every derived field stays null;
+  `_item_to_dict` JSON round-trips (enums → word strings). `python -m utils.schema --check` **GREEN** (its
+  `try import enrich` path meets `LLM_FIELDS`). `import embed`/`import tests` still RED on embed's own stale
+  assert (Phase 7 deletes `embed.py`).
+- **`EMBED_PROMPT` REWRITTEN (owner surface, user-directed):** now targets the enrich tool schema —
+  comprehend-before-judge; rich multi-clause `summary` (present tense, archetypes, no feeling words); 2-6
+  **ordered DISTINCT** `moments` (NOT one beat reworded — the old scheme), each SVOS-sentence-first + a
+  per-beat `tone` + `intensity` word (ordered pairs = the arc), with the full tone vocabulary listed; 3-5
+  `descriptors`; `pov`/`tense`/`prose_word`; `scene_title` input line dropped. Modelled on `PROCESS_PROMPT`'s
+  structure (ROLE/INPUT/TASK head, `""` retry slot [1], HOW-TO-THINK/RULES/2 worked examples tail). Verified:
+  both examples' `output_enrichment` JSON validate against `BatchEnrichment` (coverage + in-vocab), the
+  3-element splice + `inject_retry_notes` still work, and a **live** `_enrich_batch` on two real pg103 scenes
+  returned schema-valid enrichment end-to-end. The stale RESTRUCTURE NOTE in `llm.py` was replaced with an
+  accurate two-prompt note. **Archetypal/general enforcement (user-directed follow-up):** the "no proper
+  names, generalize to the TYPE" rule now applies EXPLICITLY to all four parts (subject/verb/object/setting),
+  stated in the RULES, both examples (proper names planted in the source prose), and the reasoning; a live
+  re-run generalized the earlier pg103 `Reform Club`/`Saville Row` leaks to `townhouse`/`gentlemen's club`/
+  `club`. Further prompt QUALITY tuning remains the owner's surface.
 
 **KICKOFF NOTE (start here for a cold session).** Phase 5 authors **`enrich.py` FROM SCRATCH** to the
 house style (behavior reference = the `embed.py` enrichment half via Appendix A — do NOT copy-port).
