@@ -24,14 +24,16 @@
 > **Phase 3 DONE (2026-09-08):** `data.py` gained `gate_facts(file_code, md, data_path)` — the single
 > pre-gate door for `segment` (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in the gate).
 > **Phase 4 DONE (2026-09-08):** new **`segment.py`** (from scratch) + **`process.py` DELETED**.
-> Per-paragraph boundary classification (SCENE_START/CONTINUE/NOISE, forced `output_labels` tool);
-> scenes, cross-chunk stitch and noise-drop all fall out of the merged global label stream; soft word-cap
-> (`SOFT_MAX_WORDS`) splits over-long scenes at a paragraph break. One door `segment_book(book, md) ->
-> records` folds the pre-gate (via `data.gate_facts`) + labelling + reconstruction; `tests.segment_test`
-> rewired to it. Soft cap `SOFT_MAX_WORDS=1500`. **`scene_title` REMOVED from the schema** (summary
+> **SPARSE boundary labelling** (revised): the model marks ONLY boundary paragraphs — `SCENE_START`, one
+> optional trailing `SCENE_CONTINUE`, `NOISE` — and every unlabelled paragraph is implicit continuation;
+> reconstruction walks all indices so scenes + cross-chunk stitch + noise-drop fall out of the merged
+> stream. Sections labelled **in parallel**; the prompt teaches continuation from `read_only_context`
+> (no sequential flag). Soft cap `SOFT_MAX_WORDS=1500`; model targets ~200-1200-word scenes. One door
+> `segment_book(book, md) -> records` folds the pre-gate (via `data.gate_facts`) + labelling +
+> reconstruction; `tests.segment_test` rewired to it. **`scene_title` REMOVED from the schema** (summary
 > suffices) and **`OTHER_SKIP_RATIO` / `content_form` within-book non-prose gate REMOVED** (whole
-> poetry/play books still caught by the subject pre-gate). **`PROCESS_PROMPT` REWRITTEN** to the
-> boundary-classification framework (forced `output_labels`; cut on place/time/POV/goal, not tone) — no
+> poetry/play books still caught by the subject pre-gate). **`PROCESS_PROMPT` REWRITTEN** to sparse
+> boundary labelling (forced `output_labels`; cut on place/time/POV/goal, not tone; 2 examples) — no
 > longer deferred; only `EMBED_PROMPT` stays deferred to Phase 5.
 > **▶ NEXT ACTION: Phase 5 — `enrich.py`** (LLM enrichment: richer `summary`, up to 6 `moments` each with
 > per-beat tone+intensity words, `descriptors`, `pov`, `tense`, `prose_word`; from `embed.py` enrich half).
@@ -267,44 +269,53 @@ or a foundation module.
 ### 5.1 Stage 1 — parse (`data.py`)
 
 Largely unchanged. Preserve the invariants (§7): global `Paragraph.index`, lossless extraction, `_pack`
-caps, lossless recall round-trip, sharded lazy recall. The new segmenter is **per-paragraph**, so the
-one thing to guarantee is that a chunk payload cleanly exposes its paragraphs in `index` order with
-stable indices. `segment` should need exactly one door from `data` for its pre-gate (public-domain +
+caps, lossless recall round-trip, sharded lazy recall. The new segmenter labels paragraphs by **global
+index** (and reconstruction walks all indices in order), so the one thing to guarantee is that a chunk
+payload cleanly exposes its paragraphs in `index` order with stable indices. `segment` should need exactly one door from `data` for its pre-gate (public-domain +
 metadata); if it currently reaches for `MetadataParser` *and* `parse_rights`, fold both into a single
 `data`-side helper the gate calls (principle #4).
 
 ### 5.2 Stage 2 — segmentation (`segment.py`, replaces `process.py`)
 
-**New formulation: per-paragraph boundary classification.** For each paragraph in a chunk the LLM emits
-one label — the model reads the whole chunk (global input) but answers locally (per-paragraph output):
+**Formulation: SPARSE boundary labelling** (revised 2026-09-08). The model reads the whole chunk but
+emits a label for ONLY the boundary paragraphs — every unlabelled paragraph is the **implicit
+continuation** of the currently open scene. Three labels:
 
-- `SCENE_START` — a new dramatic unit begins here (place / time / POV / goal shift)
-- `CONTINUE` — same scene as the previous paragraph
-- `NOISE` — apparatus / editorial → dropped
+- `SCENE_START` — a new dramatic unit begins here (place / time / POV / goal shift; a tonal turn is NOT
+  a boundary).
+- `SCENE_CONTINUE` — **at most one per section, the LAST scene marker**: where the section's final scene
+  begins WHEN that scene is still running at the section's end (it spills into the next section).
+- `NOISE` — apparatus / editorial → dropped.
 
-Why this beats span-emission: **coverage is automatic** (exactly one label per paragraph — no gaps,
-overlaps, or out-of-range indices), so the whole coverage-retry apparatus (`_expected_indices` /
-`_validate_coverage`) shrinks to a trivial "every paragraph labelled" check. The retry loop stays only
-for transient API errors + malformed output.
+Why sparse (over one-label-per-paragraph): it is more intuitive for the LLM (mark the seams, not every
+line) and cheaper. Coverage is not required; `_validate_labels` only guards in-range / no-dupes and the
+`SCENE_CONTINUE` contract (≤1, last). The retry loop stays for transient API errors + malformed output.
 
-Scene reconstruction + cross-chunk stitching **fall out of the labels**:
-- Group runs of `CONTINUE` after a `SCENE_START` into one scene.
-- If a chunk's first paragraph is `CONTINUE`, that scene is a **continuation** of the prior chunk's tail
-  (stitch). If the chunk ends mid-scene, that scene is **open-ended** (await the next chunk).
-- `stitch_status` is derived from these edge conditions, not asked of the model.
+Scene reconstruction + cross-chunk stitching **fall out of the merged global stream**: walk ALL paragraph
+indices in order — a `SCENE_START`/`SCENE_CONTINUE` opens a scene, every unlabelled paragraph joins the
+open scene, `NOISE` is dropped (never breaks it). An open tail is rejoined by the next section's
+unlabelled opening (the stitch). `stitch_status` (complete | stitched | broken_stitch) is derived from a
+piece's chunk span, not asked of the model.
 
-**Soft word cap (deterministic post-process).** After labelling, if a reconstructed scene exceeds
-`SOFT_MAX_WORDS`, insert a soft cut at the nearest paragraph break. The LLM finds *dramatic* boundaries;
-the cap is a mechanical safety valve so retrieved scenes never run aggressively long. Accept that a
-capped scene may split one dramatic unit — the moments still capture its beats.
+**Parallel + context continuation** (decided 2026-09-08): sections are labelled INDEPENDENTLY in parallel
+(no cross-section result dependency). The prompt teaches the model to read `read_only_context_paragraphs`
+and, when the previous section ends mid-scene, WITHHOLD the first `SCENE_START` and leave the opening
+paragraphs unlabelled until the first real change — so the carried-over scene stitches. (The sequential
+"inject the previous section's continue-flag" alternative was declined to keep the 6-way parallelism.)
 
-`segment_book(book) -> records` is the single door: it runs the pre-gate, segments every chunk (parallel,
-checkpointed), stitches, applies the cap, drops noise, and returns flat records from
+**Soft word cap (deterministic post-process).** After reconstruction, if a scene exceeds `SOFT_MAX_WORDS`
+(=1500), insert a soft cut at the nearest paragraph break (a lone over-cap paragraph kept whole). The LLM
+targets ~200-1200-word scenes; the cap is a mechanical safety valve. A capped scene may split one
+dramatic unit — the moments still capture its beats.
+
+`segment_book(book, md) -> records` is the single door: it runs the pre-gate, labels every chunk
+(parallel, checkpointed), reconstructs, applies the cap, and returns flat records from
 `schema.blank_record()` (enrichment null). Keep it DB-agnostic. The presegmentation gate
-(US-public-domain via `dc.rights`, non-prose subject) folds inside this door so `tests` calls one thing.
+(US-public-domain via `dc.rights`, non-prose subject, over `data.gate_facts`) folds inside this door.
 
-Prompt (`PROCESS_PROMPT`, owner's surface): rewrite from "flavor-pure scenes" to "dramatic-unit
-boundaries, consistent with scene-craft literature."
+Prompt (`PROCESS_PROMPT`, owner's surface): rewritten to sparse boundary labelling (2 examples — a small
+noise + trailing-continue case, and a bigger multi-scene breakdown with context continuation), cutting on
+place/time/POV/goal, targeting ~200-1200-word scenes.
 
 ### 5.3 Stage 3a — enrichment (`enrich.py`)
 
@@ -573,6 +584,21 @@ or `MetadataParser` yet — `process.py` still imports them and is only deleted 
   examples in the `output_labels` format. Verified: the prompt joins to one string (no `output_scenes`/
   `content_form`/`open_start_index` left), and every example's `output_labels` JSON validates against
   `ChunkLabels` and covers exactly its indexed paragraphs. `EMBED_PROMPT` stays deferred to Phase 5.
+- **Sparse redesign (2026-09-08, user-directed) — supersedes the per-paragraph scheme above:** the model
+  now labels ONLY boundary paragraphs. Label enum → `SCENE_START` / `SCENE_CONTINUE` (≤1, the last scene
+  marker: the section's final still-open scene) / `NOISE`; per-paragraph `CONTINUE` gone — every
+  unlabelled paragraph is implicit continuation. `_validate_labels` rewritten: coverage NOT required;
+  guards in-range / no-dupes and the `SCENE_CONTINUE` contract (≤1, no `SCENE_START` after it).
+  `_scenes_from_labels(order, label_of)` now walks ALL indices (order = every paragraph index): a
+  start/continue opens a scene, unlabelled paras fill it, NOISE drops, a leading unlabelled run = broken.
+  Cross-chunk stitch = an open tail's unlabelled fill flowing across the boundary (verified: a
+  pass-through all-unlabelled chunk extends the open scene). **Parallel kept** (user chose parallel +
+  context inference over a sequential injected flag); the prompt teaches continuation from
+  `read_only_context`. `PROCESS_PROMPT` re-rewritten to sparse: 2 examples (small noise+trailing-continue;
+  a bigger multi-scene breakdown with context continuation + interior footnote), ~200-1200-word target.
+  Verified: import clean; sparse reconstruction (fill / pass-through stitch / dangling / all-noise),
+  stitch statuses, all validation branches, and both prompt examples (sparse, in-range, ≤1 trailing
+  continue) all pass; a live chunk-17 (P&P) call returns valid sparse labels end-to-end.
 
 ### Phase 5 — `enrich.py` (from `embed.py` enrichment half)
 - New `Moment`/`SceneEnrichment` models per §3.4/§5.3; comprehend-before-judge order; drift guard.
