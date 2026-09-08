@@ -21,7 +21,12 @@
 > `weight` retired D3). *(2)* Qdrant contract extracted to **`utils/vectorstore.py`** (the ONE home);
 > `search` / `embed` / `schema` repointed to it — the embed→search coupling is gone and **`import search`
 > is clean again** (legacy weight stack frozen inline in `search.py`, deleted in Phase 8).
-> **▶ NEXT ACTION: Phase 3 — `data.py`** (confirm §7 invariants; fold the pre-gate into one door for `segment`).
+> **Phase 3 DONE (2026-09-08):** `data.py` gained `gate_facts(file_code, md, data_path)` — the single
+> pre-gate door for `segment` (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in the gate);
+> §7 invariants re-confirmed (round-trip / contiguous index verified); purely additive, `parse_rights` +
+> `MetadataParser` kept for `process.py` until Phase 4.
+> **▶ NEXT ACTION: Phase 4 — `segment.py`** (per-paragraph boundary classification; delete `process.py`;
+> its gate imports the one `data.gate_facts` door).
 > Schema wave: `import embed` stays RED on its drift assert until Phase 5/7; `--check` now reports only that lag.
 
 **What this document is:** the one reference for (a) the redesigned product + data model (§2–§5) and
@@ -420,8 +425,8 @@ channel query vectors`, self-labelled from the corpus, same-book hard negatives;
 - ✅ 0c  D1–D5 resolved (§8)
 - ✅ 1  schema + tags (`utils/`) — schema v4 (7 vec, pov/tense, soft facets, float/REAL), tags word→coord tables, weight retired
 - ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from search; embed/schema repointed; `import search` clean
-- ☐ **3  `data.py`** ← **NEXT**
-- ☐ 4  `segment.py` (delete `process.py`)
+- ✅ 3  `data.py` — `gate_facts` one-door pre-gate added (folds `parse_rights` + `MetadataParser.to_dict`); §7 invariants re-confirmed; purely additive (old symbols kept for `process.py` until Phase 4)
+- ☐ **4  `segment.py` (delete `process.py`)** ← **NEXT**
 - ☐ 5  `enrich.py`
 - ☐ 6  `derive.py`
 - ☐ 7  `index.py` (delete `embed.py`)
@@ -489,9 +494,17 @@ restructure branch.
 - **Checks:** `import search`, `import utils.vectorstore` clean.
 - **Done:** the contract has exactly one home; nothing imports it from `search`.
 
-### Phase 3 — `data.py`
+### Phase 3 — `data.py` — ✅ DONE 2026-09-08
 - Light edits: confirm §7 invariants; add the single pre-gate door `segment` needs (§5.1).
 - **Checks:** `build_library()` + `ensure_book()` round-trip a book unchanged.
+- **Landed:** added `data.gate_facts(file_code, md, data_path) -> {"rights", "subjects", "metadata"}`
+  right below `parse_rights` — the ONE door the Phase-4 gate imports instead of both `parse_rights` and
+  `MetadataParser`. `rights` = `parse_rights` (dc.rights), `subjects` = sorted book subjects (non-prose
+  check), `metadata` = `MetadataParser.to_dict(md)` (exclusion-log payload). Policy (public-domain +
+  subject thresholds, `EXCLUDE_SUBJECT_WORDS`, exclusion logging) stays in `segment`; `data` only parses +
+  serializes. Purely additive — `parse_rights` + `MetadataParser` untouched (`process.py` still imports
+  them; deleted in Phase 4). Verified on pg1342: `import data`/`import process` clean, Book `to_dict`↔
+  `from_dict` identical, `all_paras[k].index == k`, `gate_facts` == the two old symbols it folds.
 
 **KICKOFF NOTE (investigated 2026-09-08 — start here).** Phase 3 is **light edits to `data.py` IN PLACE**
 (it is `[KEEP]`, NOT a from-scratch stage file — the from-scratch rule is for segment/enrich/derive/

@@ -400,7 +400,7 @@ class SceneParser:
 _RIGHTS_RE = re.compile(r'name="dc\.rights"\s+content="([^"]*)"', re.I)
 
 
-# ** MAIN ** — process.presegmentation_gate reads the US public-domain gate through here
+# ** MAIN ** — data.gate_facts folds this into the pre-gate door (process.presegmentation_gate still imports it until Phase 4)
 # Search a book's HTML head for the dc.rights <meta> and return its content (opens the -h.zip directly), or None.
 def parse_rights(file_code: str, folder: str) -> str | None:
     try:
@@ -414,6 +414,19 @@ def parse_rights(file_code: str, folder: str) -> str | None:
         return None
     m = _RIGHTS_RE.search(raw)
     return m.group(1).strip() if m else None
+
+
+# ** MAIN ** — segment.presegmentation_gate (Phase 4) reads every pre-gate fact through this one door (§4.4)
+# The facts the pre-segmentation gate reasons over, gathered in one door so segment imports ONE symbol,
+# not both parse_rights and MetadataParser: the dc.rights string (US-public-domain check), the book's
+# subjects (non-prose check), and the serialized metadata (exclusion-log payload). The gate keeps the
+# POLICY (public-domain + subject thresholds, exclusion logging); data only parses + serializes.
+def gate_facts(file_code: str, md: dict, data_path: str = SrcPaths.DATA_DIR) -> dict:
+    return {
+        "rights": parse_rights(file_code, data_path),     # dc.rights <meta> content, or None
+        "subjects": sorted(md.get("Subjects") or []),     # Gutenberg subjects, list form (set → sorted list)
+        "metadata": MetadataParser.to_dict(md),           # list-Subjects copy for the exclusion log
+    }
 
 
 # ** LOCKED **
