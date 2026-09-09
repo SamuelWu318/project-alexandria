@@ -30,7 +30,7 @@ now is the forward specs.
 3. Data model / schema — the target record + the three lanes
 4. Architecture — module map + dependency graph
 5. Stage designs (5.1–5.4 done; **5.5 index → 5.8 HyDE** are the live specs)
-6. Migration plan — Phases 0→10 (0–5 done)
+6. Migration plan — Phases 0→10 (0–6 done)
 7. Invariants
 8. Decisions D1–D5 + ablation
 9. Eval plan
@@ -68,7 +68,7 @@ feel. Beat-level matching happens *inside* the scene via the moment multivector.
 
 ---
 
-## 3. Data model / schema (the target — built in Phase 1; semantics drive Phases 6/8/9)
+## 3. Data model / schema (the target — built in Phase 1; semantics drive Phases 8/9)
 
 ### 3.1 Semantic vectors (Qdrant named vectors)
 
@@ -229,12 +229,26 @@ foundation module.
 
 ### 5.5 Stage 3c — indexing (`index.py`) — **NEXT (Phase 7)**
 
-`index_scenes(file_ids)` (single door). Uses `vectorstore.py` for the Qdrant contract and
-`utils.relational` + `utils.subjects` for SQLite. Order: **SQLite mirror first** (every record, enriched or
-not), then vectors (the 7 named vectors), one `PointStruct` per scene with the full payload (**including**
-`pov`, `tense`, `prose_register`, `dialogue_ratio`, `vdi_curve`, `subject_paths`). `point_id = uuid5(scene_id)`
-so re-runs overwrite. Rebuild explicit (no import-time side effects). Keep the idempotent `derive` call before
-embedding (D-decision, §8).
+`index_scenes(file_ids=None)` (single door; `None` = every `pg*-s.json`). Imports the Qdrant contract from
+`utils.vectorstore` (`COLLECTION`, `VECTOR_NAMES`, `MULTIVECTOR_NAMES`, `SUBJECT_PATHS_FIELD`, `embed`,
+`point_id`, `open_client`, `_as_terms`) and `utils.relational` + `utils.subjects` for SQLite; **imports no
+feature file**. Rebuild is explicit — no import-time side effects.
+
+Per-book flow (one client + one SQLite conn for the whole run):
+1. **`derive.derive_records(records)`** first — the idempotent pre-embed safety net (§8), so no scene is
+   embedded with an un-derived frame/curve. Then persist the derived json back.
+2. **SQLite mirror** via `relational.sql_upsert` — **every** record (enriched or not), unlike the vectors.
+3. **Vectors** — only scenes with a `summary` become points. Embed the **7 named vectors**: `summary` +
+   `descriptors` (single; descriptors joined to one vibe string, summary fallback) and the **5 multivector
+   matrices** `svos`/`subject`/`verb`/`object`/`setting` (one vector per term via `_as_terms`, a 1-row
+   summary matrix when a field is empty). `_ensure_collection` (re)builds the collection if the vector-name
+   set or any field's multivector-ness drifts from the registry; `_ensure_subject_index` adds the
+   `subject_paths` keyword index (inert local, live on server).
+4. **Payload = the full record**, stamped with `subject_paths` (`subjects.suffixes` over the book's
+   `Subjects`) and carrying the soft/hard fields `pov`, `tense`, `prose_register`, `dialogue_ratio`,
+   `vdi_curve`. `point_id = uuid5(scene_id)` so a re-run overwrites the point (no dupes).
+
+Then **delete `embed.py`** and repoint its callers (see §6 Phase 7 for the tests.py scope).
 
 ### 5.6 Stage 4 — search (`search.py`), the read path — Phase 8
 
@@ -320,15 +334,11 @@ rebuild are frozen**, so the adapter learns the final manifold.
 - ✅ 4  `segment.py` (deleted `process.py`) — sparse boundary labelling; book-parallel, chunks sequential
   with a real `PROCESS_CONTINUE_NOTE` flag; `SOFT_MAX_WORDS=1500`; `scene_title` + within-book non-prose gate
   removed; one door `segment_book`; `PROCESS_PROMPT` rewritten.
-- ✅ 5  `enrich.py` (`embed.py` kept until Phase 7) — new `Moment` + `SceneEnrichment` (comprehend-before-
-  judge; drops scene tone/intensity/arc; adds `pov`/`tense`/`prose_word`), moment cap 6; neighbour-tone denorm
-  dropped (D2); writes LLM fields only; `EMBED_PROMPT` rewritten + live-confirmed. Drift guard passes,
-  `--check` GREEN; `import embed`/`import tests` RED until Phase 7.
-- ✅ 6  `derive.py` (`embed.py` kept until Phase 7) — mechanical no-LLM pass filling every `source:"derived"`
-  field: `svos` + the four S/V/O/S facet lists, `vdi_curve`, `prose_register`, `dialogue_ratio`, `arc`.
-  Word→number only in `utils.tags`; two doors `derive_records` (idempotent — index's safety net) / `derive_file`;
-  `import derive` clean. Verified: word→coord == table, dialogue/arc/idempotent checks green, a tags retune
-  refreshes the payload without touching LLM fields; `--check` GREEN, `import embed`/`tests` RED until Phase 7.
+- ✅ 5  `enrich.py` — comprehend-before-judge `SceneEnrichment` (LLM fields only; `pov`/`tense`/`prose_word`,
+  per-moment tone/intensity words, cap 6); `EMBED_PROMPT` rewritten + live-confirmed. Detail in §5.3.
+- ✅ 6  `derive.py` — mechanical no-LLM pass filling every `source:"derived"` field (svos + facets +
+  `vdi_curve`/`prose_register`/`dialogue_ratio`/`arc`); word→number only in `utils.tags`; two idempotent doors.
+  Detail in §5.4. (5 + 6: `embed.py` kept until Phase 7 — `--check` GREEN, `import embed`/`tests` RED till then.)
 - ☐ **7  `index.py`** ← **NEXT** (delete `embed.py`)
 - ☐ 8  `search.py` rewrite
 - ☐ 9  `query.py` + harness + `webtest/`
@@ -345,16 +355,25 @@ surface) land after the matching stage code so they target the real tool schemas
 > full rebuild on the final schema, then Phase 10 (HyDE).
 
 ### Phase 7 — `index.py` (delete `embed.py`) ← NEXT
-- Build Qdrant (7 vectors) + SQLite + subject trie + full payload with the soft fields (§5.5), via
-  `vectorstore.py`. Call `derive.derive_records` as the pre-embed safety net (§5.5). Delete `embed.py` (retire
-  its `_derive_frame`/`derive_frame*` + `_run_tool`/enrich half + `index_*`); repoint any `embed.` caller.
-- **Checks:** `python -m utils.schema --check` **green** (schema wave closes here — `import embed`/`import
-  tests` go GREEN once embed.py is gone + `tests.py` is repointed); one book indexes; payload carries
-  `pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`.
+- **Author `index.py` FROM SCRATCH** to §5.5 (behavior ref = `embed.py`'s index half via Appendix A —
+  `_vec_params`/`_ensure_collection`/`_ensure_subject_index`/`_multivector_field`/`index_records`/`index_scenes`
+  — do NOT copy-port). Payload gains the soft fields; call `derive.derive_records` as the pre-embed safety net.
+- **Delete `embed.py`** — it still holds all three halves (enrich + derive + index) but enrich/derive now live
+  in their own files, so nothing of value is lost.
+- **Minimal `tests.py` repoint (scope-limited — the FULL tests rewrite is Phase 9):** only what makes the
+  imports resolve + the schema wave close. Today tests.py does `from embed import enrich_file, index_records`,
+  `import embed`, and calls `embed.index_scenes()` + `embed._ensure_subject_index`/`_point_id`/`COLLECTION`/
+  `SUBJECT_PATHS_FIELD` (in `backfill_subject_paths`). Repoint: `enrich_file`→`enrich`, `index_records`/
+  `index_scenes`/`_ensure_subject_index`→`index`, the contract symbols (`point_id`/`COLLECTION`/
+  `SUBJECT_PATHS_FIELD`)→`utils.vectorstore`. Leave `embed_test`/query shapes/search inputs for Phase 9.
+- **Checks:** `python -m utils.schema --check` **green** (the schema wave CLOSES here — `import embed` is gone,
+  `import tests` goes GREEN once repointed); `import index` clean; one NEW-schema book indexes; a point's
+  payload carries `pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`/`subject_paths`; SQLite has every
+  record while only enriched scenes are points; a re-run overwrites (no dupes).
 - **Run/verify (this machine):** `PYTHONPATH=src/project_alexandria .venv/bin/python` (from repo root).
   **Caveat:** the existing `logs/.../scenes/pg*-s.json` are OLD-schema (moments lack `tone`/`intensity`), so
-  exercise the pipeline end-to-end on a NEW-schema book — `segment` → `enrich.enrich_file` → `derive.derive_file`
-  → `index_scenes` — or hand-build a `schema.blank_record()` with new-schema `moments`.
+  exercise end-to-end on a NEW-schema book — `segment` → `enrich.enrich_file` → `derive.derive_file` →
+  `index.index_scenes` — or hand-build `schema.blank_record()` records with new-schema `moments`.
 
 ### Phase 8 — `search.py` (rewrite read path)
 - Hard filters: add `pov`/`tense`, retire `tone`/`intensity`/`arc`. Keep semantic + `channel_vectors`.
@@ -441,10 +460,11 @@ Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
 ### `embed.py` index half → `index.py` (via `utils/vectorstore.py`) — **Phase 7 target**
 - `_vec_params`/`_ensure_collection` (named-vector config; drop+rebuild if stale). **[MOVE→index.py]**.
 - `_ensure_subject_index` (`subject_paths` keyword index). **[KEEP→index.py]**.
-- `_multivector_field` (embed svos matrix, summary fallback). **[KEEP→index.py]**.
-- `index_records` (SQLite mirror FIRST, then vectors; payload = full record; stamp `subject_paths`; stable
-  `point_id`). **[KEEP→index.py]**; payload gains the soft fields; 7-vector set. **Keep** the idempotent
-  `derive` call before embedding (safety net, §8).
+- `_multivector_field` (embed a multivector field's per-term matrix, summary fallback — now all 5:
+  svos/subject/verb/object/setting). **[KEEP→index.py]**.
+- `index_records` (SQLite mirror FIRST for every record, then vectors for enriched-only; payload = full record;
+  stamp `subject_paths`; stable `point_id`). **[KEEP→index.py]**; payload gains the soft fields; 7-vector set.
+  **Keep** the idempotent `derive_records` call before embedding (safety net, §8).
 - `index_scenes` (rebuild driver; one client/conn). **[KEEP→index.py]**.
 - Contract imports from `search` (`COLLECTION`, `VECTOR_NAMES`, `MULTIVECTOR_NAMES`, `SUBJECT_PATHS_FIELD`,
   `embed`, `point_id`, `_as_terms`). **[MOVE→utils/vectorstore.py]** (✅ already done Phase 2).
