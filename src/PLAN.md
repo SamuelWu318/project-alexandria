@@ -76,15 +76,19 @@ feel. Beat-level matching happens *inside* the scene via the moment multivector.
 | field | shape | source | notes |
 |---|---|---|---|
 | `summary` | single | LLM | one richer, multi-clause sentence (request register) |
-| `svos` | **multivector** (MAX-SIM) | derived from `moments[].sentence` | the beats |
+| `svos` | **multivector** (MAX-SIM, **order-aware** — §5.9) | derived from `moments[].sentence` | the beats, position-encoded |
 | `descriptors` | single | LLM | open-vocab vibe (holds non-emotions like "analytical") |
-| `subject`/`verb`/`object`/`setting` | **multivector** each | derived from `moments[]` | the 4 facets |
+| `subject`/`verb`/`object`/`setting` | **multivector** each (order-free) | derived from `moments[]` | the 4 facets (unordered sets) |
 
-**Committed set = 7 named vectors** (kept per the 0b ablation, §8). **MAX-SIM is order-independent** (all
-multivectors): scene = matrix (one vector per moment/term), query = matrix (one per beat), score =
-`Σ_qbeat max_scenebeat cos(q, s)`. Do **not** encode sequence into these vectors — beat **order** is carried
-by the ordered `vdi_curve` (§3.3), matched positionally in the stage-3 re-rank (§5.6); the `moments[]`
-payload keeps reading order for display.
+**Committed set = 7 named vectors** (kept per the 0b ablation, §8). **MAX-SIM is order-independent by
+default**: scene = matrix (one vector per moment/term), query = matrix (one per beat), score =
+`Σ_qbeat max_scenebeat cos(q, s)`. **DECISION (2026-09-09, user): `svos` is made ORDER-AWARE** by a
+positional beat encoding (§5.9) — event sequence (waits→shoots→misses) must influence recall, not just the
+affect arc. The four **facet** multivectors stay order-free (they are dedup'd sets, order is meaningless).
+The `vdi_curve` (§3.3) still carries the AFFECT order in the stage-3 re-rank; the `moments[]` payload still
+keeps reading order for display. (This SUPERSEDES the earlier "do not encode sequence into these vectors" —
+which held until the 2026-09-09 decision; verified gap: bge's `summary` vector is only ~1% order-sensitive
+and MAX-SIM `svos` was 0% before this change.)
 
 ### 3.2 Hard facets (payload filter, categorical)
 
@@ -351,6 +355,49 @@ self-labelled from the corpus, same-book hard negatives; v0 = numpy ridge (no de
 (gated on v0 lift). Consumes the `channel_vectors` seam already in `search`. **Do HyDE after the schema +
 rebuild are frozen**, so the adapter learns the final manifold.
 
+### 5.9 Order-aware `svos` — positional beat encoding (decided 2026-09-09) — new work
+
+**Goal:** make event ORDER matter in the `svos` multivector itself (recall time), not only in the affect
+`vdi_curve`. MAX-SIM is permutation-invariant, so order cannot come from the matching — it must be baked
+into each beat vector. Chosen mechanism = **concatenate a normalized-position component** onto every `svos`
+beat vector, so a beat's cosine becomes a tunable blend of semantic + positional agreement. `subject`/`verb`/
+`object`/`setting` are UNCHANGED (order-free sets); this applies to `svos` ONLY.
+
+**Mechanism (index + query must share it):** for a beat at position `k` in a `K`-beat sequence, normalized
+`u = k/(K-1)` (`u=0` when `K=1`; symmetric with the `resample` convention in §5.6). Build the stored/queried
+beat vector as
+```
+v = [ sqrt(1-β) · unit(sem_embed) ;  sqrt(β) · p(u) ]        # β in [0,1);  ||v|| = 1
+p(u) = [cos(π/2 · u), sin(π/2 · u)]                          # unit; p(u1)·p(u2) = cos(π/2·|u1-u2|) in [0,1]
+```
+Then `cos(v_q, v_s) = (1-β)·sem_cos + β·pos_cos`, `pos_cos = 1` at equal normalized position, falling to `0`
+at opposite ends (non-negative — position never flips a sign, only withholds reward). MAX-SIM over the
+augmented beats therefore prefers matches that are BOTH semantically close AND at the same relative position,
+i.e. in-order alignment — **softly**: a strong out-of-order semantic match can still win if its `sem_cos`
+clears the `β` gap. So **`β` is the order-strength ⟷ recall-robustness knob** (`β=0` reproduces today's
+order-free behavior). Query beats build `p(u)` over the QUERY's own length; scene beats over the SCENE's — so
+a 3-beat query's middle beat aligns to a 6-beat scene's middle beat (normalized position, not raw index).
+
+**What changes (all small, but it is a vector-format change ⇒ a re-index):**
+- `utils/vectorstore.py` (contract): `svos` vector size `384 → 384+2`; add the positional-scheme constants
+  (`SVOS_POS_BETA`, the `p(u)` frequency, dims) + a `svos_beat_vectors(sentences) → matrix` helper that both
+  sides call, stamped like `EMBED_MODEL` (index/query MUST agree or scores are junk). The other named vectors
+  keep size 384.
+- `index.py`: build the `svos` matrix through the new helper (positional dims appended per moment, in
+  `moments[]` order). `_ensure_collection` already rebuilds on a vector-size/dims drift — so a re-index
+  re-lays `svos`. Facet vectors untouched.
+- `search.py` `_channel_queries`: build the query `svos` matrix through the SAME helper (append `p(u)` over
+  the query beats) so query and index live in the same space. No other search logic changes; MAX-SIM stays.
+- `query.py`: already supplies ordered `moments`; nothing extra (order is intrinsic to the moment list).
+- **Tune `β` on the gold** (and the `p(u)` frequency): sweep `β ∈ {0, .1, .2, .3}`, confirm an in-order query
+  out-ranks the same beats shuffled, and that book@1/scene@1 do NOT regress vs `β=0`. Ship the smallest `β`
+  that gives a real order signal without a recall drop. `β=0` is always the safe fallback.
+
+**Sequencing:** it is a `svos` **format** change, so it must land WITH a re-index. Do the CODE (vectorstore +
+index + search) as its own step, verify on the SMALL new-schema index (the Phase 9 prerequisite index), then
+the ONE full **Phase 10 rebuild** bakes the positional `svos` corpus-wide. Order-independence of the facets and
+the `channel_vectors` seam are both preserved. See §6 checklist item **8.5**.
+
 ---
 
 ## 6. Migration plan (ordered; one step at a time on `restructure`)
@@ -384,6 +431,9 @@ rebuild are frozen**, so the adapter learns the final manifold.
   (book@1 .86 vs .99), so the projected `max` default was overridden. Consumers trimmed (evals tune stack
   removed; webtest filters→pov/tense; `field_weights` dropped).
 - ☐ **9  `query.py` + harness + `webtest/`** ← **NEXT**
+- ☐ 8.5 order-aware `svos` — positional beat encoding (§5.9). `svos`-format change; code in vectorstore +
+  index + search, verify on the small index, `β` tuned on the gold; the corpus re-lay rides the Phase 10
+  rebuild. (Numbered 8.5 as it extends the Phase-8 search vectors; may land alongside Phase 9 or at Phase 10.)
 - ☐ 10 full rebuild → HyDE
 
 Each phase: **author the new file(s) FROM SCRATCH** to the new design + house style, **delete** the old file,
@@ -467,8 +517,24 @@ Original work order (kept for reference):
   gold-A/B checks still run against the old 7-vector store. Stop the webtest server first (single-process
   Qdrant lock).
 - **Done-criteria:** all checks green; then update the affected `CLAUDE.md` lines (search invariants:
-  pov/tense hard, tone/intensity/arc gone, weight-free `max` blend, the soft re-rank + its knobs) and flip
+  pov/tense hard, tone/intensity/arc gone, weight-free `sum` blend, the soft re-rank + its knobs) and flip
   §6 Phase 8 to ✅.
+
+### Phase 8.5 — order-aware `svos` (positional beat encoding) — new (decided 2026-09-09)
+Full mechanism in **§5.9**. In short: append a normalized-position component `p(u)` to every `svos` beat
+vector so its cosine is `(1-β)·sem + β·pos` — MAX-SIM then prefers same-position (in-order) matches, softly
+(`β` = order-strength ⟷ recall-robustness; `β=0` = today). `svos` ONLY; facets stay order-free.
+- **Code:** `utils/vectorstore.py` gains `svos` size `384+2` + the `SVOS_POS_*` constants + a shared
+  `svos_beat_vectors(sentences)` helper (index + query both call it, stamped like `EMBED_MODEL`); `index.py`
+  builds the stored `svos` matrix through it (moments in order); `search.py` `_channel_queries` builds the
+  QUERY `svos` matrix through it. No MAX-SIM change; facets + the `channel_vectors` seam untouched.
+- **Checks:** an in-order query out-ranks the same beats shuffled (impossible today); `β=0` reproduces the
+  current ranking bit-for-bit; book@1/scene@1 do not regress at the chosen `β` on the gold.
+- **Verify + sequence:** needs a re-index (vector-size drift) — verify on the SMALL new-schema index (Phase 9
+  prerequisite), then the corpus re-lay rides the **Phase 10** rebuild. May land alongside Phase 9 or fold
+  into Phase 10; either way the full corpus is embedded ONCE, with the positional `svos` in place.
+- **Done-criteria:** checks green; update `CLAUDE.md` (the search invariant: `svos` is order-aware via the
+  positional encoding, `β` knob) + §3.1 already flipped; flip §6 item 8.5 to ✅.
 
 ### Phase 9 — `query.py` + harness + `webtest/` ← NEXT
 Phase 9 is the **consumer FEATURE rebuild on the new lanes** — NOT the keep-green trim, which Phase 8
@@ -615,6 +681,8 @@ Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
   `field_weights`; blend is **weight-free**, default **`combine="sum"`** — `max` REGRESSED the 0b gold
   (book@1 .86 vs .99) so it is the A/B alt, NOT the default (overrode this block's originally-projected `max`).
 - `search_frame` **[KEEP]** (facet vectors kept); `_rrf` **[KEEP]**.
+- `_channel_queries` — the query `svos` matrix. **[8.5 CHANGE]** build it through the shared
+  `vectorstore.svos_beat_vectors` so query beats get the same positional encoding as the index (§5.9).
 - `tone_filter`/`intensity_filter`/`arc_filter`. **[DROP]** — replaced by `facet_filter("pov"/"tense")`.
 - `search` (ANDed hard filters + scenes/flavor RRF + `channel_vectors`). **[CHANGE]** swap `tone`/`intensity`/
   `arc` → `pov`/`tense` params, drop `field_weights`; **[NEW]** the `prose`/`dialogue`/`tones` soft kwargs +
@@ -672,6 +740,8 @@ Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
 - `tags.py` **[✅ done Phase 1]** — `POV`/`Tense` added; word→coord tables (tone→VD, intensity→i, prose→register);
   `Tone` is a word→coord lookup, not a hard-filter enum.
 - `vectorstore.py` **[✅ NEW, Phase 2]** — the Qdrant contract, imported by `index.py` (write) + `search.py` (read).
+  **[8.5 CHANGE]** `svos` size `384+2` + `SVOS_POS_*` constants + the shared `svos_beat_vectors(sentences)`
+  positional-encoding helper both sides call (§5.9); the other named vectors keep 384.
 - `relational.py` — mechanics **[KEEP]**; columns follow the new schema.
 - `subjects.py` / `checkpoint.py` / `log.py` / `read_write.py` **[KEEP]**.
 - `storage.py` **[KEEP]**; add new dirs (adapter weights) in Phase 10.
