@@ -60,7 +60,7 @@ def _suffix(path) -> str:
     return DELIM.join(reversed(list(path)))
 
 
-# ** LOCKED **  ** MAIN ** — embed.index_records + tests.backfill stamp these as the Qdrant `subject_paths` label
+# ** LOCKED **  ** MAIN ** — index.index_records + tests.backfill stamp these as the Qdrant `subject_paths` label
 # Every distinct right-anchored prefix across a book's subjects, first-seen order (branch filter labels).
 def suffixes(subject_strings: Iterable[str]) -> list[str]:
     out: list[str] = []

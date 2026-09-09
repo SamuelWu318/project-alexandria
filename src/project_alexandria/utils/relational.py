@@ -26,7 +26,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE scenes ADD COLUMN {col} {typ}")
 
 
-# ** LOCKED **  ** MAIN ** — opened by embed.index_scenes, tests, webtest, schema.sync_db
+# ** LOCKED **  ** MAIN ** — opened by index.index_scenes, tests, webtest, schema.sync_db
 # Open (creating + migrating) the on-disk scene mirror: self-healing DDL, WAL, dict rows.
 def open_db(path: str | Path = SrcPaths.DB_PATH) -> sqlite3.Connection:
     p = Path(path)
@@ -47,7 +47,7 @@ def _to_row(rec: dict) -> tuple:
     return schema.to_row(rec)
 
 
-# ** MAIN ** — called by embed.index_records and schema.sync_db to mirror every record
+# ** MAIN ** — called by index.index_records and schema.sync_db to mirror every record
 # Upsert `records` into the scenes table (INSERT OR REPLACE, one transaction); idempotent on scene_id. Returns rows written.
 def sql_upsert(conn: sqlite3.Connection, records: Iterable[dict]) -> int:
     rows = [_to_row(r) for r in records if r.get("scene_id")]   # every record, enriched or not

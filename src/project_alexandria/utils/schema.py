@@ -292,10 +292,7 @@ def _check() -> int:
         problems.append(f"vectorstore not importable ({type(ex).__name__}: {ex})")
 
     try:
-        try:
-            import enrich as _enr          # Stage-3a home after the embed.py split (Phase 5)
-        except ModuleNotFoundError:
-            import embed as _enr            # pre-split fallback (until Phase 7 deletes embed.py)
+        import enrich as _enr             # Stage-3a home of the enrichment model (the LLM-field drift guard)
         llm = {n for n in _enr.SceneEnrichment.model_fields if n != "index"}
         eq("LLM_FIELDS", set(LLM_FIELDS), llm)
     except Exception as ex:

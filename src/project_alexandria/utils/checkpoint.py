@@ -10,7 +10,7 @@ from utils.read_write import read_json, write_json
 # lifecycle. An optional load/dump codec keeps a typed payload working without dragging that type
 # into the IO layer; a codec error on load counts as corrupt (-> recompute).
 
-# ** LOCKED **  ** MAIN ** — instantiated by process.segment_book and embed.enrich_file
+# ** LOCKED **  ** MAIN ** — instantiated by segment.segment_book and enrich.enrich_file
 class Checkpoint:
 
     # ** LOCKED **

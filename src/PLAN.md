@@ -5,20 +5,20 @@
 > ## ▶ START HERE (new session)
 > 1. Binding house style = `CLAUDE.md` → "Code principles" (readability; comment framework; arrows-down;
 >    one-import-one-method; single-responsibility). It governs every edit. §1 below is a pointer to it.
-> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 7 — `index.py`**).
+> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 8 — `search.py` rewrite**).
 > 3. Read that phase's **§5 stage design** + its **Appendix A** block (the keep/change/move/drop target).
 > 4. Phase loop: **author the new file FROM SCRATCH** to the house style — the old file is a *behavior*
 >    reference only (via Appendix A), NEVER a copy-paste port → delete the old file → run the phase's
 >    **Checks** → meet **Done-criteria** → update the affected `CLAUDE.md` lines.
 > 5. Flip the phase to ✅ in §6, commit. **One phase per session** unless told otherwise; then stop.
 
-**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–6 DONE** (0b kept the 4 facet vectors → 7-vec
+**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–7 DONE** (0b kept the 4 facet vectors → 7-vec
 set; schema v4 + tags + `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling, `process.py`
-deleted; `enrich.py` comprehend-before-judge; `derive.py` mechanical word→number pass — `embed.py` kept
-until Phase 7). Schema wave: `--check` GREEN via `import enrich`, but `import embed`/`import tests` stay RED
-on embed's own stale assert until Phase 7 deletes it. The always-current status table lives in `CLAUDE.md`;
-this file drives the *remaining* work (Phases 7–10). **▶ NEXT: Phase 7 — `index.py`** (§5.5, §6, Appendix A
-embed-index block).
+deleted; `enrich.py` comprehend-before-judge; `derive.py` mechanical word→number pass; `index.py` builds the
+stores + `embed.py` **deleted**). **Schema wave CLOSED at Phase 7:** `python -m utils.schema --check`,
+`import index`, and `import tests` are all GREEN. The always-current status table lives in `CLAUDE.md`;
+this file drives the *remaining* work (Phases 8–10). **▶ NEXT: Phase 8 — `search.py` rewrite** (§5.6, §6,
+Appendix A search block).
 
 **What this document is:** the target product + data model (§2–§5) and the ordered file-by-file restructure
 that lands it (§6, checklisted against Appendix A). Done phases are one line each; the detail that matters
@@ -166,11 +166,11 @@ from the foundation module; neither imports the other.
 | `segment.py` | `process.py` (deleted) | `segment_book(book, md) -> records` | Stage 2 boundary-classification → dramatic-unit scenes | ✅ |
 | `enrich.py` | `embed.py` enrich half | `enrich_file(path)` | Stage 3a LLM enrichment | ✅ |
 | `derive.py` | `embed.py` derive half | `derive_file(path)`, `derive_records(records)` | Stage 3b `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` | ✅ |
-| `index.py` | `embed.py` index half | `index_scenes(file_ids)` | Stage 3c build Qdrant + SQLite + subject trie | **Phase 7** |
+| `index.py` | `embed.py` index half | `index_scenes(file_ids)` | Stage 3c build Qdrant + SQLite + subject trie | ✅ |
 | `search.py` | `search.py` (rewrite) | `search(...)` | Stage 4: hard filter → semantic rank → soft re-rank | Phase 8 |
 | `query.py` | `query.py` (extend) | `run(client, request)` | read front door / normalizer + HyDE hook | Phase 9 |
 
-`embed.py` still exists (enrich/derive/index all still live in it) until **Phase 7 deletes it**.
+`embed.py` is **deleted** (Phase 7): enrich/derive/index now each live in their own file.
 
 ### 4.3 HyDE — `train/` (Phase 10)
 
@@ -227,7 +227,7 @@ foundation module.
   prose_register→dialogue_ratio→arc, arc last as it reads the curve) and `derive_file(path)` (read → derive →
   write). `import derive` clean (only `utils.tags`/`read_write`/`log`).
 
-### 5.5 Stage 3c — indexing (`index.py`) — **NEXT (Phase 7)**
+### 5.5 Stage 3c — indexing (`index.py`) — **DONE (Phase 7)**
 
 `index_scenes(file_ids=None)` (single door; `None` = every `pg*-s.json`). Imports the Qdrant contract from
 `utils.vectorstore` (`COLLECTION`, `VECTOR_NAMES`, `MULTIVECTOR_NAMES`, `SUBJECT_PATHS_FIELD`, `embed`,
@@ -339,8 +339,11 @@ rebuild are frozen**, so the adapter learns the final manifold.
 - ✅ 6  `derive.py` — mechanical no-LLM pass filling every `source:"derived"` field (svos + facets +
   `vdi_curve`/`prose_register`/`dialogue_ratio`/`arc`); word→number only in `utils.tags`; two idempotent doors.
   Detail in §5.4. (5 + 6: `embed.py` kept until Phase 7 — `--check` GREEN, `import embed`/`tests` RED till then.)
-- ☐ **7  `index.py`** ← **NEXT** (delete `embed.py`)
-- ☐ 8  `search.py` rewrite
+- ✅ 7  `index.py` (deleted `embed.py`) — 7-vec Qdrant + SQLite mirror + subject trie; payload gains the
+  hard/soft facets (`pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`) + `subject_paths`;
+  `derive.derive_records` kept as the idempotent pre-embed safety net; `tests.py` repointed. **Schema wave
+  CLOSED** — `--check` / `import index` / `import tests` all GREEN.
+- ☐ **8  `search.py` rewrite** ← **NEXT**
 - ☐ 9  `query.py` + harness + `webtest/`
 - ☐ 10 full rebuild → HyDE
 

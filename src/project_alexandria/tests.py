@@ -4,11 +4,12 @@ import subprocess, os, sys, time, re, contextlib, zipfile
 
 from data import build_library, ensure_book
 from segment import segment_book
-from embed import enrich_file, index_records
-import embed
+from enrich import enrich_file
+from index import index_records
+import index
 import search
 
-from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS
+from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS, vectorstore
 from qdrant_client import QdrantClient
 
 # ---- interactive test / smoke harness (run by hand, not pytest) ----
@@ -110,7 +111,7 @@ def backfill_subject_paths(file_ids=None):
              else sorted(Path(SrcPaths.SCENES_DIR).glob("pg*-s.json")))
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
     try:
-        embed._ensure_subject_index(client)          # inert locally, live on server Qdrant
+        index._ensure_subject_index(client)          # inert locally, live on server Qdrant
         total = 0
         for f in files:
             if not f.exists():
@@ -118,13 +119,13 @@ def backfill_subject_paths(file_ids=None):
             recs = read_json(str(f), [])
             subj = next((r.get("book_metadata") for r in recs if r.get("book_metadata")), None) or {}
             paths = subjects.suffixes(subj.get("Subjects") or [])   # right-anchored branch labels
-            ids = [embed._point_id(r["scene_id"]) for r in recs
+            ids = [vectorstore.point_id(r["scene_id"]) for r in recs
                    if r.get("summary") and r.get("scene_id")]        # only enriched scenes are indexed
             if not ids or not paths:
                 log.skip(f"{f.name}: no indexed points or no subjects — skip")
                 continue
-            client.set_payload(embed.COLLECTION,
-                               payload={embed.SUBJECT_PATHS_FIELD: paths}, points=ids)   # payload-only stamp
+            client.set_payload(vectorstore.COLLECTION,
+                               payload={vectorstore.SUBJECT_PATHS_FIELD: paths}, points=ids)   # payload-only stamp
             total += len(ids)
             log.info(f"{f.name}: stamped {len(ids)} points with {len(paths)} labels")
         log.done(f"backfilled subject_paths onto {total} points across {len(files)} books")
@@ -368,7 +369,7 @@ def main():
     #step_two_processing(FILE_IDS)        # segment
     #step_three_embedding(FILE_IDS)       # enrich + index
     #subject_sql_test()                   # subject-tree smoke
-    embed.index_scenes()
+    index.index_scenes()
     #search_test()
     pass
 
