@@ -126,12 +126,18 @@
   #weights{border-top:1px dashed var(--edge);padding-top:9px;margin-top:2px;display:flex;flex-direction:column;gap:7px}
   .w-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
   .w-ttl{font-weight:600;color:var(--ink)}
-  .w-fields{display:flex;gap:8px;flex-wrap:wrap}
   label.wf{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim)}
   span.wf{color:var(--dim);font-size:10px;display:flex;flex-direction:column;gap:2px}
   span.wf .pair{display:flex;align-items:center;gap:4px}
   .wnum{width:58px;font-family:var(--mono);font-size:12px;padding:4px 6px}
   #weights select{font-size:12px;padding:4px 6px}
+  /* soft sliders + tone curve */
+  #facets input[type=range]{width:92px;vertical-align:middle;accent-color:var(--accent)}
+  .sv{font-family:var(--mono);font-size:11px;color:var(--accent);min-width:28px;display:inline-block}
+  .curve{display:flex;gap:6px;flex-wrap:wrap}
+  .beat{display:flex;flex-direction:column;gap:2px;border:1px solid var(--edge);border-radius:6px;padding:3px 6px;background:var(--panel2)}
+  .beat .bn{font-size:9px;color:var(--dim2);text-transform:uppercase;letter-spacing:.5px}
+  .beat select{font-size:11px;padding:2px 4px}
 </style>
 </head>
 <body>
@@ -189,24 +195,35 @@
 
   <div id="facets">
     <div class="w-head">
-      <span class="w-ttl">🎭 Flavor</span>
-      <label class="wf">tone<select id="fac-tone"></select></label>
-      <label class="wf">intensity<select id="fac-intensity"></select></label>
-      <label class="wf">arc<select id="fac-arc"></select></label>
-      <button class="ghost" id="fac-clear">clear</button>
-      <span class="fw-note">hard pre-filter on the enriched flavor facets (dominant_tone · intensity · arc) — ANDed with the book/subject scope. Only scenes matching every chosen facet can surface.</span>
+      <span class="w-ttl">🎭 Facets</span>
+      <label class="wf">pov<select id="hard-pov"></select></label>
+      <label class="wf">tense<select id="hard-tense"></select></label>
+      <span class="fw-note">HARD pre-filter (pov · tense) — ANDed with the book/subject scope; only scenes matching surface.</span>
+    </div>
+    <div class="w-head">
+      <span class="w-ttl">🎚 Soft</span>
+      <span class="wf">prose<span class="pair"><input type="range" id="soft-prose" min="0" max="1" step="0.05" value="0.5"><span class="sv" id="soft-prose-v">off</span></span></span>
+      <span class="wf">dialogue<span class="pair"><input type="range" id="soft-dialogue" min="0" max="1" step="0.05" value="0.5"><span class="sv" id="soft-dialogue-v">off</span></span></span>
+      <label class="wf"><input type="checkbox" id="soft-on"> apply sliders</label>
+      <button class="ghost" id="soft-clear">clear</button>
+      <span class="fw-note">SOFT re-rank (tilt, never excludes): prose telegraphic↔grand, dialogue level. Sliders bite only with "apply" on; off = inert.</span>
+    </div>
+    <div class="w-head">
+      <span class="w-ttl">📈 Tone curve</span>
+      <span class="curve" id="tone-curve"></span>
+      <button class="ghost" id="curve-clear">clear</button>
+      <span class="fw-note">the affective arc, start→end: pick a tone + intensity per beat (blank beats ignored). Soft re-rank matches the curve shape.</span>
     </div>
   </div>
 
   <div id="weights">
     <div class="w-head">
-      <span class="w-ttl">⚖ Weights</span>
-      <span class="w-fields" id="w-fields"></span>
+      <span class="w-ttl">⚖ Blend</span>
       <label class="wf">combine<select id="w-combine"><option value="sum">sum (blend)</option><option value="max">max (single)</option></select></label>
       <label class="wf">normalize<select id="w-normalize"><option value="zscore">zscore</option><option value="minmax">minmax</option><option value="none">none</option></select></label>
       <span class="wf">scenes / flavor<span class="pair"><input class="wnum" id="w-scenes" type="number" step="0.05" min="0" value="0.4"> / <input class="wnum" id="w-flavor" type="number" step="0.05" min="0" value="0.6"></span></span>
       <button class="ghost" id="w-reset">reset</button>
-      <span class="fw-note">per-channel z-normed vector blend (summary·svos·subject·verb·object·setting), the scenes:flavor RRF split, blend mode + normalization — applied to every query.</span>
+      <span class="fw-note">the scenes:flavor RRF split, weight-free vector blend mode (sum=0b-gold default) + normalization — applied to every query. (Per-field weights retired, D3.)</span>
     </div>
   </div>
 
@@ -259,12 +276,10 @@ const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[
   const bopts = DATA.books.map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join("");
   $("#t-book").innerHTML = `<option value="">— all books —</option>` + bopts;
   $("#c-book").innerHTML = `<option value="">— all books —</option>` + bopts;
-  buildFacetInputs();
+  buildHardInputs();     // pov / tense dropdowns (hard facets)
+  buildToneCurve();      // the tone/intensity beat pickers (soft arc)
+  wireSoft();            // slider readouts + the apply toggle
   updateTRun();
-  const W = await api("/api/weights").catch(()=>null);           // live tuned weights (from evals --tune)
-  if (W && W.field_weights) FIELD_DEFAULTS = Object.assign({}, FIELD_DEFAULTS, W.field_weights);
-  buildWeightInputs();
-  if (W && W.tuned) { const t=document.querySelector(".w-ttl"); if(t) t.textContent="⚖ Weights (tuned)"; }
   await loadFolder();
 })();
 
@@ -330,22 +345,49 @@ function renderFolder(data){
 }
 $("#fld-clear").onclick = ()=>{ FILTER={path:[],books:[],bookId:null}; loadFolder(); };
 
-// the hard pre-filter merged into every search batch: a pinned book wins, else the folder
-// branch travels as the subject_paths label (server turns it into one MatchValue term).
-// The flavor facets (tone/intensity/arc) are ORTHOGONAL — always spread on top, ANDed server-side.
+// the hard pre-filter + soft tilt merged into every search batch: a pinned book wins, else the folder
+// branch travels as the subject_paths label (server turns it into one MatchValue term). The hard facets
+// (pov/tense) + the soft sliders (prose/dialogue/tones) are ORTHOGONAL — always spread on top; the server
+// ANDs the hard ones into the filter and soft-re-ranks the pool by the sliders + the tone curve.
 function filterExtra(){
   const scope = FILTER.bookId ? {book_id: FILTER.bookId}
               : FILTER.path.length ? {subject_path: FILTER.path} : {};
-  return {...scope, ...facetExtra()};
+  return {...scope, ...hardExtra(), ...softExtra()};
 }
-// The chosen flavor facets as {tone?, intensity?, arc?} (empty = "any", omitted).
-function facetExtra(){
+// The chosen HARD facets as {pov?, tense?} (empty = "any", omitted).
+function hardExtra(){
   const out = {};
-  for(const f of ["tone","intensity","arc"]){ const v=$("#fac-"+f).value; if(v) out[f]=v; }
+  for(const f of ["pov","tense"]){ const v=$("#hard-"+f).value; if(v) out[f]=v; }
+  return out;
+}
+// The SOFT tilt as {prose?, dialogue?, tones?}: the prose/dialogue sliders count only when "apply" is on;
+// tones = the beats whose tone is set, as ordered [tone,intensity] WORD pairs (server maps words->numbers
+// through query.py). Nothing set => {} => search skips stage 3 (inert).
+function softExtra(){
+  const out = {};
+  if($("#soft-on").checked){
+    out.prose = parseFloat($("#soft-prose").value);
+    out.dialogue = parseFloat($("#soft-dialogue").value);
+  }
+  const tones = readCurve();
+  if(tones.length) out.tones = tones;
+  return out;
+}
+// The tone curve as ordered [tone, intensity] word pairs (a beat with no tone is skipped).
+function readCurve(){
+  const out=[];
+  for(let i=0;i<CURVE_BEATS;i++){
+    const t=$("#curve-t"+i).value; if(!t) continue;
+    out.push([t, $("#curve-i"+i).value || "moderate"]);
+  }
   return out;
 }
 function facetLabel(){
-  const f=facetExtra(); const parts=["tone","intensity","arc"].filter(k=>f[k]).map(k=>f[k]);
+  const h=hardExtra(); const parts=["pov","tense"].filter(k=>h[k]).map(k=>k+":"+h[k]);
+  const s=softExtra();
+  if(s.prose!=null) parts.push("prose "+s.prose.toFixed(2));
+  if(s.dialogue!=null) parts.push("dia "+s.dialogue.toFixed(2));
+  if(s.tones) parts.push("curve["+s.tones.map(p=>p[0]).join("→")+"]");
   return parts.length ? parts.join(" · ") : null;
 }
 function filterLabel(){
@@ -355,40 +397,53 @@ function filterLabel(){
   return [scope, fac && "🎭 "+fac].filter(Boolean).join(" · ") || null;
 }
 
-// Populate the tone/intensity/arc dropdowns from the live enum vocab (DATA.facets).
-function buildFacetInputs(){
+// Populate the pov/tense HARD-filter dropdowns from the live enum vocab (DATA.facets).
+function buildHardInputs(){
   const fac = DATA.facets || {};
-  for(const f of ["tone","intensity","arc"]){
+  for(const f of ["pov","tense"]){
     const opts = (fac[f]||[]).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
-    $("#fac-"+f).innerHTML = `<option value="">— any —</option>` + opts;
+    $("#hard-"+f).innerHTML = `<option value="">— any —</option>` + opts;
   }
 }
-$("#fac-clear").onclick = ()=>{ for(const f of ["tone","intensity","arc"]) $("#fac-"+f).value=""; };
-
-// ---------- weight tuning (the vector-blend field weights + scenes:flavor RRF split) ----------
-// FIELD_CHANNELS + defaults. FIELD_DEFAULTS is the fallback (schema weights); boot() overwrites it from
-// /api/weights so the panel STARTS at the live tuned weights (what `evals --tune` last wrote). Every batch
-// carries these so the server blends the vector channels (z-normed) under them and RRF-merges scenes vs flavor.
-const FIELD_CHANNELS = ["summary","svos","subject","verb","object","setting"];
-let FIELD_DEFAULTS = {summary:0.25, svos:0.5, subject:0.2, verb:0.1, object:0.15, setting:0.05};
-function buildWeightInputs(){
-  $("#w-fields").innerHTML = FIELD_CHANNELS.map(c=>
-    `<label class="wf">${c}<input class="wnum" id="w-f-${c}" type="number" step="0.05" min="0" value="${FIELD_DEFAULTS[c]}"></label>`).join("");
+// Build CURVE_BEATS beat pickers (tone select + intensity select) into #tone-curve, seeded from the vocab.
+const CURVE_BEATS = 3;
+function buildToneCurve(){
+  const fac = DATA.facets || {};
+  const tOpts = `<option value="">—</option>` + (fac.tone||[]).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const iOpts = (fac.intensity||[]).map(v=>`<option value="${esc(v)}"${v==="moderate"?" selected":""}>${esc(v)}</option>`).join("");
+  const labels = ["start","mid","end"];
+  $("#tone-curve").innerHTML = Array.from({length:CURVE_BEATS},(_,i)=>
+    `<span class="beat"><span class="bn">${labels[i]||("beat "+(i+1))}</span>
+      <select id="curve-t${i}">${tOpts}</select>
+      <select id="curve-i${i}">${iOpts}</select></span>`).join("");
 }
-function readWeights(){
-  const field_weights={}; FIELD_CHANNELS.forEach(c=>{ field_weights[c]=parseFloat($("#w-f-"+c).value)||0; });
+// Live slider readouts + the "apply" toggle (off => readout shows "off", sliders inert).
+function wireSoft(){
+  const upd=()=>{
+    const on=$("#soft-on").checked;
+    for(const f of ["prose","dialogue"])
+      $("#soft-"+f+"-v").textContent = on ? parseFloat($("#soft-"+f).value).toFixed(2) : "off";
+  };
+  $("#soft-on").onchange=upd; $("#soft-prose").oninput=upd; $("#soft-dialogue").oninput=upd;
+  upd();
+}
+$("#soft-clear").onclick = ()=>{ $("#soft-on").checked=false; $("#soft-prose").value=0.5; $("#soft-dialogue").value=0.5; wireSoft(); };
+$("#curve-clear").onclick = ()=>{ for(let i=0;i<CURVE_BEATS;i++){ $("#curve-t"+i).value=""; $("#curve-i"+i).value="moderate"; } };
+
+// ---------- blend knobs (scenes:flavor RRF split + weight-free vector blend mode) ----------
+// Per-FIELD weights are retired (D3) — the only blend knobs are the scenes:flavor RRF split, the vector
+// combine mode (sum = the 0b-gold default / max = greatest single channel) and per-channel normalization.
+function readBlend(){
   return {
-    field_weights,
     method_weights:{scenes:parseFloat($("#w-scenes").value)||0, flavor:parseFloat($("#w-flavor").value)||0},
     combine:$("#w-combine").value,
     normalize:$("#w-normalize").value,
   };
 }
-function resetWeights(){
-  FIELD_CHANNELS.forEach(c=>$("#w-f-"+c).value=FIELD_DEFAULTS[c]);
+function resetBlend(){
   $("#w-scenes").value=0.4; $("#w-flavor").value=0.6; $("#w-combine").value="sum"; $("#w-normalize").value="zscore";
 }
-$("#w-reset").onclick = resetWeights;
+$("#w-reset").onclick = resetBlend;
 
 // ---------- runners ----------
 $("#t-run").onclick = async ()=>{
@@ -435,7 +490,7 @@ async function runBatch(queries, extra, what){
   setStatus(`running ${queries.length} quer${queries.length>1?"ies":"y"} — ${whatF} …`);
   const t0=performance.now();
   // filterExtra() spread LAST so an active folder set (book_ids) overrides any per-tab book_id
-  const {columns} = await post("/api/search_batch", {queries, ...extra, ...filterExtra(), ...readWeights()});
+  const {columns} = await post("/api/search_batch", {queries, ...extra, ...filterExtra(), ...readBlend()});
   renderColumns(columns);
   setStatus(`${whatF} — ${((performance.now()-t0)/1000).toFixed(1)}s`);
 }
@@ -461,7 +516,9 @@ function renderColumns(cols){
       body=`<div class="cards">`+col.results.map(r=>{
         const hit = tgt && String(r.book_id)===String(tgt);
         const chips=[];
-        if(r.dominant_tone) chips.push(`<span class="chip">${esc(r.dominant_tone)}</span>`);
+        const pt=[r.pov,r.tense].filter(Boolean).join(" · ");
+        if(pt) chips.push(`<span class="chip">${esc(pt)}</span>`);
+        if(r.arc) chips.push(`<span class="chip">${esc(r.arc)}</span>`);
         chips.push(`<span class="chip b">${esc(r.book_title||("book "+r.book_id))}</span>`);
         const moms=(r.moments||[]).filter(Boolean);
         const momHtml = moms.length
@@ -510,9 +567,11 @@ async function showScene(i, scroll){
   $("#rd-pos").textContent=`${i+1} / ${WHEEL.length}`;
   const moments=(s.moments||[]).map(m=>esc(m.sentence||"")).filter(Boolean).join("<br>")
       || (s.svos||[]).map(esc).join("<br>");
+  const fmt = x => (x!=null && !isNaN(x)) ? Number(x).toFixed(2) : "—";
   $("#rd-meta").innerHTML=`
     <div class="k">summary</div><div class="v">${esc(s.summary||"—")}</div>
-    <div class="k">flavor</div><div class="v">${esc(s.dominant_tone||"—")} · ${esc(s.intensity||"")} · ${esc(s.arc||"")}</div>
+    <div class="k">facets</div><div class="v">${esc(s.pov||"—")} · ${esc(s.tense||"")} · ${esc(s.arc||"")}</div>
+    <div class="k">soft</div><div class="v frame">prose ${fmt(s.prose_register)} · dialogue ${fmt(s.dialogue_ratio)}</div>
     ${s.descriptors?`<div class="k">descriptors</div><div class="v frame">${esc((s.descriptors||[]).join(", "))}</div>`:""}
     ${moments?`<div class="k">moments</div><div class="v frame">${moments}</div>`:""}
     <div class="k">scene</div><div class="v frame">${esc(s.scene_id)} · ${s.word_count||"?"} words</div>`;

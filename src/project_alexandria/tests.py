@@ -5,9 +5,11 @@ import subprocess, os, sys, time, re, contextlib, zipfile
 from data import build_library, ensure_book
 from segment import segment_book
 from enrich import enrich_file
+from derive import derive_file
 from index import index_records
 import index
 import search
+import query
 
 from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS, vectorstore
 from qdrant_client import QdrantClient
@@ -76,6 +78,18 @@ DESCRIPTOR_QUERIES = [
     ["festive", "glamorous", "restless"],           # Gatsby-party glitter (64317)
     ["claustrophobic", "absurd", "dehumanizing"],
     ["chaotic", "terrifying", "cowardly"],          # Red Badge battle-panic (73)
+]
+
+# front-door requests (query.run): a summary + the SOFT words a writer dials — a prose-register word, a
+# dialogue level, and a tone/intensity word-CURVE (the affective arc). query.py maps the words to numbers.
+# NB: the hard facets (pov/tense) + the soft re-rank only bite on a NEW-schema index (the old store has no
+# pov/prose_register/vdi_curve payload) — on the old store the soft stage is inert and the semantic rank shows.
+SOFT_QUERIES = [
+    {"summary": "An expert hunter waits in hiding, then looses an arrow and barely misses.",
+     "prose": "measured", "dialogue": 0.1,
+     "tones": [("curiosity", "low"), ("suspense", "moderate"), ("excitement", "high")]},  # calm rising to the shot
+    {"summary": "A crowd drifts through a wealthy host's extravagant summer party.",
+     "prose": "lyrical", "tones": [("delight", "moderate"), ("melancholy", "moderate")]},  # festive turning hollow
 ]
 
 # ---- subject tree: SQL table + subject_paths payload ----
@@ -214,8 +228,9 @@ def embed_test(file_ids=None):
             if status.get(code) == "completed":
                 log.skip(f"book {code}: skip embedding (already completed)")
                 continue
-            records = enrich_file(f)              # LLM-enrich in place (resumable), rewrite the json
-            index_records(client, records, conn)  # vectors + relational mirror, in lockstep
+            enrich_file(f)                         # 3a enrich.py: LLM fields in place (resumable), rewrite json
+            records = derive_file(f)               # 3b derive.py: svos/facets/vdi_curve/... in place, rewrite json
+            index_records(client, records, conn)   # 3c index.py: vectors + relational mirror (re-derives idempotently)
             _mark_status(code, "completed")        # persisted so the next run skips it
             log.done(f"book {code}: embedding finished")
     finally:
@@ -225,12 +240,15 @@ def embed_test(file_ids=None):
 
 # ---- search ----
 
-# Print each hit: score, scene id, flavor tags, summary, descriptors.
+# Print each hit: score, scene id, the hard/soft facets (pov · tense · arc · prose · dialogue), summary, descriptors.
 def _show(hits):
     for h in hits:
         p = h.payload
-        print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('dominant_tone')}"
-              f"/{p.get('intensity')}/{p.get('arc')}]")
+        pr = p.get("prose_register"); dr = p.get("dialogue_ratio")
+        prs = f"{pr:.2f}" if isinstance(pr, (int, float)) else "—"
+        drs = f"{dr:.2f}" if isinstance(dr, (int, float)) else "—"
+        print(f"  {round(h.score, 3)}  {p['scene_id']}  [{p.get('pov')}/{p.get('tense')}"
+              f" · {p.get('arc')} · prose={prs} dia={drs}]")
         print(f"     {p.get('summary')}  << {p.get('descriptors')}")
 
 
@@ -260,6 +278,18 @@ def search_test(book_id: str = None, limit: int = 2):
         for descriptors in DESCRIPTOR_QUERIES:
             print(f"\nQUERY: descriptors {descriptors!r}")
             _show(search.search(client, descriptors=descriptors, limit=limit, flt=flt))
+    finally:
+        client.close()
+
+
+# ** ENTRY ** — smoke the read FRONT DOOR (query.run): a summary + soft WORDS -> word->coord -> search().
+def query_test(book_id: str = None, limit: int = 3):
+    client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
+    try:
+        log.step("QUERY.RUN (front door: summary + soft words -> normalized -> search)")
+        for q in SOFT_QUERIES:
+            print(f"\nREQUEST: {q!r}")
+            _show(query.run(client, **q, book_id=book_id, limit=limit))   # query.py maps words -> numbers, then search
     finally:
         client.close()
 
@@ -349,15 +379,23 @@ def step_three_embedding(file_ids):
         embed_test(exist_ids)                    # enrich + index the ones present
 
 
-# ** ENTRY ** — hand-driven read path: run the unified search() over a manual summary/moments/descriptors and print hits.
+# ** ENTRY ** — hand-driven read path: run the unified search() over a manual summary/moments/descriptors +
+# the hard facets (pov/tense) + the soft sliders (prose/dialogue/tones), and print hits. The soft WORDS are
+# mapped to search's numbers by query.py (prose word -> float, tone/intensity word-curve -> [[v,d,i]...]),
+# the SAME converter the app uses. book_id + pov + tense are ANDed into one hard pre-filter.
 def manual_search(summary: str = "", moments=None, descriptors=None,
+                  pov=None, tense=None, prose=None, dialogue=None, tones=None,
                   limit: int = 5, book_id: str = None):
-    log.step(f"SEARCH  summary={summary!r}  moments={moments!r}  descriptors={descriptors!r}")
+    log.step(f"SEARCH  summary={summary!r}  moments={moments!r}  descriptors={descriptors!r}  "
+             f"pov={pov} tense={tense} prose={prose} dialogue={dialogue} tones={tones}")
+    flt = search._and_filters(search.book_filter(book_id),                      # book + pov + tense -> one filter
+                              search.facet_filter("pov", pov), search.facet_filter("tense", tense))
     client = QdrantClient(path=str(SrcPaths.QDRANT_DIR))
     try:
         hits = search.search(client, summary=summary or None, moments=moments,
-                             descriptors=descriptors, limit=limit,
-                             flt=search.book_filter(book_id))
+                             descriptors=descriptors, limit=limit, flt=flt,
+                             prose=query.prose_level(prose),                     # prose WORD -> float
+                             dialogue=dialogue, tones=query.tone_curve(tones))   # tone/intensity WORD-curve -> nums
         _show(hits)
     finally:
         client.close()

@@ -11,8 +11,9 @@ from qdrant_client import QdrantClient
 from utils import SrcPaths, read_json
 from utils import relational
 from utils import subjects          # book-level subject trie (the folder pre-filter)
-from utils import tags              # Tone/Intensity/Arc vocabularies for the facet-filter dropdowns
+from utils import tags              # POV/Tense + tone/intensity/prose vocab for the hard dropdowns + soft controls
 import search
+import query                        # read-path normalizer: owns the soft WORD -> coord mapping (not search)
 
 # ---- local read-path test server (no LLM) ----
 # A tiny stdlib HTTP server that drives the LIVE stores so the gold queries + a browser front end can
@@ -142,13 +143,15 @@ def _card(rec: dict, score: float | None = None) -> dict:
         "book_title": _book_title.get(rec.get("book_id"), ""),
         "pos": rec.get("pos") if "pos" in rec else _pos(rec.get("scene_id", "")),
         "score": round(score, 4) if score is not None else None,
-        "scene_title": rec.get("scene_title"),
+        "scene_title": rec.get("scene_title"),   # gone from the new schema (None) -> client falls back to scene_id
         "chapter_title": rec.get("chapter_title"),
         "summary": rec.get("summary"),
         "moments": [m.get("sentence") for m in (rec.get("moments") or []) if isinstance(m, dict)],
-        "dominant_tone": rec.get("dominant_tone"),
-        "intensity": rec.get("intensity"),
-        "arc": rec.get("arc"),
+        "pov": rec.get("pov"),                    # hard facets
+        "tense": rec.get("tense"),
+        "prose_register": rec.get("prose_register"),   # soft facets
+        "dialogue_ratio": rec.get("dialogue_ratio"),
+        "arc": rec.get("arc"),                    # derived tone-curve shape (display label)
         "word_count": rec.get("word_count"),
         "preview": _preview(rec),
     }
@@ -173,8 +176,9 @@ def _norm(v):
 
 
 # Run ONE query object over the prebuilt filter -> a result column. Never raises: errors ride back in-band.
-# `tuning` carries the batch-level blend knobs (method_weights, combine, normalize); a per-query key
-# overrides it, which overrides the module defaults — so the UI can tune the blend live.
+# `tuning` carries the batch-level blend knobs (method_weights, combine, normalize) + the soft sliders
+# (prose, dialogue, tones); a per-query key overrides it, which overrides the module defaults — so the UI
+# can tune the blend and the soft tilt live. The hard facets (pov/tense) live in `flt`, built once per batch.
 def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | None = None) -> dict:
     mode = q.get("mode", "search")   # echoed back for the UI column header; not a dispatch key
     tuning = tuning or {}
@@ -186,10 +190,16 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | Non
     method_weights = q.get("method_weights") or tuning.get("method_weights") or WEIGHTS  # scenes vs flavor RRF
     combine = q.get("combine") or tuning.get("combine") or "sum"                      # additive (0b-gold default) vs greatest single
     normalize = _norm(q.get("normalize", tuning.get("normalize", "zscore")))          # per-channel scaling
+    # SOFT sliders (tilt, never exclude). The word->coord mapping is query.py's job, not search's: a prose
+    # WORD (or a raw float) -> a float; a tone/intensity word-CURVE -> [[v,d,i]...]; dialogue is a raw float.
+    prose = query.prose_level(q.get("prose", tuning.get("prose")))
+    dialogue = q.get("dialogue", tuning.get("dialogue"))
+    tones = query.tone_curve(q.get("tones", tuning.get("tones")))
     try:
         # ONE unified entry: search() activates the what-happens/frame vector channels (summary + svos +
         # subject/verb/object/setting) and/or the flavor channel (descriptors), runs them over `flt`,
-        # blends the vectors weight-free (combine), then RRF-merges the methods by method_weights.
+        # blends the vectors weight-free (combine), RRF-merges the methods by method_weights, then soft
+        # re-ranks by the prose/dialogue sliders + the tone CURVE.
         pts = search.search(
             _client,
             summary=q.get("summary") or None,
@@ -201,6 +211,7 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | Non
             anti_strength=q.get("anti_strength", 1.0),
             method_weights=method_weights,
             combine=combine, normalize=normalize,
+            prose=prose, dialogue=dialogue, tones=tones,   # stage-3 soft tilt (pov/tense hard live in flt)
             flt=flt, exact=exact, limit=limit,
         )
         results = [_card(p.payload, p.score) for p in pts]           # scene cards, scored
@@ -245,11 +256,14 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/datasets":
             tq = json.loads((GOLD / "test_queries.json").read_text())["test_queries"]
             dq = json.loads((GOLD / "descriptor_queries.json").read_text())["descriptor_queries"]
-            # live enum vocab for the tone/intensity/arc hard-filter dropdowns (source of truth = tags.py)
-            facets = {"tone": [t.value for t in tags.Tone],
-                      "intensity": [t.value for t in tags.Intensity],
-                      "arc": [t.value for t in tags.Arc]}
-            return self._json({"test_queries": tq, "descriptor_queries": dq, "facets": facets,
+            # live enum vocab (source of truth = tags.py): pov/tense drive the HARD dropdowns; tone/intensity
+            # drive the SOFT tone-curve control; prose_register labels the SOFT prose slider.
+            vocab = {"pov": [t.value for t in tags.POV],
+                     "tense": [t.value for t in tags.Tense],
+                     "tone": [t.value for t in tags.Tone],
+                     "intensity": [t.value for t in tags.Intensity],
+                     "prose_register": [t.value for t in tags.ProseRegister]}
+            return self._json({"test_queries": tq, "descriptor_queries": dq, "facets": vocab,
                                "books": [{"book_id": b, "title": t} for b, t in sorted(_book_title.items())]})
         if p == "/api/weights":
             # per-field weights RETIRED (PLAN D3): the semantic blend is weight-free. Legacy stub kept so
@@ -308,9 +322,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/search_batch":
             limit = int(body.get("limit", 8))
             queries = body.get("queries", [])
-            # batch-level blend tuning applied to every query (a per-query key still overrides)
+            # batch-level blend + soft tuning applied to every query (a per-query key still overrides)
             tuning = {"method_weights": body.get("method_weights"),
-                      "combine": body.get("combine"), "normalize": body.get("normalize")}
+                      "combine": body.get("combine"), "normalize": body.get("normalize"),
+                      "prose": body.get("prose"), "dialogue": body.get("dialogue"),
+                      "tones": body.get("tones")}   # soft sliders (words/floats -> numbers in _run_query)
             # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a single
             # pinned book (book_id). Its book count comes from the SQL tree and drives exact-vs-walk.
             subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]

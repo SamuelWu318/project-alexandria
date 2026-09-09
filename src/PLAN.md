@@ -1,361 +1,110 @@
 # PLAN.md — Project Alexandria restructure
 
-**Branch:** `restructure` · **Execution manual** — a fresh session can pick it up cold.
+**Branch:** `restructure` · **Execution manual for the REMAINING work** (Phases 8.5 + 10). Phases 0–9 are
+DONE — the built code + `CLAUDE.md` invariants + the memory files are the reference for those; this file now
+drives only order-aware `svos` (8.5) and the full rebuild → HyDE (10).
 
 > ## ▶ START HERE (new session)
 > 1. Binding house style = `CLAUDE.md` → "Code principles" (readability; comment framework; arrows-down;
->    one-import-one-method; single-responsibility). It governs every edit. §1 below is a pointer to it.
-> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 9 — `query.py` + harness + `webtest/`**).
-> 3. Read that phase's **§5 stage design** + its **Appendix A** block (the keep/change/move/drop target).
-> 4. Phase loop: **author the new file FROM SCRATCH** to the house style — the old file is a *behavior*
->    reference only (via Appendix A), NEVER a copy-paste port → delete the old file → run the phase's
->    **Checks** → meet **Done-criteria** → update the affected `CLAUDE.md` lines.
-> 5. Flip the phase to ✅ in §6, commit. **One phase per session** unless told otherwise; then stop.
+>    one-import-one-method; single-responsibility). It governs every edit.
+> 2. **Current phase = first §4 checklist entry not ✅ → now Phase 8.5 (order-aware `svos`), then Phase 10.**
+> 3. Read that phase's spec — **8.5 = §3.2 (full mechanism)**, **10 = §3.1 + the module map in §1**. Then:
+>    author to the house style, run the phase's **Checks**, meet **Done-criteria**, update the affected
+>    `CLAUDE.md` lines, flip ✅ in §4, commit. **One phase per session** unless told otherwise.
+> 4. Running modules on this machine + the old-store caveat: memory `reference-restructure-run-verify`.
 
-**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–8 DONE** (0b kept the 4 facet vectors → 7-vec
-set; schema v4 + tags + `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling, `process.py`
-deleted; `enrich.py` comprehend-before-judge; `derive.py` mechanical word→number pass; `index.py` builds the
-stores + `embed.py` **deleted**; `search.py` 4-stage read path — hard `pov`/`tense` → semantic → soft
-re-rank — weight stack deleted, default blend `combine="sum"` per the 0b gold). **Schema wave CLOSED at
-Phase 7:** `python -m utils.schema --check`, `import index`, `import tests`, `import search`, `import evals`
-are GREEN. The always-current status table lives in `CLAUDE.md`; this file drives the *remaining* work
-(Phases 9–10). **▶ NEXT: Phase 9 — `query.py` normalizer + harness + `webtest/` slider UI** (§5.7, §6).
-
-**What this document is:** the target product + data model (§2–§5) and the ordered file-by-file restructure
-that lands it (§6, checklisted against Appendix A). Done phases are one line each; the detail that matters
-now is the forward specs.
-
-### Contents
-1. Design principles — pointer to `CLAUDE.md`
-2. Usage model — the bounty-hunter north star
-3. Data model / schema — the target record + the three lanes
-4. Architecture — module map + dependency graph
-5. Stage designs (5.1–5.4 done; **5.5 index → 5.8 HyDE** are the live specs)
-6. Migration plan — Phases 0→10 (0–6 done)
-7. Invariants
-8. Decisions D1–D5 + ablation
-9. Eval plan
-- **Appendix A** — per-file keep/change/move/drop (done files collapsed; pending files full)
+**STATUS:** design frozen · D1–D5 + the 0b ablation resolved (§6). **Phases 0–9 DONE** (§2): schema v4 + tags
++ `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling (`process.py` deleted); `enrich.py` /
+`derive.py` / `index.py` (Stage-3 split, `embed.py` deleted); `search.py` 4-stage read path (hard `pov`/`tense`
+→ semantic → soft re-rank, weight-free `combine="sum"`); `query.py` single-beat + soft word→coord + the
+split-door harness + the webtest slider/pov-tense UI. `import query/evals/tests/search` GREEN
+(`import webtest.server` still fails on the OLD on-disk `scenes.db` — `no such column: pov` — until the
+Phase 10 rebuild). **▶ NEXT: Phase 8.5 (order-aware `svos`, §3.2); then Phase 10 (rebuild → HyDE, §3.1).**
 
 ---
 
-## 1. Design principles (binding)
+## 1. Design + data model (frozen — the built reference)
 
-Live in `CLAUDE.md` → "Code principles" — read them there. In one line each: **readability is the
-product**; **keep the comment framework**; **arrows point downward** (helpers above callers, entries last);
-**one import = one method** (push composition to the owner; foundation/contract modules exempt); **single
-responsibility per file**. They override convenience; if one ever fights genuine best practice, best
-practice wins and you note the exception inline.
+**House style (binding, `CLAUDE.md` → "Code principles"):** readability first; the comment framework;
+arrows-down (helpers above callers, entries last); **one import = one method** (push composition to the
+owner; foundation/contract modules exempt); single responsibility per file.
+
+**North star (grounds the lanes):** a writer wants a scene by FEEL and by WHAT HAPPENS. Example — "an expert
+hunter analytically waits in hiding, before shooting his bow and barely missing" · 3rd/past · low dialogue ·
+"low intensity rising to the bow shot" · "a logical feel." A request splits into **three lanes**: SEMANTIC
+(free text → summary + svos beats + descriptors, vectors), HARD facets (book/pov/tense — exclude, never
+softened), SOFT facets (prose register, dialogue level, tone CURVE — tilt, never exclude). The unit returned
+is a **scene** (a dramatic unit with an arc); beat matching happens INSIDE it via the moment multivector.
+
+**Schema (v4, frozen — `utils/schema/scene_schema.json` is the single source).** ONE Qdrant collection
+`scenes`, **7 named vectors**: `summary` + `descriptors` (single, LLM) and `svos` + `subject`/`verb`/`object`/
+`setting` (multivector, MAX-SIM, derived from `moments[]`). `svos` = the moment sentences (**order-aware after
+8.5, §3.2**); the four facets stay order-free (dedup'd sets). Hard facets `book_id`/`pov`/`tense` (payload
+filter). Soft facets `prose_register` (float), `dialogue_ratio` (float), `vdi_curve` (list of `[v,d,i]`) — the
+affective arc, matched by curve distance. **Moments carry the arc:** each `moment = {sentence, subject, verb,
+object, setting, tone, intensity}`, `tone`/`intensity` are LLM-picked WORDS → `(v,d,i)` via `tags.py` →
+`vdi_curve`. **Store the word, derive the number** (retuning a `tags.py` coord = a `derive` payload refresh,
+never a re-enrich). SQLite mirror (`relational.py`) beside the vectors, joined on `scene_id`, holds EVERY
+record for exact-match / COUNT / navigation.
+
+**Read path** = one `search.search()` (4 stages: hard filter → semantic pool → soft re-rank → slice), fed by
+the `query.run` front door. Semantic blend is WEIGHT-FREE, default `combine="sum"` (the 0b gold demoted
+`max`, §6). `query.py` is SINGLE-BEAT (whole summary = one scene target; NO qsplit / facet extraction — both
+built, tried, DELETED, do not resurrect) and owns the soft **word→coord** (tone/intensity word-curve → numeric
+`tones`; prose word → `prose`; `dialogue` + pov/tense passthrough) — `search` stays pure-numeric (no `tags`
+import). Multi-beat is a separate, caller-built future feature.
+
+**Module map + one door each** (arrows = "imports one door from"):
+```
+data     Stage 1 parse + recall + gate_facts        data ──> (utils)
+segment  Stage 2 boundary-classify -> records       segment ──> data.gate_facts , utils.llm/schema
+enrich   Stage 3a LLM enrich (enrich_file)          enrich  ──> utils.llm/schema
+derive   Stage 3b word->number (derive_records/_file) derive ──> utils.tags , utils.schema
+index    Stage 3c build stores (index_scenes/_records) index ──> vectorstore , relational/subjects
+search   Stage 4 read (search)                      search  ──> vectorstore , utils.schema
+query    read front door (run) + HyDE hook          query   ──> search.search , utils.tags
+train/   HyDE adapter (Phase 10)                     train   ──> search channel_vectors seam
+tests / evals / webtest ──> the stage doors + search.search + query.run (one door each)
+```
+No feature file imports another feature file's internals. `utils/`: `storage` (paths = `SrcPaths`, everything
+under `logs/test/`), `read_write`, `checkpoint`, `log`, `llm` (client/model/prompts — owner's surface),
+`schema` (single source of truth), `tags` (enums + word→coord), `vectorstore` (Qdrant contract — read+write
+share it), `relational`, `subjects`.
 
 ---
 
-## 2. Product / usage model
+## 2. What's built (Phases 0–9) — the ✅ log
 
-North star (grounds every schema/segmentation choice):
+Detail for any done phase = the code + `CLAUDE.md` invariants + memory `project-restructure-plan`.
 
-> A bounty hunter shifts from patient expert hunting into a quick messy chase = **two scenes**. For the first:
-> **Free text:** "an expert hunter analytically waits in hiding, before shooting his bow and barely missing."
-> **Controls:** 3rd person · past · low dialogue · "low intensity rising to the bow shot" · "a logical feel."
-
-A request splits into **three lanes**:
-- **Semantic (rank by meaning):** the free text — a multi-clause summary containing an ordered beat
-  sequence ("waits" → "shoots" → "misses") plus feeling words ("analytically").
-- **Hard facets (exclude):** POV, tense, book. Never softened.
-- **Soft facets (tilt, never exclude):** prose register, dialogue level, and a **tone curve** ("low rising
-  to a peak at the shot") — an affective trajectory, not a scalar.
-
-The unit returned is a **scene** (a dramatic unit with an internal arc) the writer studies to reuse its
-feel. Beat-level matching happens *inside* the scene via the moment multivector.
+- **0** scaffolding + 0b ablation (KEEP the 4 facet vectors → 7-vec set, §6) + D1–D5 resolved (§6).
+- **1** schema v4 + `tags` (7 vec; pov/tense hard; prose_register/dialogue_ratio/vdi_curve soft; `weight` retired, D3).
+- **2** `utils/vectorstore.py` — Qdrant contract extracted (killed the embed→search coupling).
+- **3** `data.gate_facts` one-door pre-gate (public-domain + subject).
+- **4** `segment.py` sparse boundary labelling (book-parallel, sequential chunks + continue-flag); `process.py` deleted.
+- **5** `enrich.py` comprehend-before-judge (LLM fields only; moment cap 6; per-beat tone/intensity words).
+- **6** `derive.py` mechanical word→number (svos/facets/vdi_curve/prose_register/dialogue_ratio/arc; idempotent).
+- **7** `index.py` builds 7-vec Qdrant + SQLite + subject trie; `embed.py` deleted; schema wave CLOSED.
+- **8** `search.py` 4-stage read path; per-field weight stack deleted (D3); soft re-rank; **`combine="sum"` default** (`max` regressed the 0b gold, book@1 .86 vs .99).
+- **9** `query.py` soft word→coord + split-door harness (`enrich_file`→`derive_file`→`index_records`) + webtest sliders/tone-curve/pov-tense. Verified synthetic + 0b gold unchanged; **live webtest UI deferred to the Phase 10 rebuild** (old-schema on-disk stores).
 
 ---
 
-## 3. Data model / schema (the target — built in Phase 1; semantics drive Phases 8/9)
+## 3. Remaining specs
 
-### 3.1 Semantic vectors (Qdrant named vectors)
+### 3.1 HyDE — learned adapter (`train/`, Phase 10)
 
-| field | shape | source | notes |
-|---|---|---|---|
-| `summary` | single | LLM | one richer, multi-clause sentence (request register) |
-| `svos` | **multivector** (MAX-SIM, **order-aware** — §5.9) | derived from `moments[].sentence` | the beats, position-encoded |
-| `descriptors` | single | LLM | open-vocab vibe (holds non-emotions like "analytical") |
-| `subject`/`verb`/`object`/`setting` | **multivector** each (order-free) | derived from `moments[]` | the 4 facets (unordered sets) |
+`train/`: `build_dataset.py` · `fit_adapter.py` (v0 numpy ridge) · `query_adapter.py` · `train_adapter.py`
+(v1 torch, gated). Generation-free `g(beat) → channel query vectors`, self-labelled from the corpus (each
+scene's `summary` = complex variant, `moments[].sentence` = medium, subject+verb+object = sparse, all
+targeting that scene's stored `summary` vector; same-book scenes = hard negatives); v0 = numpy ridge (no
+deps, closed-form), v1 = torch InfoNCE (gated on v0 lift). Feeds `search` via the `channel_vectors` seam
+(already built — `search`/`search_scenes`/`score_channels`/`_channel_queries` take `channel_vectors={name:
+vec}`, a supplied vector overrides the text-derived one, default None = unchanged). **Do HyDE AFTER the schema
++ rebuild are frozen**, so the adapter learns the final manifold. Adds an adapter-weights dir under
+`storage.py`. Full plan: memory `project-query-normalizer`.
 
-**Committed set = 7 named vectors** (kept per the 0b ablation, §8). **MAX-SIM is order-independent by
-default**: scene = matrix (one vector per moment/term), query = matrix (one per beat), score =
-`Σ_qbeat max_scenebeat cos(q, s)`. **DECISION (2026-09-09, user): `svos` is made ORDER-AWARE** by a
-positional beat encoding (§5.9) — event sequence (waits→shoots→misses) must influence recall, not just the
-affect arc. The four **facet** multivectors stay order-free (they are dedup'd sets, order is meaningless).
-The `vdi_curve` (§3.3) still carries the AFFECT order in the stage-3 re-rank; the `moments[]` payload still
-keeps reading order for display. (This SUPERSEDES the earlier "do not encode sequence into these vectors" —
-which held until the 2026-09-09 decision; verified gap: bge's `summary` vector is only ~1% order-sensitive
-and MAX-SIM `svos` was 0% before this change.)
-
-### 3.2 Hard facets (payload filter, categorical)
-
-`book_id` · `pov` (enum, LLM) · `tense` (enum, LLM). Reuse the `facet_filter` payload machinery.
-`tone`/`intensity`/`arc` **leave** hard filtering.
-
-### 3.3 Soft facets (payload scalars, stage-3 re-rank)
-
-| field | shape | source | notes |
-|---|---|---|---|
-| `prose_register` | float 0–1 | LLM **word** → coord | clipped/telegraphic ↔ grand/metaphorical |
-| `dialogue_ratio` | float 0–1 | **derived** (quote ratio in `text_html`) | no LLM cost |
-| `vdi_curve` | list of `[v,d,i]` | **derived** from `moments[]` words | the affective arc; matched by curve distance (§5.6) |
-
-### 3.4 Moments carry the arc (the load-bearing change)
-
-```
-moment = { sentence, subject, verb, object, setting,   # what happens
-           tone, intensity }                           # affect, as LLM-picked WORDS
-```
-- `tone` word → **(valence, dominance)** via a `tags.py` table (circumplex/VAD; dominance separates
-  *terror* (low, victim) from *menace* (high, threat)).
-- `intensity` word → **i** = presence/tension (faint wash ↔ dominates every line). Kept **separate** from
-  the emotion's inherent arousal so a scene can read *low-intensity focused* → *rising tension* while the
-  emotion stays analytical. This is the "low rising to the shot."
-- `vdi_curve` = the ordered `[(v,d,i)]` over the moments = the arc.
-
-**D1 (resolved):** tone and intensity are **separate words per moment** — two words, three axes;
-`vdi_curve[k] = (v_k, d_k, i_k)`.
-
-### 3.5 Two rules that make this cheap
-
-- **Store the word, derive the number.** Records hold the LLM's *word*; the numeric coord is looked up from
-  a `tags.py` table and denormalized into the payload (`vdi_curve`, `prose_register`) at **derive** time.
-  Re-tuning a slider position = a **payload refresh (no re-enrichment)**; only changing the *vocabulary*
-  costs a re-enrich.
-- **Derived, not guessed.** `arc`, scene-level intensity, `dialogue_ratio`, `vdi_curve` are all derived. The
-  LLM only picks words per beat; the scene shape falls out mechanically and stays consistent with the beats.
-
-### 3.6 Dropped / demoted
-
-- `dominant_tone`, scene `intensity`, `arc` — no longer LLM-authored and no longer hard filters. Keep `arc`
-  only as an optional derived display label.
-- **D2 (resolved): drop `prev_tone`/`next_tone`.** The two-scene / spanning feature is a future,
-  **summary-first** read-path feature: match scene 1 by `summary`, follow `next_scene_id`, test scene 2's
-  `summary` against a threshold, only then weigh affect. Needs no denormalized neighbour field —
-  `next_scene_id` + the indexed `summary` vectors compose it at read time. So no neighbour-tone denorm.
-
-### 3.7 Schema plumbing — **done in Phase 1**
-
-`float` field type → SQLite `REAL` + codec; derived lists regenerated from `scene_schema.json`; per-field
-`weight` retired (D3 — `DEFAULT_WEIGHTS` + parity check gone from `schema.py`; the whole per-field-weight
-tuning stack removed from `evals.py`). Search tunes with `method_weights` + the soft-rank knobs (§5.6).
-
----
-
-## 4. Target architecture (module map)
-
-### 4.1 Foundation — `utils/`
-
-| file | responsibility | change |
-|---|---|---|
-| `storage.py` | all paths (`SrcPaths`) | add new dirs (adapter weights) |
-| `read_write.py` / `checkpoint.py` / `log.py` | IO / resumable cache / logging | none |
-| `llm.py` | client / model / prompts / error policy / `inject_retry_notes` | prompts rewritten (owner's surface) |
-| `schema.py` | single source of truth (loads `scene_schema.json`, reconcile) | ✅ new `float`/`REAL`, new field set |
-| `tags.py` | enums + word→coord tables (tone→VD, intensity→i, prose→register) + `POV`/`Tense` | ✅ expanded |
-| `relational.py` | SQLite scene mirror | columns follow schema |
-| `subjects.py` | subject-path trie | none |
-| `vectorstore.py` | **✅ NEW.** Qdrant contract (`COLLECTION`, named-vector config, `EMBED_MODEL`, `QUERY_PREFIX`, `embed`, `point_id`, `open_client`, filter builders, `SUBJECT_PATHS_FIELD`) | extracted from `search.py` |
-
-`vectorstore.py` removed the old `index → search` (write → read) coupling: both sides import the contract
-from the foundation module; neither imports the other.
-
-### 4.2 Pipeline — `src/project_alexandria/`
-
-| file | replaces | one door | responsibility | status |
-|---|---|---|---|---|
-| `data.py` | `data.py` (kept) | `build_library()`, `ensure_book()`, `gate_facts()` | Stage 1 parse + recall + pre-gate | ✅ |
-| `segment.py` | `process.py` (deleted) | `segment_book(book, md) -> records` | Stage 2 boundary-classification → dramatic-unit scenes | ✅ |
-| `enrich.py` | `embed.py` enrich half | `enrich_file(path)` | Stage 3a LLM enrichment | ✅ |
-| `derive.py` | `embed.py` derive half | `derive_file(path)`, `derive_records(records)` | Stage 3b `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` | ✅ |
-| `index.py` | `embed.py` index half | `index_scenes(file_ids)` | Stage 3c build Qdrant + SQLite + subject trie | ✅ |
-| `search.py` | `search.py` (rewrite) | `search(...)` | Stage 4: hard filter → semantic rank → soft re-rank | Phase 8 |
-| `query.py` | `query.py` (extend) | `run(client, request)` | read front door / normalizer + HyDE hook | Phase 9 |
-
-`embed.py` is **deleted** (Phase 7): enrich/derive/index now each live in their own file.
-
-### 4.3 HyDE — `train/` (Phase 10)
-
-`build_dataset.py` · `fit_adapter.py` (v0 numpy ridge) · `query_adapter.py` · `train_adapter.py` (v1 torch,
-gated). Feeds `search` via the existing `channel_vectors` seam. See §5.8.
-
-### 4.4 Dependency graph (arrows = "imports one door from")
-
-```
-data ──> (utils)
-segment ──> data.gate_facts (one door) , utils.llm , utils.schema
-enrich  ──> utils.llm , utils.schema
-derive  ──> utils.tags (word→coord) , utils.schema
-index   ──> vectorstore , utils.relational , utils.subjects , utils.schema
-search  ──> vectorstore , utils.schema
-query   ──> search.search (one door) , utils.tags
-tests   ──> data.build_library , segment.segment_book , enrich.enrich_file ,
-            derive.derive_file , index.index_scenes , search.search   (one door each)
-webtest ──> search.search , query.run , utils.subjects
-```
-No feature file imports another feature file's internals; every cross-feature edge is a single door or a
-foundation module.
-
----
-
-## 5. Stage designs
-
-### 5.1–5.4 — DONE (data / segment / enrich / derive). Code + `CLAUDE.md` invariants are the reference.
-
-- **5.1 `data.py`** — parse/recall unchanged (§7 invariants held). `gate_facts(file_code, md, data_path)`
-  is segment's single pre-gate door (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in segment).
-- **5.2 `segment.py`** — **sparse boundary labelling**: the model labels ONLY boundary paragraphs —
-  `SCENE_START`, ≤1 trailing `SCENE_CONTINUE` (the section's final still-open scene), `NOISE`; every
-  unlabelled paragraph is implicit continuation. Reconstruction walks all indices, so scenes + cross-chunk
-  stitch + noise-drop fall out of the merged global stream. Book-parallel, chunks **sequential**, threading a
-  real continue-flag (`PROCESS_CONTINUE_NOTE`) into the next chunk; the driver runs up to `WORKERS` books at
-  once. Soft cap `SOFT_MAX_WORDS=1500`; model targets ~200–1200-word scenes. `scene_title` and the within-book
-  non-prose gate removed. One door `segment_book(book, md) -> records` (folds `data.gate_facts`).
-- **5.3 `enrich.py`** — comprehend-before-judge `SceneEnrichment`: `summary` (richer, multi-clause) →
-  `moments[]` (each `{sentence, subject, verb, object, setting, tone, intensity}`, sentence FIRST, words per
-  D1) → `descriptors` (3–5) → `pov` → `tense` → `prose_word`. Moment cap **6** (D4). Import-time drift guard:
-  field set == `schema.LLM_FIELDS` = `{summary, descriptors, moments, pov, tense, prose_word}`. Writes LLM
-  fields only; `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` are Phase-6 derived. Batched
-  (`12000`/`4`) + checkpointed; `_run_tool` splats `MODEL_PARAMS` (tool name already == its `tool_choice`).
-  One door `enrich_file(path)`.
-- **5.4 `derive.py`** — mechanical no-LLM pass filling every `source:"derived"` field: `svos` (moment
-  sentences), the four S/V/O/S facet lists (dedup case-insensitive, order-preserving, `[]`→`None`),
-  `vdi_curve` (per-moment tone+intensity WORDS → `[v,d,i]` via `tags.moment_vdi`), `prose_register`
-  (`tags.prose_coord`), `dialogue_ratio` (matched straight+smart quote chars ÷ stripped-prose chars, `[0,1]`),
-  `arc` (i-axis shape, `ARC_FLAT_BAND=0.15` deadband: mid-curve peak/valley→turn, else net rise/fall→rising/
-  falling, else steady; `<2`→steady). Word→number lives ONLY in `tags.py` (retune = derive-only refresh, no
-  re-enrich, LLM fields untouched — §3.5); **no** neighbour tones (D2). Two doors: `derive_records(records)`
-  (in-place, **IDEMPOTENT** — `index.py`'s pre-embed safety net; field order svos→frame→vdi_curve→
-  prose_register→dialogue_ratio→arc, arc last as it reads the curve) and `derive_file(path)` (read → derive →
-  write). `import derive` clean (only `utils.tags`/`read_write`/`log`).
-
-### 5.5 Stage 3c — indexing (`index.py`) — **DONE (Phase 7)**
-
-`index_scenes(file_ids=None)` (single door; `None` = every `pg*-s.json`). Imports the Qdrant contract from
-`utils.vectorstore` (`COLLECTION`, `VECTOR_NAMES`, `MULTIVECTOR_NAMES`, `SUBJECT_PATHS_FIELD`, `embed`,
-`point_id`, `open_client`, `_as_terms`) and `utils.relational` + `utils.subjects` for SQLite; **imports no
-feature file**. Rebuild is explicit — no import-time side effects.
-
-Per-book flow (one client + one SQLite conn for the whole run):
-1. **`derive.derive_records(records)`** first — the idempotent pre-embed safety net (§8), so no scene is
-   embedded with an un-derived frame/curve. Then persist the derived json back.
-2. **SQLite mirror** via `relational.sql_upsert` — **every** record (enriched or not), unlike the vectors.
-3. **Vectors** — only scenes with a `summary` become points. Embed the **7 named vectors**: `summary` +
-   `descriptors` (single; descriptors joined to one vibe string, summary fallback) and the **5 multivector
-   matrices** `svos`/`subject`/`verb`/`object`/`setting` (one vector per term via `_as_terms`, a 1-row
-   summary matrix when a field is empty). `_ensure_collection` (re)builds the collection if the vector-name
-   set or any field's multivector-ness drifts from the registry; `_ensure_subject_index` adds the
-   `subject_paths` keyword index (inert local, live on server).
-4. **Payload = the full record**, stamped with `subject_paths` (`subjects.suffixes` over the book's
-   `Subjects`) and carrying the soft/hard fields `pov`, `tense`, `prose_register`, `dialogue_ratio`,
-   `vdi_curve`. `point_id = uuid5(scene_id)` so a re-run overwrites the point (no dupes).
-
-Then **delete `embed.py`** and repoint its callers (see §6 Phase 7 for the tests.py scope).
-
-### 5.6 Stage 4 — search (`search.py`), the read path — **✅ DONE Phase 8** (spec; default blend resolved to `sum`)
-
-Rewrite `search.py` **in place**. Four stages; **only stage 3 (soft re-rank) is new** — the hard filter,
-the semantic rank, and the `channel_vectors` HyDE seam already exist. The rewrite is mostly **deletion**
-(the retired per-field-weight stack, D3) + a **facet swap** (tone/intensity/arc hard filters → pov/tense)
-+ the new stage-3 tone-curve re-rank. Behavior ref = current `search.py` via the Appendix-A search block.
-
-```
-search(client, *, summary, moments, frame, channel_vectors, descriptors, weights, anti_*,
-       book_id, subject_branch, pov, tense,                # HARD (pov/tense NEW; tone/intensity/arc GONE)
-       prose=None, dialogue=None, tones=None,              # SOFT (all None -> stage 3 skipped)
-       limit, prefetch, normalize, combine, method_weights, rrf_k, exact):
-  1  HARD PRE-FILTER   flt = and(book_filter, subject_filter, facet_filter("pov"), facet_filter("tense"))
-  2  SEMANTIC POOL     rankings = {}
-                        if any semantic input: rankings["scenes"] = search_scenes(... prefetch ...)
-                        if descriptors:        rankings["flavor"] = search_weighted_descriptors(... prefetch ...)
-                        pool = one method -> its list ; >1 -> _rrf(rankings, method_weights) ;
-                               NEITHER -> BROWSE: client.scroll(flt, limit=prefetch)
-                               (browse needs a hard filter or a soft input, else raise as today)
-  3  SOFT RE-RANK      if prose/dialogue/tones set:
-                          U = memo{ m: resample(tones, m) }              # tones = [[v,d,i], ...] (1-5 pts)
-                          z = zscore(pool scores)                        # over the pool
-                          for c in pool: c.score = z[c] - LAMBDA * soft_penalty(c.payload, prose, dialogue, U)
-                          pool.sort(desc)
-  4  return pool[:limit]
-```
-
-**Soft inputs are NUMERIC at the search boundary.** `tones` = an ordered list of 1–5 `[v,d,i]` points;
-`prose`/`dialogue` = floats in `[0,1]` or None. The word→coord mapping (a `(tone_word, intensity_word)`
-pair → `tags.moment_vdi` → `[v,d,i]`, symmetric with how `derive.py` builds the stored `vdi_curve`; a prose
-word → `tags.prose_coord`) is the **normalizer's** job (`query.py`, Phase 9), NOT search's — so `search.py`
-gains **no `tags` import** and stage 3 stays pure numeric. Phase-8 checks build `tones`/`prose`/`dialogue`
-by hand (or via `tags` in the scratch driver).
-
-**New pure-numeric helpers (in `search.py`):**
-```
-resample(tones, m):                       # tones[i]=[v,d,i] at position i/(k-1), k=len(tones)
-   k==1 -> [tones[0]]*m ; else linear-interp each axis at u=j/(m-1) for j in 0..m-1  -> m×3
-curve_dist(U, S, wV,wD,wI):               # U,S both m×3 in [0,1]
-   mean_j sqrt( wV·ΔV² + wD·ΔD² + wI·ΔI² ) / sqrt(wV+wD+wI)            -> [0,1]
-soft_penalty(payload, prose, dialogue, U):# sum ONLY the axes active for THIS candidate, renormalized
-   pen, wsum = 0, 0
-   if prose    is not None and payload.prose_register is not None: pen += W_PROSE*|Δ|; wsum += W_PROSE
-   if dialogue is not None and payload.dialogue_ratio is not None: pen += W_DIA  *|Δ|; wsum += W_DIA
-   if U and payload.vdi_curve: pen += W_TONE*curve_dist(U[len(vdi_curve)], vdi_curve); wsum += W_TONE
-   return pen/wsum if wsum else 0.0        # candidate missing an axis is neither rewarded nor punished on it
-```
-`U` is memoized per curve length (moment cap = 6 → ≤6 distinct lengths). Soft re-rank works over the
-**payload** of the semantic pool — no extra vector work — so PREFETCH must be generous when a slider is set.
-
-**Semantic blend is now WEIGHT-FREE (D3).** Delete the whole per-field-weight stack (`DEFAULT_FIELD_WEIGHTS`/
-`SCENES_VECTORS`/`SCENES_DEFAULT_WEIGHTS`/`active_field_weights`/`_resolve_field_weights`/every `field_weights=`
-param/`TUNED_WEIGHTS_PATH` + its `from utils.read_write import read_json`). `blend_channels` combines the
-z-scored channels with **no weights**; **default `combine="sum"`** (equal additive) with `"max"` (greatest
-single match) kept as an A/B alternative. `method_weights` (scenes:flavor RRF, default 0.7/0.3) + `normalize`
-are then the ONLY search knobs. **RESOLVED on the gold (Phase 8):** the projected `max` default REGRESSED
-(book@1 .86 / scene@1 .53) vs `sum` (book@1 .99 / scene@1 .77, head-to-head sum 32 / max 4 / tie 64) — book@1
-is human ground truth (§8), so `sum` is committed and `max` demoted to the A/B alt. `sum` is the "FIXED
-code-constant channel blend" fallback this section anticipated; it ≈ the old *weighted* sum on book@1
-(.99 vs 1.00), so dropping the per-field weights cost ~nothing on the clean metric.
-
-**Knobs (code constants; D5 defaults — retune on the gold):**
-- soft-axis mix `W_TONE=0.5, W_PROSE=0.3, W_DIA=0.2`.
-- affect-axis mix inside `curve_dist` `wI=0.5, wV=0.3, wD=0.2` ("rising" is mostly an intensity claim).
-- `LAMBDA=0.5` global soft strength — z-normed semantic score (~±2), soft penalty bounded `[0,1]`; a
-  worst-case miss costs ~0.5 z: reorders near-ties, never overrides a clear semantic winner. Fixed in code.
-- `SOFT_PREFETCH≈200` when any slider is set; keep the small `max(limit*5, 50)` when none is.
-
-**Refinements (later):** a shape term (cosine of mean-subtracted curves) for "rising regardless of
-baseline"; semantic-aligned tone comparison. Ship absolute + positional first.
-
-### 5.7 Read front door / normalizer (`query.py`) — Phase 9
-
-`run(client, request, **kw)` (single door). Turns a writer's request into `search()` inputs. **SINGLE-BEAT
-is FROZEN** (memory `project-query-normalizer` + the `query.py` header): the whole summary is ONE scene
-target (`{summary, moments:[{sentence: summary}]}`) — **NO** sentence-splitting into beats and **NO**
-svos-facet extraction. Both were built, tried, and DELETED (`utils/qsplit.py`, the multi-beat gold);
-**do not resurrect them.** Multi-beat stays a separate, caller-built future feature. So the Phase-9 job is
-NOT decomposition — it is wiring the three lanes through the single beat:
-- **Semantic:** free text → `summary` (+ the one mirrored `moments` beat). That is the whole semantic lane.
-- **Hard:** `pov`, `tense`, `book_id` — pass straight through to `search()` (already flow via `**kw`).
-- **Soft — the real new work (Phase 8 assigned it here):** `search()` takes soft inputs as NUMBERS, and the
-  **word→coord mapping lives in `query.py`, not search** (search has no `tags` import). So `query` accepts
-  the request's soft *words/sliders* and emits `search()`'s numeric soft kwargs: a `tones` list of tone+
-  intensity **word pairs** → `[[v,d,i],…]` via `tags.moment_vdi` (symmetric with how `derive.py` builds the
-  stored `vdi_curve`); a prose **word** → `prose` float via `tags.prose_coord`; `dialogue` passes as a float.
-- **Descriptors:** the request may pass `descriptors` explicitly (webtest/evals already do). Auto-routing
-  *feeling words* out of the free text into `descriptors` is OPTIONAL and gated on a measured retrieval win
-  (same bar `query.py` set for the declined facet extraction) — default OFF; not required to close Phase 9.
-
-The HyDE adapter (Phase 10) plugs in here by emitting `channel_vectors` instead of (or beside) the text —
-the seam already exists in `search`. `query.py` imports `tags` (word→coord) + `search` (lazily); one door `run`.
-
-### 5.8 HyDE — learned adapter (`train/`, Phase 10)
-
-Per the agreed plan (memory `project-query-normalizer`): generation-free `g(beat) → channel query vectors`,
-self-labelled from the corpus, same-book hard negatives; v0 = numpy ridge (no deps), v1 = torch InfoNCE
-(gated on v0 lift). Consumes the `channel_vectors` seam already in `search`. **Do HyDE after the schema +
-rebuild are frozen**, so the adapter learns the final manifold.
-
-### 5.9 Order-aware `svos` — positional beat encoding (decided 2026-09-09) — new work
+### 3.2 Order-aware `svos` — positional beat encoding (Phase 8.5, decided 2026-09-09)
 
 **Goal:** make event ORDER matter in the `svos` multivector itself (recall time), not only in the affect
 `vdi_curve`. MAX-SIM is permutation-invariant, so order cannot come from the matching — it must be baked
@@ -364,8 +113,8 @@ beat vector, so a beat's cosine becomes a tunable blend of semantic + positional
 `object`/`setting` are UNCHANGED (order-free sets); this applies to `svos` ONLY.
 
 **Mechanism (index + query must share it):** for a beat at position `k` in a `K`-beat sequence, normalized
-`u = k/(K-1)` (`u=0` when `K=1`; symmetric with the `resample` convention in §5.6). Build the stored/queried
-beat vector as
+`u = k/(K-1)` (`u=0` when `K=1`; symmetric with the `resample` convention in `search.py`). Build the
+stored/queried beat vector as
 ```
 v = [ sqrt(1-β) · unit(sem_embed) ;  sqrt(β) · p(u) ]        # β in [0,1);  ||v|| = 1
 p(u) = [cos(π/2 · u), sin(π/2 · u)]                          # unit; p(u1)·p(u2) = cos(π/2·|u1-u2|) in [0,1]
@@ -377,6 +126,17 @@ i.e. in-order alignment — **softly**: a strong out-of-order semantic match can
 clears the `β` gap. So **`β` is the order-strength ⟷ recall-robustness knob** (`β=0` reproduces today's
 order-free behavior). Query beats build `p(u)` over the QUERY's own length; scene beats over the SCENE's — so
 a 3-beat query's middle beat aligns to a 6-beat scene's middle beat (normalized position, not raw index).
+
+**Variable-length queries — do NOT resample/reshape the `svos` matrix.** `u = k/(K-1)` already makes any
+two beat counts comparable (both live on `[0,1]`), and MAX-SIM's many-to-one collapse then handles a
+near-but-unequal query *gracefully by construction*: a 4-beat `forward, right, right, down` against a 3-beat
+`forward, right, down` lets both `right`s grab the one scene `right`, and the ends pin at `u=0`/`u=1`. Length
+is absorbed by the encoding, never by forcing the query to the scene's beat count. **Never interpolate /
+"connect the dots"** to a common length: only `p(u)` is smooth — the semantic half is not, so an averaged
+`unit(sem_embed)` between two beats is a fabricated beat in a non-linear space (you'd retrieve against events
+that never existed). Resampling to a fixed length is the tone-curve lane's move ONLY (it compares two curves
+point-by-point at a fixed alignment); the `svos` lane deliberately does the opposite — MAX-SIM + relative
+`u`, no length coercion. Guard `K=1` (`u=0`, avoid `0/0`).
 
 **What changes (all small, but it is a vector-format change ⇒ a re-index):**
 - `utils/vectorstore.py` (contract): `svos` vector size `384 → 384+2`; add the positional-scheme constants
@@ -393,200 +153,39 @@ a 3-beat query's middle beat aligns to a 6-beat scene's middle beat (normalized 
   out-ranks the same beats shuffled, and that book@1/scene@1 do NOT regress vs `β=0`. Ship the smallest `β`
   that gives a real order signal without a recall drop. `β=0` is always the safe fallback.
 
-**Sequencing:** it is a `svos` **format** change, so it must land WITH a re-index. Do the CODE (vectorstore +
-index + search) as its own step, verify on the SMALL new-schema index (the Phase 9 prerequisite index), then
-the ONE full **Phase 10 rebuild** bakes the positional `svos` corpus-wide. Order-independence of the facets and
-the `channel_vectors` seam are both preserved. See §6 checklist item **8.5**.
+**Sequencing:** a `svos` **format** change, so it must land WITH a re-index. Do the CODE (vectorstore + index
++ search) as its own step, verify on a SMALL new-schema index (hand-built scenes, per Phase 8/9), then the ONE
+full **Phase 10 rebuild** bakes the positional `svos` corpus-wide. Facet order-independence + the
+`channel_vectors` seam are both preserved.
 
 ---
 
-## 6. Migration plan (ordered; one step at a time on `restructure`)
+## 4. Remaining work (checklist + detail)
 
-**Progress checklist** (current phase = first not ✅):
+**Progress:** Phases **0–9 ✅** (see §2). Remaining, in order:
 
-- ✅ 0  scaffolding — PLAN written; ablation 0b (**KEEP the 4 facet vectors → 7-vec set**, numbers in §8);
-  D1–D5 resolved (§8).
-- ✅ 1  schema + tags (`utils/`) — schema v4 (7 vec, `pov`/`tense` hard, `prose_register`/`dialogue_ratio`/
-  `vdi_curve` soft via float→REAL), tags word→coord tables, `weight` retired (D3).
-- ✅ 2  `utils/vectorstore.py` — Qdrant contract extracted from `search`; `search`/`embed`/`schema`
-  repointed; `import search` clean.
-- ✅ 3  `data.py` — `gate_facts(file_code, md, data_path)` one-door pre-gate added (folds `parse_rights` +
-  `MetadataParser.to_dict`); additive, §7 invariants re-confirmed.
-- ✅ 4  `segment.py` (deleted `process.py`) — sparse boundary labelling; book-parallel, chunks sequential
-  with a real `PROCESS_CONTINUE_NOTE` flag; `SOFT_MAX_WORDS=1500`; `scene_title` + within-book non-prose gate
-  removed; one door `segment_book`; `PROCESS_PROMPT` rewritten.
-- ✅ 5  `enrich.py` — comprehend-before-judge `SceneEnrichment` (LLM fields only; `pov`/`tense`/`prose_word`,
-  per-moment tone/intensity words, cap 6); `EMBED_PROMPT` rewritten + live-confirmed. Detail in §5.3.
-- ✅ 6  `derive.py` — mechanical no-LLM pass filling every `source:"derived"` field (svos + facets +
-  `vdi_curve`/`prose_register`/`dialogue_ratio`/`arc`); word→number only in `utils.tags`; two idempotent doors.
-  Detail in §5.4. (5 + 6: `embed.py` kept until Phase 7 — `--check` GREEN, `import embed`/`tests` RED till then.)
-- ✅ 7  `index.py` (deleted `embed.py`) — 7-vec Qdrant + SQLite mirror + subject trie; payload gains the
-  hard/soft facets (`pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`) + `subject_paths`;
-  `derive.derive_records` kept as the idempotent pre-embed safety net; `tests.py` repointed. **Schema wave
-  CLOSED** — `--check` / `import index` / `import tests` all GREEN.
-- ✅ 8  `search.py` rewrite — 4-stage `search()` (hard `pov`/`tense` → semantic → soft re-rank → slice);
-  `tone`/`intensity`/`arc` filters + the whole per-field weight stack deleted (D3); NEW pure-numeric soft
-  re-rank (`resample`/`curve_dist`/`soft_penalty` + `W_*`/`w*`/`LAMBDA`/`SOFT_PREFETCH`); pure-browse via
-  `scroll`. **Gold decision: default `combine="sum"` (weight-free)** — `max` regressed the 0b gold
-  (book@1 .86 vs .99), so the projected `max` default was overridden. Consumers trimmed (evals tune stack
-  removed; webtest filters→pov/tense; `field_weights` dropped).
-- ☐ **9  `query.py` + harness + `webtest/`** ← **NEXT**
-- ☐ 8.5 order-aware `svos` — positional beat encoding (§5.9). `svos`-format change; code in vectorstore +
-  index + search, verify on the small index, `β` tuned on the gold; the corpus re-lay rides the Phase 10
-  rebuild. (Numbered 8.5 as it extends the Phase-8 search vectors; may land alongside Phase 9 or at Phase 10.)
-- ☐ 10 full rebuild → HyDE
+- ☐ **8.5 order-aware `svos`** ← **NEXT**. Positional beat encoding (§3.2). `svos`-format change; code in
+  `vectorstore` + `index` + `search`, verify on a small new-schema index, `β` tuned on the gold; the corpus
+  re-lay rides the Phase 10 rebuild. May fold into Phase 10 (either way the corpus is embedded ONCE, with the
+  positional `svos` in place).
+  - **Checks:** an in-order query out-ranks the same beats shuffled (impossible today); `β=0` reproduces the
+    current ranking bit-for-bit; book@1/scene@1 do not regress at the chosen `β`; a query whose beat count
+    differs from the target scene's still matches (variable length absorbed by `u`, NOT by resampling — §3.2).
+  - **Done-criteria:** checks green; update `CLAUDE.md` (the search invariant: `svos` is order-aware via the
+    positional encoding + the `β` knob); flip this item ✅.
+- ☐ **10 full rebuild → HyDE**.
+  - One clean rebuild on the frozen schema (re-segment → re-enrich → re-derive → re-index), with the 8.5
+    positional `svos` in place. Clears the old-schema on-disk stores → unblocks `import webtest.server`, the
+    live webtest UI (sliders/pov-tense/tone-curve), and the evals soft-facet A/B (`--mode soft`).
+  - Then `train/` per §3.1, feeding the `channel_vectors` seam.
 
-Each phase: **author the new file(s) FROM SCRATCH** to the new design + house style, **delete** the old file,
-run **checks**, meet **done-criteria**, and **update `CLAUDE.md`'s affected lines** (pipeline diagram,
-invariants, ownership, run-reference) so the always-loaded map never lies. Diff every phase against
-Appendix A — a behavior tagged `[KEEP]` there must still work after the phase. Prompt rewrites (owner's
-surface) land after the matching stage code so they target the real tool schemas. The schema wave
-(Phases 1–2 + 5–7) is coupled and may be transiently red until Phase 7 closes — expected on this branch.
-
-> A corpus rebuild is pending anyway; this restructure forces it. Sequence: land Phases 1–9, then one clean
-> full rebuild on the final schema, then Phase 10 (HyDE). NOTE: Phase 9's *live* verification (sliders,
-> pov/tense, tone-curve, and even `import webtest`) needs new-schema data — the old on-disk stores lack the
-> new columns — so Phase 9 uses a **small** new-schema index (2–3 books) for its checks; the **one full
-> rebuild stays at Phase 10** (§6 Phase 9 prerequisite).
-
-### Phase 7 — `index.py` (delete `embed.py`) ✅ DONE (commit 8b9b37f)
-`index.py` authored from scratch to §5.5; `embed.py` deleted; `tests.py` repointed
-(`enrich_file`→`enrich`, `index_records`/`index_scenes`/`_ensure_subject_index`→`index`, contract symbols
-→`utils.vectorstore`); dead `embed` fallback dropped from `schema._check`. Schema wave CLOSED —
-`--check`/`import index`/`import tests` all GREEN; verified end-to-end on a hand-built new-schema book
-(7 vectors, payload carries every hard/soft facet + `subject_paths`, SQLite=all / vectors=enriched-only,
-re-index overwrites no dupes).
-
-### Phase 8 — `search.py` (rewrite the read path) ✅ DONE
-Rewrote `search.py` in place to §5.6: hard `pov`/`tense` filters (`tone`/`intensity`/`arc` filters deleted);
-the whole per-field weight stack removed (D3); NEW pure-numeric stage-3 soft re-rank (`resample`/`curve_dist`/
-`soft_penalty` + `W_*`/`w*`/`LAMBDA`/`SOFT_PREFETCH`, no `tags` import); pure-browse via `client.scroll`; the
-dead local `_as_terms` dropped (import kept). **Blend decision on the 0b gold: weight-free `combine="max"`
-REGRESSED (book@1 .86 / scene@1 .53) vs weight-free `combine="sum"` (book@1 .99 / scene@1 .77, head-to-head
-sum 32 / max 4 / tie 64, every sharpness bucket) — book@1 is human ground truth (§8), so `sum` is the
-committed default and `max` is the A/B alt** (overrides §5.6's projected `max` default; the PLAN's stated
-fallback path). Consumers trimmed to keep imports + the gold A/B green: `evals` lost the per-field-weight
-tune stack (`collect_vector_channels`/`blend_run`/`coordinate_ascent`/`save`/`reset_tuned_weights` + the
-`--tune`/`--metric`/`--reset-weights` CLI) and `run_search` dropped `field_weights`; `webtest` dropped
-`field_weights`, swapped its hard filters tone/intensity/arc→`facet_filter("pov"/"tense")`, and stubbed the
-retired `/api/weights`. Verified on a synthetic new-schema in-memory index (15/15: hard filter, tone-curve
-rising/falling, prose/dialogue sliders, soft-unset identity, `channel_vectors` seam, pure-browse) +
-`import search`/`evals`/`tests` GREEN. `webtest` **import** is blocked ONLY by the stale on-disk `scenes.db`
-(no `pov` column — a module-load `relational.open_db`, the documented old-store caveat), cleared by the
-Phase 10 rebuild; the file byte-compiles + its edits are audited. The full consumer feature rewrite
-(soft-facet A/B, new query shapes, slider UI) is Phase 9.
-
-Original work order (kept for reference):
-- **Hard filters:** delete `tone_filter`/`intensity_filter`/`arc_filter`; in `search()` build the pre-filter
-  from `book_filter` + `subject_filter` + `facet_filter("pov", pov)` + `facet_filter("tense", tense)`, and
-  swap the `tone`/`intensity`/`arc` params for `pov`/`tense`.
-- **Delete the weight stack (D3):** `DEFAULT_FIELD_WEIGHTS`, `SCENES_VECTORS`, `SCENES_DEFAULT_WEIGHTS`,
-  `active_field_weights`, `_resolve_field_weights`, every `field_weights=` param, and the lone
-  `from utils.read_write import read_json` import. `blend_channels` loses `field_weights` and combines the
-  z-scored channels weight-free (**shipped default `combine="sum"`** — the gold demoted `max`, see the DONE
-  banner above); `score_channels`/`search_scenes` drop the
-  param. Also DELETE the dead local `_as_terms` (currently redefined ~L143, shadowing the one imported from
-  `utils.vectorstore`) — keep the import.
-- **New stage-3 soft re-rank:** add pure-numeric `resample`, `curve_dist`, `soft_penalty` (§5.6) + the
-  `W_TONE/W_PROSE/W_DIA`, `wI/wV/wD`, `LAMBDA`, `SOFT_PREFETCH` constants; wire into `search()` AFTER the pool
-  is built (z-norm the pool score, subtract `LAMBDA*penalty`, resort, slice to `limit`). `search()` gains the
-  numeric `prose`/`dialogue`/`tones` kwargs.
-- **Pure-browse:** no semantic input but a hard filter or a soft input set → source the pool from
-  `client.scroll(COLLECTION, scroll_filter=flt, limit=prefetch)` and run stage 3 over it (same code, other
-  pool source); no input at all still raises.
-- **Keep:** the flavor stack (`_unit`/`_check_weights`/`weighted_vector`/`search_weighted_descriptors` +
-  anti-descriptors), `_normalize_pool`, `_moment_sentences`/`_frame_query_terms`/`_channel_queries` (+ the
-  `channel_vectors` seam), `search_frame`, `_rrf`, `_and_filters`, `DEFAULT_METHOD_WEIGHTS`.
-- **Minimal consumer touch (like Phase 7's tests repoint — keep imports + the gold A/B green ONLY):**
-  `evals.py`/`webtest/server.py`/`tests.py` call `search()` with now-removed kwargs (`tone`/`intensity`/`arc`/
-  `field_weights`) and `evals` has a weight-tuning stack (`collect_vector_channels`/`blend_run`/
-  `coordinate_ascent`/`save`/`reset_tuned_weights`) that references deleted search symbols. Audit the call
-  sites; delete only what's needed so `import evals`/`webtest`/`tests` stay GREEN and the gold A/B runs. The
-  FULL consumer rewrite (soft-facet A/B path, new query shapes, slider UI) is **Phase 9** — do not do it here.
-- **Checks:** `import search`/`evals`/`tests`/`webtest` clean; hard `pov`/`tense` filters exclude non-matches
-  (COUNT before/after); a synthetic "rising" `tones` curve outranks a "falling" scene and vice-versa;
-  `prose`/`dialogue` sliders reorder as intended; **all soft inputs unset ⇒ identical ranking to no-soft**
-  (stage 3 skipped); the **seam invariant** holds (`channel_vectors` pre-embedded == the same text path);
-  pure-browse returns the hard-filtered set ranked by the sliders; **the 0b gold does not regress** under
-  weight-free `combine="max"` (A/B vs `"sum"`; keep the winner, note it).
-- **Run/verify (this machine):** `PYTHONPATH=src/project_alexandria .venv/bin/python`. **Caveat:** the
-  existing `logs/.../qdrant_db` + `scenes.db` are OLD-schema (payloads lack `pov`/`tense`/`vdi_curve`/
-  `prose_register`/`dialogue_ratio`), so the hard/soft-facet checks need a SMALL NEW-schema index first
-  (hand-build a few `schema.blank_record()` scenes with new-schema `moments` → `index.index_scenes` into a
-  temp Qdrant, per [reference-restructure-run-verify]) — or stubbed payloads. The semantic-path, seam, and
-  gold-A/B checks still run against the old 7-vector store. Stop the webtest server first (single-process
-  Qdrant lock).
-- **Done-criteria:** all checks green; then update the affected `CLAUDE.md` lines (search invariants:
-  pov/tense hard, tone/intensity/arc gone, weight-free `sum` blend, the soft re-rank + its knobs) and flip
-  §6 Phase 8 to ✅.
-
-### Phase 8.5 — order-aware `svos` (positional beat encoding) — new (decided 2026-09-09)
-Full mechanism in **§5.9**. In short: append a normalized-position component `p(u)` to every `svos` beat
-vector so its cosine is `(1-β)·sem + β·pos` — MAX-SIM then prefers same-position (in-order) matches, softly
-(`β` = order-strength ⟷ recall-robustness; `β=0` = today). `svos` ONLY; facets stay order-free.
-- **Code:** `utils/vectorstore.py` gains `svos` size `384+2` + the `SVOS_POS_*` constants + a shared
-  `svos_beat_vectors(sentences)` helper (index + query both call it, stamped like `EMBED_MODEL`); `index.py`
-  builds the stored `svos` matrix through it (moments in order); `search.py` `_channel_queries` builds the
-  QUERY `svos` matrix through it. No MAX-SIM change; facets + the `channel_vectors` seam untouched.
-- **Checks:** an in-order query out-ranks the same beats shuffled (impossible today); `β=0` reproduces the
-  current ranking bit-for-bit; book@1/scene@1 do not regress at the chosen `β` on the gold.
-- **Verify + sequence:** needs a re-index (vector-size drift) — verify on the SMALL new-schema index (Phase 9
-  prerequisite), then the corpus re-lay rides the **Phase 10** rebuild. May land alongside Phase 9 or fold
-  into Phase 10; either way the full corpus is embedded ONCE, with the positional `svos` in place.
-- **Done-criteria:** checks green; update `CLAUDE.md` (the search invariant: `svos` is order-aware via the
-  positional encoding, `β` knob) + §3.1 already flipped; flip §6 item 8.5 to ✅.
-
-### Phase 9 — `query.py` + harness + `webtest/` ← NEXT
-Phase 9 is the **consumer FEATURE rebuild on the new lanes** — NOT the keep-green trim, which Phase 8
-already did. **Already landed in Phase 8 (do not redo):** `evals` lost the whole per-field-weight tune
-stack (`collect_vector_channels`/`blend_run`/`coordinate_ascent`/`save`+`reset_tuned_weights` + the
-`--tune`/`--metric`/`--reset-weights` CLI) and `run_search` dropped `field_weights`; `webtest` dropped
-`field_weights`, swapped its hard-filter call `tone`/`intensity`/`arc` → `facet_filter("pov"/"tense")`, and
-stubbed the retired `/api/weights`. Default semantic blend is `combine="sum"` (weight-free; `max` lost the
-0b gold) — keep `sum` as the baseline in every new A/B and UI default.
-
-Order the work:
-- **`query.py` (§5.7):** keep single-beat (NO qsplit — deleted). ADD the soft word→coord translation
-  (`tags.moment_vdi` for the tone+intensity word pairs → `tones` numeric list; `tags.prose_coord` for the
-  prose word → `prose` float; `dialogue` passthrough) + `pov`/`tense`/`book_id` passthrough. Descriptor
-  auto-routing OPTIONAL (gated on a win; default OFF). One door `run`; imports `tags` + lazy `search`.
-- **`evals.py`:** `run_search` flags for the new lanes; a **soft-facet A/B path** (hold semantic fixed, move
-  ONE slider — `prose`/`dialogue`/`tones` — confirm the intended reorder; confirm an unset slider is inert);
-  keep `by_sharpness`. Gold (`webtest/gold/test_queries.json`) gains `pov`/`tense`/`prose`/`dialogue`/tone
-  words per query. `autolabel_scenes` still reads a removed `scene_title` (safe no-op) — clean it here.
-- **`tests.py`:** repoint `step_three_embedding`/`embed_test` to the split doors (`enrich.enrich_file` →
-  `derive.derive_file` → `index.index_scenes`); `_show`/`search_test`/`manual_search` to the new `search()`
-  inputs (pov/tense/prose/dialogue/tones); new query-shape constants.
-- **`webtest/server.py`:** UI swaps the tone/intensity/arc dropdowns for **sliders** (prose, dialogue, and a
-  tone-curve control) + `pov`/`tense` dropdowns; `_run_query` forwards the new soft/hard inputs; drop the
-  `tags.Tone/Intensity/Arc` vocab from `/api/meta` and the retired `/api/weights` panel from the client.
-- **`main.py`:** verify/point at the new stage doors.
-
-**⚠ Prerequisite — the on-disk stores are OLD-schema and block live verification.** The existing
-`logs/.../scenes.db` + `qdrant_db` (and the `pg*-s.json`) predate the schema wave: no `pov`/`tense`/
-`vdi_curve`/`prose_register`/`dialogue_ratio`. Two consequences: (1) **`import webtest.server` currently
-FAILS** — its module-load `relational.open_db` runs the new DDL (`CREATE INDEX ix_pov …`) against the old
-table and raises `no such column: pov`; (2) there is no new-schema data to drive the sliders / pov-tense /
-tone-curve at all. Re-indexing the OLD `pg*-s.json` does NOT help (they hold the old enrichment). So Phase 9
-**live** verification needs a **SMALL new-schema index** — re-segment→enrich→derive→index 2–3 books into the
-store (cheap LLM spend), exactly the Phase 7/8 hand-built-book pattern scaled up slightly. The **full corpus
-rebuild stays Phase 10.** If the small re-enrich is undesirable this session, land Phase 9 as code +
-synthetic/stub verification (Phase 8 style) and defer the live UI check to just after the Phase 10 rebuild —
-but say so explicitly.
-- **Checks:** `import query`/`evals`/`tests`/`webtest` clean (webtest needs the small new-schema DB first,
-  per the prerequisite); end-to-end request → `query.run` → ranked scenes; a soft-word request maps to the
-  same numeric `search()` call as the hand-built numeric one (query↔search word→coord parity); the gold A/B
-  executes; the soft-facet A/B reorders as intended and an unset slider is inert.
-- **Done-criteria:** checks green; update the affected `CLAUDE.md` lines (the `query.py` front-door section —
-  soft word→coord now lives there; ownership; run-reference) and flip §6 Phase 9 to ✅.
-
-### Phase 10 — full rebuild, then HyDE
-- One clean rebuild on the frozen schema (re-segment → re-enrich → re-derive → re-index).
-- Then `train/` per §5.8, feeding the `channel_vectors` seam.
+Each phase: author to the house style, run **Checks**, meet **Done-criteria**, update `CLAUDE.md`'s affected
+lines (pipeline diagram, invariants, ownership, run-reference) so the always-loaded map never lies, flip ✅
+here, commit.
 
 ---
 
-## 7. Invariants to preserve
+## 5. Invariants to preserve
 
 - **data.py:** global contiguous `Paragraph.index`; lossless extraction + recall round-trip; `_pack` caps;
   sharded lazy recall.
@@ -595,155 +194,41 @@ but say so explicitly.
   it; never hand-edit the derived lists. `SCHEMA_VERSION` lives only here.
 - **vectorstore/search:** `EMBED_MODEL` must match the index; `point_id = uuid5(scene_id)`; bge is asymmetric
   (summary/svos **queries** get `QUERY_PREFIX`; indexed passages + descriptor queries stay raw); multivector
-  fields are queried with a matrix.
+  fields are queried with a matrix. (8.5: `svos` index + query MUST share `svos_beat_vectors`.)
+- **query/search split:** the soft **word→coord** lives in `query.py` (`tags`); `search` stays pure-numeric.
 - **Per-field `weight` is retired** — search tunes with `method_weights` + the soft-rank knobs.
 - **Rebuilds are explicit** — importing any pipeline module has no build side effects.
 
-## 8. Decisions (D1–D5 resolved; ablation resolved)
+## 6. Decisions (D1–D5 + ablation, resolved)
 
-- **D1:** tone word → (valence, dominance) + a **separate** intensity word → i, per moment (§3.4).
+- **D1:** tone word → (valence, dominance) + a **separate** intensity word → i, per moment.
 - **D2:** drop `prev_tone`/`next_tone`; two-scene spanning is a future summary-first read-path feature over
-  `next_scene_id` + the `summary` vectors (§3.6).
-- **D3:** retire the per-field `weight` and the entire `evals.py` weight-tuning stack (§3.7).
-- **D4:** moment cap = 6 (§5.3).
-- **D5:** soft-rank defaults `w_tone/w_prose/w_dia = .5/.3/.2`, `wI/wV/wD = .5/.3/.2`, `λ=.5` fixed in code (§5.6).
-- **Also decided:** keep the redundant idempotent `derive` call inside `index` — cheap insurance a scene is
-  never indexed with an un-derived frame/curve.
+  `next_scene_id` + the `summary` vectors.
+- **D3:** retire the per-field `weight` and the entire `evals.py` weight-tuning stack.
+- **D4:** moment cap = 6.
+- **D5:** soft-rank defaults `w_tone/w_prose/w_dia = .5/.3/.2`, `wI/wV/wD = .5/.3/.2`, `λ=.5`, fixed in code.
+- **Also:** keep the redundant idempotent `derive` call inside `index` (cheap insurance).
+- **Blend (Phase 8, gold-driven):** default `combine="sum"` (weight-free) — `max` REGRESSED the 0b gold
+  (book@1 .86 / scene@1 .53 vs sum .99 / .77, h2h sum 32 / max 4 / tie 64); `max` kept as the A/B alt only.
 - **Ablation (0b, resolved 2026-09-07): committed set = 7 named vectors.** Adding the 4 facet vectors lifted
   **book@1 to 1.000** (from .920, bias-free human labels), **scene@1 +.19** (.66→.85), scene_mrr +.156, and
   improved *every* one of the 5 sharpness buckets. Head-to-head on top1: ON wins 26, OFF 3, 71 ties. book@1
-  uses human ground truth, so "keep" doesn't depend on the scene-label provenance. Driver:
-  `scratchpad/ablation_0b.py`.
+  uses human ground truth, so "keep" doesn't depend on the scene-label provenance.
 
-## 9. Eval plan
+## 7. Eval plan
 
-- **Segmentation:** spot-check dramatic-unit boundaries vs old flavor-pure cuts on 1–2 books.
-- **Vector set (0b):** per-sharpness scene@1, `use_frame` on/off. (Done — §8.)
-- **Soft facets:** hold semantic fixed, move one slider, confirm the intended reorder; confirm unset sliders
-  are inert.
+- **Soft facets:** hold semantic fixed, move one slider (`evals --mode soft`), confirm the intended reorder;
+  confirm unset sliders are inert.
 - **Tone curve:** synthetic "rising" vs "falling" queries retrieve the right arc.
-- **HyDE:** per-sharpness lift, no regression on specific queries (`evals.by_sharpness`).
-- Reuse the 100-query gold; harden with more queries only once a change shows a small-but-real signal the
-  current gold can't resolve.
+- **Order-aware `svos` (8.5):** in-order query out-ranks the shuffled beats; `β=0` reproduces today; no
+  book@1/scene@1 regression at the chosen `β`.
+- **HyDE (10):** per-sharpness lift (`evals.by_sharpness`), no regression on specific queries.
+- Reuse the 100-query gold (`webtest/gold/test_queries.json`); harden with more queries only once a change
+  shows a small-but-real signal the current gold can't resolve. (`autolabel_scenes` stamps each query's target
+  scene id + its pov/tense/prose_register/dialogue_ratio/vdi_curve once a new-schema index exists.)
 
 ---
 
-## Appendix A — behavior inventory (keep / change / move / drop)
-
-The diff target for each phase. Done files are collapsed (code is now the reference); **pending files
-(index-half, search, query, evals, tests, webtest) are kept in full** — the Phase 7–9 targets.
-Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
-
-### Done — collapsed
-- **`data.py`** [KEEP, light edits] — parse/recall dataclasses + lossless round-trips + `SceneParser` + lazy
-  recall unchanged; added `gate_facts` one door. Details in §5.1 / §6 Phase 3.
-- **`process.py` → `segment.py`** [DONE Phase 4] — sparse `ChunkLabels` (`SCENE_START`/≤1 `SCENE_CONTINUE`/
-  `NOISE`; unlabelled = continuation), forced `output_labels`; reconstruction + stitch from the merged stream;
-  `SceneBreaker.break_chunk` retry loop; `presegmentation_gate` folded into `segment_book`; soft word-cap.
-  `process.py` deleted.
-- **`embed.py` enrich half → `enrich.py`** [DONE Phase 5] — `Moment` (sentence-first + per-beat tone/intensity
-  words) + `SceneEnrichment` (comprehend-before-judge, `pov`/`tense`/`prose_word`, drift guard);
-  `BatchEnrichment`/`_run_tool`/`_plain`/`_batches`/`_enrich_batch`/`_apply`/`enrich_file` kept, new field set;
-  neighbour-tone denorm dropped (D2).
-- **`embed.py` derive half → `derive.py`** [DONE Phase 6] — the old `_derive_frame`/`derive_frame*` facet roll-up
-  **[CHANGE]** became the general derive pass authored from scratch: `svos` + the four facet lists, `vdi_curve`
-  (tone/intensity words→coords), `prose_register` (word→coord), `dialogue_ratio` (quote ratio), `arc` (curve
-  shape). No neighbour tones (D2). Two idempotent doors `derive_records`/`derive_file` (§5.4). `embed.py`'s
-  own `derive_frame` still lives until Phase 7 (its callers repoint then).
-
-### `embed.py` index half → `index.py` (via `utils/vectorstore.py`) — **Phase 7 target**
-- `_vec_params`/`_ensure_collection` (named-vector config; drop+rebuild if stale). **[MOVE→index.py]**.
-- `_ensure_subject_index` (`subject_paths` keyword index). **[KEEP→index.py]**.
-- `_multivector_field` (embed a multivector field's per-term matrix, summary fallback — now all 5:
-  svos/subject/verb/object/setting). **[KEEP→index.py]**.
-- `index_records` (SQLite mirror FIRST for every record, then vectors for enriched-only; payload = full record;
-  stamp `subject_paths`; stable `point_id`). **[KEEP→index.py]**; payload gains the soft fields; 7-vector set.
-  **Keep** the idempotent `derive_records` call before embedding (safety net, §8).
-- `index_scenes` (rebuild driver; one client/conn). **[KEEP→index.py]**.
-- Contract imports from `search` (`COLLECTION`, `VECTOR_NAMES`, `MULTIVECTOR_NAMES`, `SUBJECT_PATHS_FIELD`,
-  `embed`, `point_id`, `_as_terms`). **[MOVE→utils/vectorstore.py]** (✅ already done Phase 2).
-
-### `search.py` — Stage 4 read → **✅ DONE Phase 8** (inventory kept as the record of what changed)
-- Qdrant contract (`COLLECTION`, `EMBED_MODEL`, `QUERY_PREFIX`, `NAMESPACE`, `point_id`, `_embedder`, `embed`,
-  `open_client`, `_search_params`, `SUBJECT_PATHS_FIELD`, `facet_filter`, `book_filter`, `subject_filter`).
-  **[MOVE→utils/vectorstore.py]** (✅ done Phase 2) — imported at the top; do not re-define.
-- Flavor: `_unit`/`_check_weights`/`weighted_vector`/`search_weighted_descriptors` (+ anti-descriptors),
-  `WEIGHT_TOL`. **[KEEP]** (`weights`/`anti_*` are per-descriptor QUERY weights — legit, NOT the retired
-  per-field weight).
-- Per-**field** weights (the whole D3 stack): `DEFAULT_FIELD_WEIGHTS`, `SCENES_VECTORS`,
-  `SCENES_DEFAULT_WEIGHTS`, `active_field_weights`, `_resolve_field_weights`, every `field_weights=` param,
-  and the lone `from utils.read_write import read_json` import (its only use, reads `TUNED_WEIGHTS_PATH`).
-  **[DROP]** per D3.
-- Dead local `_as_terms` (redefined ~L143, shadows the vectorstore import). **[DELETE]** — keep the import.
-- `_normalize_pool` **[KEEP]**; `_and_filters` **[KEEP]**; `DEFAULT_METHOD_WEIGHTS` **[KEEP]**.
-- `_moment_sentences`/`_frame_query_terms`/`_channel_queries` (+ the `channel_vectors` HyDE seam). **[KEEP]**.
-- `score_channels`/`blend_channels`/`search_scenes` (z-norm per channel, then blend). **[CHANGE done]** dropped
-  `field_weights`; blend is **weight-free**, default **`combine="sum"`** — `max` REGRESSED the 0b gold
-  (book@1 .86 vs .99) so it is the A/B alt, NOT the default (overrode this block's originally-projected `max`).
-- `search_frame` **[KEEP]** (facet vectors kept); `_rrf` **[KEEP]**.
-- `_channel_queries` — the query `svos` matrix. **[8.5 CHANGE]** build it through the shared
-  `vectorstore.svos_beat_vectors` so query beats get the same positional encoding as the index (§5.9).
-- `tone_filter`/`intensity_filter`/`arc_filter`. **[DROP]** — replaced by `facet_filter("pov"/"tense")`.
-- `search` (ANDed hard filters + scenes/flavor RRF + `channel_vectors`). **[CHANGE]** swap `tone`/`intensity`/
-  `arc` → `pov`/`tense` params, drop `field_weights`; **[NEW]** the `prose`/`dialogue`/`tones` soft kwargs +
-  the stage-3 re-rank (`resample`/`curve_dist`/`soft_penalty` + `W_*`/`w*`/`LAMBDA`/`SOFT_PREFETCH` consts) +
-  pure-browse `client.scroll` when there is no semantic input (§5.6).
-- **Consumers touched only minimally this phase** (full rewrite = Phase 9): `evals.py`/`webtest/server.py`/
-  `tests.py` pass now-removed kwargs to `search()`, and `evals`'s weight-tuning stack references deleted
-  symbols — trim just enough to keep `import` + the gold A/B green (see §6 Phase 8).
-
-### `query.py` — read front door → **extend (Phase 9)**
-- `to_query_object` (single-beat: whole text → summary + one svos moment). **[KEEP single-beat — do NOT
-  split into beats or extract facets; both deleted]**; **[NEW]** soft word→coord (tone/intensity words →
-  `tones` numeric via `tags.moment_vdi`; prose word → `prose` via `tags.prose_coord`) + `pov`/`tense`/
-  `book_id`/`dialogue` passthrough. Optional (gated) `descriptors` routing.
-- `normalize`/`run` (one door). **[KEEP entry, extend]**; **[NEW]** HyDE hook via `channel_vectors` (Phase 10).
-
-### `evals.py` — A/B → **update (Phase 9)**  (per-field-weight tuning already deleted in Phase 8)
-- `load_gold`/`_target`/`_target_scene`. **[KEEP]** (gold gains pov/tense/prose/dialogue/tone-words).
-- `score_run` (rank-1 book+scene, MRR/Hit@k), `by_sharpness`, `compare_runs`, `format_comparison`. **[KEEP]**.
-- `run_search` (channel-isolation flags; `field_weights` already dropped Phase 8), `_gold_frame`/
-  `_gold_moments`. **[CHANGE]** flags for the new lanes + a soft-facet A/B path.
-- `autolabel_scenes`. **[KEEP]** — clean its stale `scene_title` read (removed from schema).
-- `collect_vector_channels`/`blend_run`/`coordinate_ascent`/`save_tuned_weights`/`reset_tuned_weights` +
-  the `--tune`/`--metric`/`--reset-weights` CLI. **[DROP — DONE Phase 8]** (per D3).
-- `main` CLI. **[UPDATE]** — soft-facet A/B mode; `--mode combine` (sum vs max) already present.
-
-### `tests.py` — build + smoke harness → **update, one door per stage (Phase 9)**
-- `FILE_IDS` (10 active). **[KEEP]**. `OTHER_SKIP_RATIO` **[DROP — done Phase 4]**.
-- `TEST_QUERIES`/`COMBINED_QUERIES`/`MOMENTS_QUERIES`/`DESCRIPTOR_QUERIES`. **[CHANGE]** new query shapes.
-- `subject_sql_test`/`backfill_subject_paths`/`payload_dump_test`. **[KEEP]**.
-- `segment_test` **[DONE Phase 4]** — rewired to `segment.segment_book`.
-- `_load_status`/`_mark_status`. **[KEEP]**.
-- `embed_test`. **[CHANGE]** → enrich + derive + index (the split).
-- `_show`/`search_test`/`manual_search`. **[CHANGE]** new search inputs.
-- `stay_awake`/`_pmset_disablesleep`. **[KEEP]**.
-- `step_one_retrieval` (wget). **[KEEP]**. `step_two_processing`/`step_three_embedding`. **[CHANGE]** to the new
-  stage doors. `main`. **[UPDATE]**.
-
-### `main.py` — thin entry → **verify/update** to the new stage doors. **[KEEP/UPDATE]**.
-
-### `webtest/server.py` — local read-path UI (port 8765) → **update (Phase 9)**  (NB: won't import until a new-schema DB exists — see §6 Phase 9 prerequisite)
-- Qdrant lock eviction (`_lock_holders`/`_evict`/`_open_qdrant`). **[KEEP]**.
-- `_load_scenes`/`_build_subject_tree`/`_strip`/`_preview`/`_card`/`_pos`. **[KEEP]** (cards may surface new fields).
-- `_run_query` (search dispatch). **[CHANGE]** forward the new soft (`prose`/`dialogue`/`tones`) + hard
-  (`pov`/`tense`) inputs. (`field_weights` already removed + `combine` default → `sum`, Phase 8.)
-- hard-filter call. **[DONE Phase 8]** — tone/intensity/arc → `facet_filter("pov"/"tense")`; `/api/weights`
-  stubbed. Phase 9 removes the client-side weights panel + wires the pov/tense controls.
-- `Handler` routes / `_ctype` / `main`. **[KEEP]**; UI swaps tone/intensity/arc dropdowns for **sliders**.
-- imports `utils.tags` for dropdown vocab. **[CHANGE]** — the `/api/meta` `tags.Tone/Intensity/Arc` vocab
-  drops; sliders + the word→coord translation move to `query.py` (§5.7), not the server.
-
-### `utils/` foundation
-- `schema.py` **[✅ done Phase 1]** — new field set, `float`/`REAL` + codec, `weight` retired; reconcile
-  machinery + `SCHEMA_VERSION` single-source kept.
-- `tags.py` **[✅ done Phase 1]** — `POV`/`Tense` added; word→coord tables (tone→VD, intensity→i, prose→register);
-  `Tone` is a word→coord lookup, not a hard-filter enum.
-- `vectorstore.py` **[✅ NEW, Phase 2]** — the Qdrant contract, imported by `index.py` (write) + `search.py` (read).
-  **[8.5 CHANGE]** `svos` size `384+2` + `SVOS_POS_*` constants + the shared `svos_beat_vectors(sentences)`
-  positional-encoding helper both sides call (§5.9); the other named vectors keep 384.
-- `relational.py` — mechanics **[KEEP]**; columns follow the new schema.
-- `subjects.py` / `checkpoint.py` / `log.py` / `read_write.py` **[KEEP]**.
-- `storage.py` **[KEEP]**; add new dirs (adapter weights) in Phase 10.
-- `llm.py` — plumbing **[KEEP]**; both prompts rewritten (owner's surface) — `PROCESS_PROMPT` (Phase 4) +
-  `EMBED_PROMPT` (Phase 5) done.
+**▶ New session? Go to the START HERE box at the top.** Everything before Phase 8.5 is BUILT — read the code +
+`CLAUDE.md` + the memory files for it, don't re-derive it. **Current phase = 8.5 (order-aware `svos`, §3.2),
+then 10 (rebuild → HyDE, §3.1).**

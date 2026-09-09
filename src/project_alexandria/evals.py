@@ -12,7 +12,10 @@ from pathlib import Path
 # subject/verb/object/setting frame + a combined `svos` clause (synthesized from that frame) +
 # descriptors, so they exercise the summary/svos/frame vector channels + the descriptor flavor channel.
 # The semantic blend is WEIGHT-FREE (per-field weights retired, D3); the A/B knobs are normalize + combine
-# (max/sum) + method_weights. Soft-facet A/B (pov/tense filters, tone-curve sliders) lands in Phase 9.
+# (max/sum) + method_weights. `--mode soft` is the soft-facet A/B: hold the semantic query fixed, move ONE
+# slider (prose / dialogue / tone-curve) read off the gold, and confirm the intended reorder — an UNSET
+# slider is inert by construction (search skips stage 3). Soft words map to numbers through query.py's
+# converters (the SAME mapping the app uses), so the A/B exercises the real word->coord path.
 # Run: `python -m evals` (see --mode).
 
 # Run  = dict[query_id, list[{"scene_id": str, "book_id": str, "score": float}]]  best-first
@@ -217,9 +220,15 @@ def format_comparison(cmp: dict) -> str:
 # ---- driver: produce a Run from the unified search() ----
 
 # ** MAIN ** — every A/B mode runs through here
-# Drive the unified search() over the gold queries with one FULL config -> a Run. Flags gate which channels run (isolate one for an A/B); method_weights/combine/normalize set the blend (per-field weights retired, D3).
+# Drive the unified search() over the gold queries with one FULL config -> a Run. Channel flags gate which
+# semantic channels run (isolate one for an A/B); method_weights/combine/normalize set the blend (per-field
+# weights retired, D3). The soft/hard config (pov/tense hard filters + prose/dialogue/tones soft sliders,
+# all NUMERIC — words are mapped upstream by query.py) is applied uniformly to EVERY query, so a soft A/B
+# holds the semantic query fixed and moves one slider batch-wide.
 def run_search(client, queries: list[dict], *, use_summary: bool = True, use_moments: bool = True,
                use_frame: bool = True, use_descriptors: bool = False,
+               pov=None, tense=None, prose: float | None = None,
+               dialogue: float | None = None, tones=None,
                method_weights: dict | None = None,
                combine: str = "sum", normalize: str | None = "zscore", limit: int = 10) -> dict:
     import search
@@ -232,6 +241,8 @@ def run_search(client, queries: list[dict], *, use_summary: bool = True, use_mom
         try:
             pts = search.search(client, summary=summary, moments=moments, frame=frame,   # unified search
                                 descriptors=descriptors,
+                                pov=pov, tense=tense,                       # hard facets (exclude)
+                                prose=prose, dialogue=dialogue, tones=tones,  # soft sliders (tilt)
                                 method_weights=method_weights, combine=combine,
                                 normalize=normalize, limit=limit)
         except Exception as ex:                 # an empty/invalid query shouldn't sink the run
@@ -255,15 +266,51 @@ def _gold_moments(e: dict):
     return e.get("moments") or e.get("svos") or None
 
 
+# A gold entry's soft/hard config as search kwargs {pov, tense, prose, dialogue, tones}, with the WORD
+# fields (prose word, tone/intensity word-curve) mapped to numbers by query.py — the SAME converter the app
+# uses, so the A/B path and the live path stay in lock-step. Only present fields are returned.
+def _gold_soft(e: dict) -> dict:
+    import query
+    out = {}
+    for f in ("pov", "tense"):
+        if e.get(f):
+            out[f] = e[f]
+    if e.get("prose") is not None:
+        out["prose"] = query.prose_level(e["prose"])       # prose WORD -> float
+    if e.get("dialogue") is not None:
+        out["dialogue"] = float(e["dialogue"])
+    tones = query.tone_curve(e.get("tones"))               # tone/intensity WORD-curve -> [[v,d,i]...]
+    if tones is not None:
+        out["tones"] = tones
+    return out
+
+
+# The soft kwargs for a one-slider A/B on `axis`: prose/dialogue take `value` (default 1.0 = grand / all-
+# dialogue); tones uses a synthetic RISING intensity curve (calm -> peak, neutral valence/dominance) so the
+# reorder has a concrete arc to sort by. {} for an unknown axis. The A/B's other run leaves soft UNSET, which
+# search treats as stage-3 skipped (inert) — so the pair shows both "slider reorders" and "unset is inert".
+def _soft_axis(axis: str, value: float = 1.0) -> dict:
+    if axis == "prose":
+        return {"prose": value}
+    if axis == "dialogue":
+        return {"dialogue": value}
+    if axis == "tones":
+        return {"tones": [[0.5, 0.5, 0.15], [0.5, 0.5, 0.90]]}   # rising i, neutral v/d
+    return {}
+
+
 # ---- scene-target auto-labeling (fills gold's target_scene_id so rank-1 can be graded at the SCENE level) ----
 
-# Auto-label each query's correct scene: the rank-1 scene WITHIN its own book under the default what-happens query (summary + svos + frame). Mutates queries in place, writing target_scene_id/title/summary (None if unresolved); returns (n_labeled, n_missing). Review the written titles before trusting scene metrics.
+# Auto-label each query's correct scene: the rank-1 scene WITHIN its own book under the default what-happens
+# query (summary + svos + frame). Mutates queries in place, writing target_scene_id/summary + the labeled
+# scene's own soft/hard facets (pov/tense + prose_register/dialogue_ratio/vdi_curve, so a soft A/B has a real
+# per-query target); None if unresolved. Returns (n_labeled, n_missing). Review the written summaries before
+# trusting scene metrics. (scene_title is gone from the schema — the summary is the human-readable label.)
 def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zscore") -> tuple:
     import search
     labeled = missing = 0
     for e in queries:
         e["target_scene_id"] = None
-        e["target_scene_title"] = None
         e["target_scene_summary"] = None
         try:
             pts = search.search(client, summary=e.get("summary"), moments=_gold_moments(e),   # default blend
@@ -276,8 +323,9 @@ def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zs
         if pts:
             pl = pts[0].payload
             e["target_scene_id"] = pl.get("scene_id")
-            e["target_scene_title"] = pl.get("scene_title")
             e["target_scene_summary"] = pl.get("summary")
+            for f in ("pov", "tense", "prose_register", "dialogue_ratio", "vdi_curve"):
+                e[f"target_{f}"] = pl.get(f)               # the scene's own facets = the soft/hard gold target
             labeled += 1
         else:
             missing += 1
@@ -305,17 +353,18 @@ def _label_scenes_cli(gold_path: str | None, normalize: str | None) -> None:
     finally:
         client.close()
     order = ["id", "book_id", "book_title", "sharpness", "summary", "subject", "verb", "object",
-             "setting", "svos", "descriptors", "target_scene_id", "target_scene_title",
-             "target_scene_summary"]                                                 # review fields sit by the frame
+             "setting", "svos", "descriptors", "target_scene_id", "target_scene_summary",
+             "target_pov", "target_tense", "target_prose_register", "target_dialogue_ratio",
+             "target_vdi_curve"]                                                     # review fields sit by the frame
     data["test_queries"] = [{k: e[k] for k in order if k in e} |
                             {k: v for k, v in e.items() if k not in order} for e in queries]
     shutil.copy(path, str(path) + ".bak")                                            # backup before overwrite
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"labeled {labeled} / {len(queries)} queries ({missing} unresolved). backup: {path.name}.bak\n")
-    print(f"  {'qid':<10} {'book':>6}  {'scene_id':>10}  title  [REVIEW THESE]")
+    print(f"  {'qid':<10} {'book':>6}  {'scene_id':>10}  summary  [REVIEW THESE]")
     for e in queries:
         print(f"  {e['id']:<10} {e['book_id']:>6}  {str(e.get('target_scene_id')):>10}  "
-              f"{e.get('target_scene_title')}")
+              f"{e.get('target_scene_summary')}")
 
 
 # CLI entry: parse args, run the chosen A/B mode, print the report. (Per-field-weight tuning retired, D3.)
@@ -324,9 +373,14 @@ def main():
     import search
     ap = argparse.ArgumentParser(
         description="A/B two read-path configs on the gold set.")
-    ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor", "combine"),
+    ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor", "combine", "soft"),
                     help="norm: A/B normalize (--a vs --b). lift: summary-only vs summary+frame. "
-                         "flavor: what-happens+frame vs + descriptors. combine: max-blend vs sum.")
+                         "flavor: what-happens+frame vs + descriptors. combine: max-blend vs sum. "
+                         "soft: semantic fixed, one slider (--axis) off vs on (needs a new-schema index).")
+    ap.add_argument("--axis", default="tones", choices=("prose", "dialogue", "tones"),
+                    help="mode=soft: which soft slider to move (the other runs leaves it unset = inert)")
+    ap.add_argument("--value", type=float, default=1.0,
+                    help="mode=soft: the prose/dialogue slider value for the 'on' run (tones uses a rising curve)")
     ap.add_argument("--a", default="none", help="normalize for A (mode=norm): none|zscore|minmax")
     ap.add_argument("--b", default="zscore", help="normalize for B (mode=norm): none|zscore|minmax")
     ap.add_argument("--normalize", default="zscore",
@@ -360,6 +414,11 @@ def main():
             run_a = run_search(client, queries, normalize=nrm, combine="sum", limit=args.limit)   # weighted blend
             run_b = run_search(client, queries, normalize=nrm, combine="max", limit=args.limit)   # greatest single
             la, lb = "combine=sum", "combine=max"
+        elif args.mode == "soft":
+            base = dict(normalize=nrm, combine=args.combine, limit=args.limit)
+            run_a = run_search(client, queries, **base)                                           # slider UNSET (inert)
+            run_b = run_search(client, queries, **base, **_soft_axis(args.axis, args.value))      # + one slider
+            la, lb = "no_soft", f"soft:{args.axis}"
         else:  # norm
             run_a = run_search(client, queries, normalize=_norm_arg(args.a), combine=args.combine, limit=args.limit)
             run_b = run_search(client, queries, normalize=_norm_arg(args.b), combine=args.combine, limit=args.limit)
