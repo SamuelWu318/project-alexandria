@@ -401,15 +401,17 @@ def manual_search(summary: str = "", moments=None, descriptors=None,
         client.close()
 
 
-# ** ENTRY ** — full pipeline: download -> segment -> enrich/index -> subject-tree smoke.
+# ** ENTRY ** — full pipeline: clean one-time rebuild of the FILE_IDS books on the frozen v4 schema.
+# Move the old MASTER_DIR data aside first (data/recall/scenes/checkpoints/segments/databases): every
+# step recreates its dirs and, on empty dirs, nothing is skipped — a true from-scratch repopulate.
+# download -> segment (LLM) -> enrich (LLM) + derive + index (Qdrant + SQLite + subject trie). Each of
+# step_two/step_three already wraps itself in stay_awake() for the long lid-closed run.
 def main():
-    #step_one_retrieval(FILE_IDS)         # download
-    #step_two_processing(FILE_IDS)        # segment
-    #step_three_embedding(FILE_IDS)       # enrich + index
-    #subject_sql_test()                   # subject-tree smoke
-    index.index_scenes()
-    #search_test()
-    pass
+    step_one_retrieval(FILE_IDS)         # download each book's -h.zip (skips a zip already present)
+    step_two_processing(FILE_IDS)        # segment: parallel per-book LLM labelling -> scenes json
+    step_three_embedding(FILE_IDS)       # enrich (LLM) + derive + index -> vectors + SQLite + subject trie
+    #subject_sql_test()                  # optional: subject-tree smoke
+    #search_test()                       # optional: read-path smoke once the stores are built
 
 
 if __name__ == "__main__":
