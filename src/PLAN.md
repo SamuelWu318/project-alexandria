@@ -5,19 +5,20 @@
 > ## ▶ START HERE (new session)
 > 1. Binding house style = `CLAUDE.md` → "Code principles" (readability; comment framework; arrows-down;
 >    one-import-one-method; single-responsibility). It governs every edit. §1 below is a pointer to it.
-> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 6 — `derive.py`**).
+> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 7 — `index.py`**).
 > 3. Read that phase's **§5 stage design** + its **Appendix A** block (the keep/change/move/drop target).
 > 4. Phase loop: **author the new file FROM SCRATCH** to the house style — the old file is a *behavior*
 >    reference only (via Appendix A), NEVER a copy-paste port → delete the old file → run the phase's
 >    **Checks** → meet **Done-criteria** → update the affected `CLAUDE.md` lines.
 > 5. Flip the phase to ✅ in §6, commit. **One phase per session** unless told otherwise; then stop.
 
-**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–5 DONE** (0b kept the 4 facet vectors → 7-vec
+**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–6 DONE** (0b kept the 4 facet vectors → 7-vec
 set; schema v4 + tags + `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling, `process.py`
-deleted; `enrich.py` comprehend-before-judge, `embed.py` kept until Phase 7). Schema wave: `--check` GREEN
-via `import enrich`, but `import embed`/`import tests` stay RED on embed's own stale assert until Phase 7
-deletes it. The always-current status table lives in `CLAUDE.md`; this file drives the *remaining* work
-(Phases 6–10). **▶ NEXT: Phase 6 — `derive.py`** (§5.4, §6, Appendix A embed-derive block).
+deleted; `enrich.py` comprehend-before-judge; `derive.py` mechanical word→number pass — `embed.py` kept
+until Phase 7). Schema wave: `--check` GREEN via `import enrich`, but `import embed`/`import tests` stay RED
+on embed's own stale assert until Phase 7 deletes it. The always-current status table lives in `CLAUDE.md`;
+this file drives the *remaining* work (Phases 7–10). **▶ NEXT: Phase 7 — `index.py`** (§5.5, §6, Appendix A
+embed-index block).
 
 **What this document is:** the target product + data model (§2–§5) and the ordered file-by-file restructure
 that lands it (§6, checklisted against Appendix A). Done phases are one line each; the detail that matters
@@ -28,7 +29,7 @@ now is the forward specs.
 2. Usage model — the bounty-hunter north star
 3. Data model / schema — the target record + the three lanes
 4. Architecture — module map + dependency graph
-5. Stage designs (5.1–5.3 done; **5.4 derive → 5.8 HyDE** are the live specs)
+5. Stage designs (5.1–5.4 done; **5.5 index → 5.8 HyDE** are the live specs)
 6. Migration plan — Phases 0→10 (0–5 done)
 7. Invariants
 8. Decisions D1–D5 + ablation
@@ -164,8 +165,8 @@ from the foundation module; neither imports the other.
 | `data.py` | `data.py` (kept) | `build_library()`, `ensure_book()`, `gate_facts()` | Stage 1 parse + recall + pre-gate | ✅ |
 | `segment.py` | `process.py` (deleted) | `segment_book(book, md) -> records` | Stage 2 boundary-classification → dramatic-unit scenes | ✅ |
 | `enrich.py` | `embed.py` enrich half | `enrich_file(path)` | Stage 3a LLM enrichment | ✅ |
-| `derive.py` | `embed.py` derive half | `derive_file(path)` | Stage 3b `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` | **Phase 6** |
-| `index.py` | `embed.py` index half | `index_scenes(file_ids)` | Stage 3c build Qdrant + SQLite + subject trie | Phase 7 |
+| `derive.py` | `embed.py` derive half | `derive_file(path)`, `derive_records(records)` | Stage 3b `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` | ✅ |
+| `index.py` | `embed.py` index half | `index_scenes(file_ids)` | Stage 3c build Qdrant + SQLite + subject trie | **Phase 7** |
 | `search.py` | `search.py` (rewrite) | `search(...)` | Stage 4: hard filter → semantic rank → soft re-rank | Phase 8 |
 | `query.py` | `query.py` (extend) | `run(client, request)` | read front door / normalizer + HyDE hook | Phase 9 |
 
@@ -197,7 +198,7 @@ foundation module.
 
 ## 5. Stage designs
 
-### 5.1–5.3 — DONE (data / segment / enrich). Code + `CLAUDE.md` invariants are the reference.
+### 5.1–5.4 — DONE (data / segment / enrich / derive). Code + `CLAUDE.md` invariants are the reference.
 
 - **5.1 `data.py`** — parse/recall unchanged (§7 invariants held). `gate_facts(file_code, md, data_path)`
   is segment's single pre-gate door (folds `parse_rights` + `MetadataParser.to_dict`; policy stays in segment).
@@ -215,33 +216,18 @@ foundation module.
   fields only; `svos`/facets/`vdi_curve`/`dialogue_ratio`/`arc`/`prose_register` are Phase-6 derived. Batched
   (`12000`/`4`) + checkpointed; `_run_tool` splats `MODEL_PARAMS` (tool name already == its `tool_choice`).
   One door `enrich_file(path)`.
+- **5.4 `derive.py`** — mechanical no-LLM pass filling every `source:"derived"` field: `svos` (moment
+  sentences), the four S/V/O/S facet lists (dedup case-insensitive, order-preserving, `[]`→`None`),
+  `vdi_curve` (per-moment tone+intensity WORDS → `[v,d,i]` via `tags.moment_vdi`), `prose_register`
+  (`tags.prose_coord`), `dialogue_ratio` (matched straight+smart quote chars ÷ stripped-prose chars, `[0,1]`),
+  `arc` (i-axis shape, `ARC_FLAT_BAND=0.15` deadband: mid-curve peak/valley→turn, else net rise/fall→rising/
+  falling, else steady; `<2`→steady). Word→number lives ONLY in `tags.py` (retune = derive-only refresh, no
+  re-enrich, LLM fields untouched — §3.5); **no** neighbour tones (D2). Two doors: `derive_records(records)`
+  (in-place, **IDEMPOTENT** — `index.py`'s pre-embed safety net; field order svos→frame→vdi_curve→
+  prose_register→dialogue_ratio→arc, arc last as it reads the curve) and `derive_file(path)` (read → derive →
+  write). `import derive` clean (only `utils.tags`/`read_write`/`log`).
 
-### 5.4 Stage 3b — derivation (`derive.py`) — **NEXT (Phase 6)**
-
-`derive_file(path)` (single door). Everything mechanical, no LLM:
-- `svos` ← `[m["sentence"] for m in moments]` (`None` if empty).
-- `subject`/`verb`/`object`/`setting` ← per facet over `moments[].<facet>`: dedup case-insensitively,
-  order-preserving; `[]`→`None` (the OLD `embed._derive_frame` behavior — kept, the ablation kept the facets).
-- `vdi_curve` ← `[list(tags.moment_vdi(m["tone"], m["intensity"])) for m in moments]`.
-- `prose_register` (float) ← `tags.prose_coord(rec["prose_word"])`, or `None`.
-- `dialogue_ratio` (float) ← quote-character ratio over the STRIPPED prose (reuse an HTML strip like
-  `enrich._plain`): chars inside matched quote pairs ÷ total prose chars, `[0,1]`; handle straight `"` AND
-  smart `“ ”`.
-- `arc` ← classify the `vdi_curve` **intensity (i) axis** into `tags.Arc` (`rising`/`falling`/`steady`/`turn`)
-  with a named deadband (`ARC_FLAT_BAND≈0.15`): net rise past band = rising, net fall = falling, within band =
-  steady, a reversal beyond band = turn; `<2` samples → `steady`.
-
-Word→number lives ONLY in `tags.py` (`from utils import tags`); derive NEVER hardcodes a coordinate. Because
-these are pure word→number / text→number, re-tuning the tables re-runs **derive only** (a payload refresh),
-never enrichment (§3.5). **No** neighbour tones (D2).
-
-**Two doors:** `derive_records(records) -> records` — in-place, **IDEMPOTENT** (guard affect/frame on
-`moments`; `dialogue_ratio` needs only `text_html`); this is the door `index.py` calls as its cheap safety
-net before embedding (so a scene is never indexed with an un-derived frame/curve). `derive_file(path)` =
-`read_json → derive_records → write_json`, the door tests/standalone use. Order inside `derive_records`: svos,
-frame, vdi_curve, prose_register, dialogue_ratio, THEN arc (arc reads vdi_curve).
-
-### 5.5 Stage 3c — indexing (`index.py`) — Phase 7
+### 5.5 Stage 3c — indexing (`index.py`) — **NEXT (Phase 7)**
 
 `index_scenes(file_ids)` (single door). Uses `vectorstore.py` for the Qdrant contract and
 `utils.relational` + `utils.subjects` for SQLite. Order: **SQLite mirror first** (every record, enriched or
@@ -338,8 +324,12 @@ rebuild are frozen**, so the adapter learns the final manifold.
   judge; drops scene tone/intensity/arc; adds `pov`/`tense`/`prose_word`), moment cap 6; neighbour-tone denorm
   dropped (D2); writes LLM fields only; `EMBED_PROMPT` rewritten + live-confirmed. Drift guard passes,
   `--check` GREEN; `import embed`/`import tests` RED until Phase 7.
-- ☐ **6  `derive.py`** ← **NEXT** (see kickoff note below)
-- ☐ 7  `index.py` (delete `embed.py`)
+- ✅ 6  `derive.py` (`embed.py` kept until Phase 7) — mechanical no-LLM pass filling every `source:"derived"`
+  field: `svos` + the four S/V/O/S facet lists, `vdi_curve`, `prose_register`, `dialogue_ratio`, `arc`.
+  Word→number only in `utils.tags`; two doors `derive_records` (idempotent — index's safety net) / `derive_file`;
+  `import derive` clean. Verified: word→coord == table, dialogue/arc/idempotent checks green, a tags retune
+  refreshes the payload without touching LLM fields; `--check` GREEN, `import embed`/`tests` RED until Phase 7.
+- ☐ **7  `index.py`** ← **NEXT** (delete `embed.py`)
 - ☐ 8  `search.py` rewrite
 - ☐ 9  `query.py` + harness + `webtest/`
 - ☐ 10 full rebuild → HyDE
@@ -354,31 +344,17 @@ surface) land after the matching stage code so they target the real tool schemas
 > A corpus rebuild is pending anyway; this restructure forces it. Sequence: land Phases 1–9, then one clean
 > full rebuild on the final schema, then Phase 10 (HyDE).
 
-### Phase 6 — `derive.py` ← NEXT
-
-Author **`derive.py` FROM SCRATCH** to the house style (behavior reference = the `embed.py` derive half via
-Appendix A — do NOT copy-port). `embed.py` is NOT deleted here (Phase 7); enrich/derive/embed coexist.
-derive is Stage 3b: the mechanical no-LLM pass that turns enrich output into the `source:"derived"` payload.
-
-- **Fields derive owns** (schema `source:"derived"`, minus `pos` which is a SQL store-transform in
-  `relational.to_row`): `svos`; the four facet lists; `vdi_curve`; `prose_register`; `dialogue_ratio`; `arc`.
-  Enrich left every one **null** — confirmed. Per-field derivation + the two doors + ordering are in **§5.4**.
-- **Checks:** `import derive` clean (imports only `utils.tags`/`utils.schema`/`read_write`); each word→coord
-  equals the `tags.py` table; `dialogue_ratio` sane vs eyeballed quotes; `arc` matches a hand-built
-  rising/falling/turn curve; `derive_records` idempotent (2nd run == 1st); a `tags.py` table edit + re-derive
-  changes the payload WITHOUT touching LLM fields. `--check` stays GREEN; `import embed`/`import tests` stay
-  RED until Phase 7.
-- **Run/verify (this machine):** `PYTHONPATH=…/src/project_alexandria …/.venv/bin/python`. **Caveat:** the
-  existing `logs/.../scenes/pg*-s.json` are OLD-schema — their moments have NO `tone`/`intensity`, so they
-  can't exercise `vdi_curve`/`arc`. Test on a NEW-schema record: run `enrich.enrich_file` on a freshly
-  `segment`-ed book, or hand-build a `schema.blank_record()` with new-schema `moments` + `prose_word` +
-  `text_html`. `tests.py`/`embed.index_scenes` still use embed's own `derive_frame` until Phase 7 — leave it.
-
-### Phase 7 — `index.py` (delete `embed.py`)
+### Phase 7 — `index.py` (delete `embed.py`) ← NEXT
 - Build Qdrant (7 vectors) + SQLite + subject trie + full payload with the soft fields (§5.5), via
-  `vectorstore.py`. Delete `embed.py`.
-- **Checks:** `python -m utils.schema --check` **green** (schema wave closes here); one book indexes; payload
-  carries `pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`.
+  `vectorstore.py`. Call `derive.derive_records` as the pre-embed safety net (§5.5). Delete `embed.py` (retire
+  its `_derive_frame`/`derive_frame*` + `_run_tool`/enrich half + `index_*`); repoint any `embed.` caller.
+- **Checks:** `python -m utils.schema --check` **green** (schema wave closes here — `import embed`/`import
+  tests` go GREEN once embed.py is gone + `tests.py` is repointed); one book indexes; payload carries
+  `pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`.
+- **Run/verify (this machine):** `PYTHONPATH=src/project_alexandria .venv/bin/python` (from repo root).
+  **Caveat:** the existing `logs/.../scenes/pg*-s.json` are OLD-schema (moments lack `tone`/`intensity`), so
+  exercise the pipeline end-to-end on a NEW-schema book — `segment` → `enrich.enrich_file` → `derive.derive_file`
+  → `index_scenes` — or hand-build a `schema.blank_record()` with new-schema `moments`.
 
 ### Phase 8 — `search.py` (rewrite read path)
 - Hard filters: add `pov`/`tense`, retire `tone`/`intensity`/`arc`. Keep semantic + `channel_vectors`.
@@ -442,7 +418,7 @@ derive is Stage 3b: the mechanical no-LLM pass that turns enrich output into the
 ## Appendix A — behavior inventory (keep / change / move / drop)
 
 The diff target for each phase. Done files are collapsed (code is now the reference); **pending files
-(derive-half, index-half, search, query, evals, tests, webtest) are kept in full** — the Phase 6–9 targets.
+(index-half, search, query, evals, tests, webtest) are kept in full** — the Phase 7–9 targets.
 Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
 
 ### Done — collapsed
@@ -456,12 +432,11 @@ Legend: **[KEEP]** · **[CHANGE]** · **[MOVE→x]** · **[DROP]** · **[NEW]**.
   words) + `SceneEnrichment` (comprehend-before-judge, `pov`/`tense`/`prose_word`, drift guard);
   `BatchEnrichment`/`_run_tool`/`_plain`/`_batches`/`_enrich_batch`/`_apply`/`enrich_file` kept, new field set;
   neighbour-tone denorm dropped (D2).
-
-### `embed.py` derive half → `derive.py` — **Phase 6 target**
-- `_derive_frame`/`derive_frame`/`derive_frame_file`/`derive_frame_scenes` (moments → S/V/O/S facet lists).
-  **[CHANGE]** becomes the general derive pass: `svos` (moment sentences), the four facet lists, `vdi_curve`
+- **`embed.py` derive half → `derive.py`** [DONE Phase 6] — the old `_derive_frame`/`derive_frame*` facet roll-up
+  **[CHANGE]** became the general derive pass authored from scratch: `svos` + the four facet lists, `vdi_curve`
   (tone/intensity words→coords), `prose_register` (word→coord), `dialogue_ratio` (quote ratio), `arc` (curve
-  shape). No neighbour tones (D2). Two doors `derive_records`/`derive_file` (§5.4).
+  shape). No neighbour tones (D2). Two idempotent doors `derive_records`/`derive_file` (§5.4). `embed.py`'s
+  own `derive_frame` still lives until Phase 7 (its callers repoint then).
 
 ### `embed.py` index half → `index.py` (via `utils/vectorstore.py`) — **Phase 7 target**
 - `_vec_params`/`_ensure_collection` (named-vector config; drop+rebuild if stale). **[MOVE→index.py]**.
