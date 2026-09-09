@@ -8,7 +8,7 @@ from qdrant_client import QdrantClient, models
 from derive import derive_records
 # vector-store contract — the ONE home of the Qdrant primitives, shared with search.py's read path.
 from utils.vectorstore import (COLLECTION, VECTOR_NAMES, MULTIVECTOR_NAMES, SUBJECT_PATHS_FIELD,
-                               embed, open_client, point_id, _as_terms)
+                               embed, svos_beat_vectors, vector_size, open_client, point_id, _as_terms)
 from utils import relational   # SQLite scene mirror: the exact-match / navigation store beside the vectors
 from utils import subjects     # subject-path expansion for the filterable payload label
 from utils import SrcPaths, log, read_json, write_json
@@ -25,11 +25,12 @@ from utils import SrcPaths, log, read_json, write_json
 # ---- qdrant collection config (mechanical; the named-vector set is derived from the registry) ----
 
 # ** LOCKED **
-# VectorParams for one named vector — a MAX_SIM multivector for a list field, a single vector otherwise.
+# VectorParams for one named vector — a MAX_SIM multivector for a list field, a single vector otherwise;
+# svos is sized wider than `dim` (order-aware positional dims) via the contract's vector_size.
 def _vec_params(name: str, dim: int) -> models.VectorParams:
     mv = (models.MultiVectorConfig(comparator=models.MultiVectorComparator.MAX_SIM)
           if name in MULTIVECTOR_NAMES else None)
-    return models.VectorParams(size=dim, distance=models.Distance.COSINE, multivector_config=mv)
+    return models.VectorParams(size=vector_size(name, dim), distance=models.Distance.COSINE, multivector_config=mv)
 
 
 # ** LOCKED **
@@ -42,9 +43,10 @@ def _ensure_collection(client: QdrantClient, dim: int) -> None:
         mv_ok = names_ok and all(
             (getattr(cfg[n], "multivector_config", None) is not None) == (n in MULTIVECTOR_NAMES)
             for n in VECTOR_NAMES)
-        if names_ok and mv_ok:
+        sizes_ok = names_ok and all(cfg[n].size == want[n].size for n in VECTOR_NAMES)   # catches the svos width change
+        if names_ok and mv_ok and sizes_ok:
             return
-        log.warn(f"'{COLLECTION}' vector config stale (name/multivector mismatch) — dropping + rebuilding")
+        log.warn(f"'{COLLECTION}' vector config stale (name/size/multivector mismatch) — dropping + rebuilding")
         client.delete_collection(COLLECTION)   # stale vector set -> rebuild from scratch
     client.create_collection(COLLECTION, vectors_config=want)
     log.info(f"built '{COLLECTION}' with {len(want)} vectors: {', '.join(want)}")
@@ -94,8 +96,11 @@ def index_records(client: QdrantClient, records: list[dict],
     sum_vecs = embed([r["summary"] for r in ready])            # the holistic summary vector
     # descriptors are 3-5 adjectives (schema-guaranteed); join to one vibe string (summary fallback).
     desc_vecs = embed([", ".join(r.get("descriptors") or []) or r["summary"] for r in ready])
-    # the five multivector fields: one MATRIX per scene (a vector per term), scored by MAX_SIM.
-    mv = {f: _multivector_field(ready, f) for f in MULTIVECTOR_NAMES}
+    # the four ORDER-FREE facets: one MAX_SIM matrix per scene (a vector per term, summary fallback).
+    mv = {f: _multivector_field(ready, f) for f in MULTIVECTOR_NAMES if f != "svos"}
+    # svos is ORDER-AWARE (PLAN §3.2): positional beats in moments[] order, built per scene through the
+    # contract helper (raw passages — bge asymmetry). Empty svos falls back to a 1-beat summary matrix.
+    mv["svos"] = [svos_beat_vectors(_as_terms(r.get("svos")) or [r["summary"]]) for r in ready]
 
     # stamp the filterable subject label onto each payload (right-anchored prefixes of the book's subjects).
     for r in ready:

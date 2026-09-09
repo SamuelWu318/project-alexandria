@@ -1,8 +1,8 @@
 import numpy as np
 from qdrant_client import QdrantClient, models
 from utils.vectorstore import (COLLECTION, MULTIVECTOR_NAMES, QUERY_PREFIX, embed,   # the Qdrant contract,
-                               open_client, book_filter, subject_filter, facet_filter,   # defined ONCE in
-                               _search_params, _as_terms)                                 # utils/vectorstore.py
+                               svos_beat_vectors, open_client, book_filter,           # defined ONCE in
+                               subject_filter, facet_filter, _search_params, _as_terms)   # utils/vectorstore.py
 
 # ---- Read path: query the scene vector DB (import THIS from the app / API) ----
 # Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. The
@@ -172,7 +172,7 @@ def _channel_queries(summary, moments, frame, channel_vectors: dict | None = Non
         channels["summary"] = embed([QUERY_PREFIX + summ])[0]          # single holistic vector
     sents = _moment_sentences(moments)
     if sents:
-        channels["svos"] = embed([QUERY_PREFIX + s for s in sents])    # MAX_SIM matrix of clause sentences
+        channels["svos"] = svos_beat_vectors([QUERY_PREFIX + s for s in sents])  # order-aware MAX_SIM matrix (§3.2)
     for f, terms in _frame_query_terms(moments, frame).items():
         channels[f] = embed([QUERY_PREFIX + t for t in terms])         # per-facet MAX_SIM matrix
     if channel_vectors:                                                 # pre-embedded vectors win over text
@@ -247,7 +247,10 @@ def search_frame(client: QdrantClient, field: str, terms, *, limit: int = 5,
     items = _as_terms(terms)
     if not items:
         raise ValueError("search_frame needs at least one term")
-    qmat = embed([QUERY_PREFIX + t for t in items])
+    # svos rows carry positional dims (§3.2), so its query matrix MUST be built the same way; the order-free
+    # facets are a plain embed.
+    qmat = (svos_beat_vectors([QUERY_PREFIX + t for t in items]) if field == "svos"
+            else embed([QUERY_PREFIX + t for t in items]))
     return client.query_points(COLLECTION, query=qmat, using=field, limit=limit,
                                query_filter=flt, search_params=_search_params(exact),
                                with_payload=True).points

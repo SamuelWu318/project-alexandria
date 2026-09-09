@@ -1,25 +1,27 @@
 # PLAN.md — Project Alexandria restructure
 
-**Branch:** `restructure` · **Execution manual for the REMAINING work** (Phases 8.5 + 10). Phases 0–9 are
-DONE — the built code + `CLAUDE.md` invariants + the memory files are the reference for those; this file now
-drives only order-aware `svos` (8.5) and the full rebuild → HyDE (10).
+**Branch:** `restructure` · **Execution manual for the REMAINING work** (Phase 10). Phases 0–8.5 are DONE —
+the built code + `CLAUDE.md` invariants + the memory files are the reference for those; this file now drives
+only the full rebuild → HyDE (Phase 10).
 
 > ## ▶ START HERE (new session)
 > 1. Binding house style = `CLAUDE.md` → "Code principles" (readability; comment framework; arrows-down;
 >    one-import-one-method; single-responsibility). It governs every edit.
-> 2. **Current phase = first §4 checklist entry not ✅ → now Phase 8.5 (order-aware `svos`), then Phase 10.**
-> 3. Read that phase's spec — **8.5 = §3.2 (full mechanism)**, **10 = §3.1 + the module map in §1**. Then:
->    author to the house style, run the phase's **Checks**, meet **Done-criteria**, update the affected
->    `CLAUDE.md` lines, flip ✅ in §4, commit. **One phase per session** unless told otherwise.
+> 2. **Current phase = first §4 checklist entry not ✅ → now Phase 10 (full rebuild → HyDE).**
+> 3. Read that phase's spec — **10 = §3.1 + the module map in §1** (order-aware `svos` mechanism = §3.2, its
+>    code already landed in 8.5). Then: author to the house style, run the phase's **Checks**, meet
+>    **Done-criteria**, update the affected `CLAUDE.md` lines, flip ✅ in §4, commit. **One phase per session**
+>    unless told otherwise.
 > 4. Running modules on this machine + the old-store caveat: memory `reference-restructure-run-verify`.
 
-**STATUS:** design frozen · D1–D5 + the 0b ablation resolved (§6). **Phases 0–9 DONE** (§2): schema v4 + tags
+**STATUS:** design frozen · D1–D5 + the 0b ablation resolved (§6). **Phases 0–8.5 DONE** (§2): schema v4 + tags
 + `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling (`process.py` deleted); `enrich.py` /
 `derive.py` / `index.py` (Stage-3 split, `embed.py` deleted); `search.py` 4-stage read path (hard `pov`/`tense`
 → semantic → soft re-rank, weight-free `combine="sum"`); `query.py` single-beat + soft word→coord + the
-split-door harness + the webtest slider/pov-tense UI. `import query/evals/tests/search` GREEN
-(`import webtest.server` still fails on the OLD on-disk `scenes.db` — `no such column: pov` — until the
-Phase 10 rebuild). **▶ NEXT: Phase 8.5 (order-aware `svos`, §3.2); then Phase 10 (rebuild → HyDE, §3.1).**
+split-door harness + the webtest slider/pov-tense UI; **order-aware `svos`** positional beats (code + shared
+`svos_beat_vectors` door). `import query/evals/tests/search` GREEN (`import webtest.server` still fails on the
+OLD on-disk `scenes.db` — `no such column: pov` — until the Phase 10 rebuild). **▶ NEXT: Phase 10 (rebuild →
+HyDE, §3.1) — the one embed pass also bakes the positional `svos` corpus-wide + gold-tunes `β`.**
 
 ---
 
@@ -87,6 +89,7 @@ Detail for any done phase = the code + `CLAUDE.md` invariants + memory `project-
 - **7** `index.py` builds 7-vec Qdrant + SQLite + subject trie; `embed.py` deleted; schema wave CLOSED.
 - **8** `search.py` 4-stage read path; per-field weight stack deleted (D3); soft re-rank; **`combine="sum"` default** (`max` regressed the 0b gold, book@1 .86 vs .99).
 - **9** `query.py` soft word→coord + split-door harness (`enrich_file`→`derive_file`→`index_records`) + webtest sliders/tone-curve/pov-tense. Verified synthetic + 0b gold unchanged; **live webtest UI deferred to the Phase 10 rebuild** (old-schema on-disk stores).
+- **8.5** order-aware `svos` — positional beat encoding (§3.2). Shared `vectorstore.svos_beat_vectors` door (index=raw + query=prefixed) + `SVOS_POS_BETA`/`SVOS_POS_DIMS`/`vector_size`; `index` routes `svos` through it per scene + `_ensure_collection` rebuilds on the `384→386` width drift; `search` builds the `svos` query matrix through the same door. Verified on a small svos-only Qdrant (in-order out-ranks reversed at `β=.2`; `β=0` ties = order-free reproduced; variable-length matches; Qdrant scores = `(1-β)·sem+β·pos`). **`β` gold-sweep + corpus re-lay ride Phase 10.**
 
 ---
 
@@ -162,17 +165,21 @@ full **Phase 10 rebuild** bakes the positional `svos` corpus-wide. Facet order-i
 
 ## 4. Remaining work (checklist + detail)
 
-**Progress:** Phases **0–9 ✅** (see §2). Remaining, in order:
+**Progress:** Phases **0–9 ✅** + **8.5 ✅** (see §2). Remaining, in order:
 
-- ☐ **8.5 order-aware `svos`** ← **NEXT**. Positional beat encoding (§3.2). `svos`-format change; code in
-  `vectorstore` + `index` + `search`, verify on a small new-schema index, `β` tuned on the gold; the corpus
-  re-lay rides the Phase 10 rebuild. May fold into Phase 10 (either way the corpus is embedded ONCE, with the
-  positional `svos` in place).
-  - **Checks:** an in-order query out-ranks the same beats shuffled (impossible today); `β=0` reproduces the
-    current ranking bit-for-bit; book@1/scene@1 do not regress at the chosen `β`; a query whose beat count
-    differs from the target scene's still matches (variable length absorbed by `u`, NOT by resampling — §3.2).
-  - **Done-criteria:** checks green; update `CLAUDE.md` (the search invariant: `svos` is order-aware via the
-    positional encoding + the `β` knob); flip this item ✅.
+- ✅ **8.5 order-aware `svos`** (code landed 2026-09-09). Positional beat encoding (§3.2), `svos` size `384+2`.
+  ONE shared door `vectorstore.svos_beat_vectors` (index=raw + query=prefixed both build through it) + the
+  `SVOS_POS_BETA`/`SVOS_POS_DIMS`/`vector_size` contract; `index._multivector_field` routes `svos` through it
+  per scene (facets stay order-free) and `_ensure_collection` now drops+rebuilds on a `svos` width drift;
+  `search._channel_queries` (+ `search_frame`) build the `svos` query matrix through the same door. **`β` gold-tune
+  + the corpus re-lay ride the Phase 10 rebuild** (the one embed pass bakes the positional `svos` in).
+  - **Checks (green, verified on a small hand-built svos-only Qdrant):** in-order query out-ranks the reversed
+    beats at `β=.2` (2.87 vs 2.47, impossible today); `β=0` ties them (order-free reproduced); Qdrant MAX-SIM
+    scores match `(1-β)·sem+β·pos` exactly; 2- and 4-beat queries match a 3-beat scene (variable length absorbed
+    by `u`, no resample); `_ensure_collection` rebuilds on the 384→386 width drift. book@1/scene@1 non-regression
+    at the chosen `β` waits on the Phase 10 corpus (deferred with the gold `β`-sweep).
+  - **Done:** checks green; `CLAUDE.md` search invariant updated (order-aware `svos` via the positional encoding
+    + the `β` knob); item flipped ✅.
 - ☐ **10 full rebuild → HyDE**.
   - One clean rebuild on the frozen schema (re-segment → re-enrich → re-derive → re-index), with the 8.5
     positional `svos` in place. Clears the old-schema on-disk stores → unblocks `import webtest.server`, the
@@ -229,6 +236,6 @@ here, commit.
 
 ---
 
-**▶ New session? Go to the START HERE box at the top.** Everything before Phase 8.5 is BUILT — read the code +
-`CLAUDE.md` + the memory files for it, don't re-derive it. **Current phase = 8.5 (order-aware `svos`, §3.2),
-then 10 (rebuild → HyDE, §3.1).**
+**▶ New session? Go to the START HERE box at the top.** Everything through Phase 8.5 is BUILT — read the code +
+`CLAUDE.md` + the memory files for it, don't re-derive it. **Current phase = 10 (rebuild → HyDE, §3.1); the
+order-aware `svos` code (§3.2) already landed in 8.5 and rides the rebuild's single embed pass.**

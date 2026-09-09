@@ -1,5 +1,6 @@
 from __future__ import annotations
 import uuid
+import numpy as np
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding
 from utils import SrcPaths, schema   # scene-record registry — drives the named-vector set
@@ -26,6 +27,16 @@ VECTOR_NAMES = schema.VECTOR_NAMES
 # multivector:true fields: a LIST of per-item vectors scored by MAX_SIM (max-pool). MUST be queried
 # with a matrix (list of vectors), even a 1-row one — a flat vector is rejected by the index.
 MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
+
+# order-aware svos (PLAN §3.2): the svos beats carry SVOS_POS_DIMS extra positional dims, so the svos
+# named vector is WIDER than the bare embed dim; every other named vector is the bare dim. index.py sizes
+# its Qdrant params through vector_size; a re-index rebuilds the collection if this width drifts.
+SVOS_POS_DIMS = 2
+
+# ** LOCKED **  ** MAIN ** — index.py sizes each named vector's Qdrant params through here
+# Stored size of a named vector at a given base embed dim: svos gets SVOS_POS_DIMS positional dims appended.
+def vector_size(name: str, base_dim: int) -> int:
+    return base_dim + SVOS_POS_DIMS if name == "svos" else base_dim
 
 # Qdrant payload label for subject-branch filtering: subject_filter reads it; index.py stamps + indexes it.
 SUBJECT_PATHS_FIELD = "subject_paths"
@@ -63,6 +74,57 @@ def _embedder() -> TextEmbedding:
 # Embed a batch of texts into plain float lists.
 def embed(texts: list[str]) -> list[list[float]]:
     return [v.tolist() for v in _embedder().embed(texts)]
+
+
+# ---- order-aware svos beat encoding (PLAN §3.2) — index + query MUST share this or svos scores are junk ----
+# Event ORDER can't come from MAX_SIM (it is permutation-invariant), so it is baked into each svos beat
+# vector: a normalized-position component is appended. For beat k of a K-beat sequence, u = k/(K-1) (u=0
+# when K=1), and the beat vector is
+#     v = [ sqrt(1-β)·unit(sem) ; sqrt(β)·p(u) ] ,   p(u) = [cos(freq·u), sin(freq·u)] ,   ||v|| = 1
+# so cos(v_q, v_s) = (1-β)·sem_cos + β·pos_cos, with pos_cos = cos(freq·|u_q-u_s|) in [0,1] — position
+# never flips a sign, it only WITHHOLDS reward. MAX_SIM over these prefers beats that agree BOTH in meaning
+# AND in relative position (in-order), but SOFTLY: a strong out-of-order match still wins if its sem_cos
+# clears the β gap. β is the order-strength ⟷ recall-robustness knob (β=0 == today's order-free svos). u is
+# taken over each side's OWN beat count, so a query's beats and a scene's compare by relative position —
+# never by raw index or a forced common length. svos ONLY — subject/verb/object/setting stay order-free sets.
+
+# order strength in [0,1); tune on the gold (PLAN §3.2), β=0 is the order-free fallback.
+SVOS_POS_BETA = 0.2
+# p(u) sweeps a quarter turn over u in [0,1] so pos_cos = cos(freq·Δu) stays >= 0 across the whole range.
+_SVOS_POS_FREQ = np.pi / 2
+
+
+# ** LOCKED **
+# L2-normalize a vector to unit length; a zero vector is returned unchanged (guards divide-by-zero).
+def _unit(v) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float32)
+    n = float(np.linalg.norm(v))
+    return v / n if n else v
+
+
+# ** LOCKED **
+# The positional component sqrt(β)·p(u) for a beat at fractional position u in [0,1] (SVOS_POS_DIMS long).
+def _svos_position(u: float) -> list[float]:
+    s = SVOS_POS_BETA ** 0.5
+    return [s * float(np.cos(_SVOS_POS_FREQ * u)), s * float(np.sin(_SVOS_POS_FREQ * u))]
+
+
+# ** LOCKED **  ** MAIN ** — index.py builds every stored svos matrix, search.py every svos query matrix, through here
+# Order-aware svos beat matrix for ONE sequence of beat sentences (already bge-prefixed on the query side,
+# raw on the index side — the bge asymmetry stays at the call site). Embeds the beats, then appends the
+# shared positional component per beat in sequence order (§3.2). Empty in -> []. No other named vector
+# passes through here (the facets stay order-free plain embeds).
+def svos_beat_vectors(sentences: list[str]) -> list[list[float]]:
+    if not sentences:
+        return []
+    sem = embed(sentences)                                     # one batched bge embed over this sequence's beats
+    keep = (1.0 - SVOS_POS_BETA) ** 0.5
+    n = len(sem)
+    out = []
+    for k, e in enumerate(sem):
+        u = k / (n - 1) if n > 1 else 0.0                      # normalized position over THIS sequence
+        out.append((_unit(e) * keep).tolist() + _svos_position(u))   # [sqrt(1-β)·unit(sem) ; sqrt(β)·p(u)]
+    return out
 
 
 # ---- client ----
