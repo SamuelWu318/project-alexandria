@@ -2,19 +2,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# ---- retrieval eval + A/B comparator + weight tuner for the read path ----
+# ---- retrieval eval + A/B comparator for the read path ----
 # Answers ONE question: does approach A or B retrieve better on the gold set? The EMPHASIS is rank-1 —
 # is the 1st result the correct BOOK and the correct SCENE? Ground truth is two-level: book_id (always)
-# and target_scene_id (auto-labeled by `--label-scenes`: the rank-1 in-book scene under default weights).
+# and target_scene_id (auto-labeled by `--label-scenes`: the rank-1 in-book scene under the default blend).
 # Headline metrics are top_scene / top_book (rank-1 accuracy) + the top1 composite (1.0 exact scene,
 # 0.5 right book, 0.0 miss); MRR / Hit@k / scene-MRR are secondary. The scorer grades OUTPUTS (a Run)
 # without re-running search; run_search drives search() to produce a Run. Gold queries carry a summary +
 # subject/verb/object/setting frame + a combined `svos` clause (synthesized from that frame) +
 # descriptors, so they exercise the summary/svos/frame vector channels + the descriptor flavor channel.
-# `--tune` assumes the real query is a sentence summary + an S/V/O/S frame + its combined svos (what a
-# user actually types), so it coordinate-ascends the field_weights over summary + svos + subject/verb/
-# object/setting — descriptors/flavor stay out of the tune — then normalizes the winner to sum 1. Caches
-# each channel once, re-blends for free. Run: `python -m evals` (see --mode/--tune).
+# The semantic blend is WEIGHT-FREE (per-field weights retired, D3); the A/B knobs are normalize + combine
+# (max/sum) + method_weights. Soft-facet A/B (pov/tense filters, tone-curve sliders) lands in Phase 9.
+# Run: `python -m evals` (see --mode).
 
 # Run  = dict[query_id, list[{"scene_id": str, "book_id": str, "score": float}]]  best-first
 # Gold = dict[query_id, {"book_id": str, "scene_id": str | None, "sharpness": int | None}]  scene_id = target scene
@@ -47,7 +46,7 @@ def _target_scene(g) -> str | None:
     return g.get("scene_id") if isinstance(g, dict) else None
 
 
-# ** MAIN ** — compare_runs + coordinate_ascent grade every Run through here
+# ** MAIN ** — compare_runs grades every Run through here
 # Grade one Run against the gold with HEAVY rank-1 emphasis: the 1st result must be the correct BOOK and the correct SCENE. Tracks book-match + scene-match at every rank (MRR / Hit@k) but headlines top_book (rank-1 right book), top_scene (rank-1 exact scene), and top1 (composite: 1.0 exact scene, 0.5 right book, 0.0 wrong). Returns aggregate + per-query breakdown.
 def score_run(run: dict, gold: dict, ks: tuple = DEFAULT_KS) -> dict:
     ks = tuple(sorted(ks))
@@ -217,11 +216,11 @@ def format_comparison(cmp: dict) -> str:
 
 # ---- driver: produce a Run from the unified search() ----
 
-# ** MAIN ** — every A/B mode + the default/tuned configs run through here
-# Drive the unified search() over the gold queries with one FULL config -> a Run. Flags gate which channels run (isolate one for an A/B); field_weights/method_weights/combine/normalize set the blend.
+# ** MAIN ** — every A/B mode runs through here
+# Drive the unified search() over the gold queries with one FULL config -> a Run. Flags gate which channels run (isolate one for an A/B); method_weights/combine/normalize set the blend (per-field weights retired, D3).
 def run_search(client, queries: list[dict], *, use_summary: bool = True, use_moments: bool = True,
                use_frame: bool = True, use_descriptors: bool = False,
-               field_weights: dict | None = None, method_weights: dict | None = None,
+               method_weights: dict | None = None,
                combine: str = "sum", normalize: str | None = "zscore", limit: int = 10) -> dict:
     import search
     run: dict[str, list] = {}
@@ -232,7 +231,7 @@ def run_search(client, queries: list[dict], *, use_summary: bool = True, use_mom
         descriptors = (e.get("descriptors") or None) if use_descriptors else None
         try:
             pts = search.search(client, summary=summary, moments=moments, frame=frame,   # unified search
-                                descriptors=descriptors, field_weights=field_weights,
+                                descriptors=descriptors,
                                 method_weights=method_weights, combine=combine,
                                 normalize=normalize, limit=limit)
         except Exception as ex:                 # an empty/invalid query shouldn't sink the run
@@ -258,7 +257,7 @@ def _gold_moments(e: dict):
 
 # ---- scene-target auto-labeling (fills gold's target_scene_id so rank-1 can be graded at the SCENE level) ----
 
-# Auto-label each query's correct scene: the rank-1 scene WITHIN its own book under a FIXED default-weight what-happens query (summary + svos + frame). Held at default weights on purpose, so the label is independent of the field_weights the tune later sweeps (not self-fulfilling). Mutates queries in place, writing target_scene_id/title/summary (None if unresolved); returns (n_labeled, n_missing). Review the written titles before trusting scene metrics.
+# Auto-label each query's correct scene: the rank-1 scene WITHIN its own book under the default what-happens query (summary + svos + frame). Mutates queries in place, writing target_scene_id/title/summary (None if unresolved); returns (n_labeled, n_missing). Review the written titles before trusting scene metrics.
 def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zscore") -> tuple:
     import search
     labeled = missing = 0
@@ -267,7 +266,7 @@ def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zs
         e["target_scene_title"] = None
         e["target_scene_summary"] = None
         try:
-            pts = search.search(client, summary=e.get("summary"), moments=_gold_moments(e),   # default field_weights
+            pts = search.search(client, summary=e.get("summary"), moments=_gold_moments(e),   # default blend
                                 frame=_gold_frame(e), book_id=e["book_id"],
                                 normalize=normalize, limit=1)
         except Exception as ex:
@@ -283,160 +282,6 @@ def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zs
         else:
             missing += 1
     return labeled, missing
-
-
-# ---- fine-tuning: cache the summary+svos+frame channels once, then blend offline under any weights (coordinate ascent) ----
-# The tune assumes a real query is a sentence summary + a combined svos clause + an S/V/O/S frame, so it
-# tunes ONE weight set: field_weights (the per-channel vector blend inside search_scenes over summary +
-# svos + subject/verb/object/setting). Descriptors/flavor are excluded. The expensive part — the vector
-# queries — runs ONCE per gold query (collect_vector_channels caches each channel's z-normed scores);
-# after that every candidate weight vector is a FREE re-blend (blend_run), so coordinate ascent can sweep
-# the whole grid. `normalize`/`combine` are held fixed during a sweep (they shape the cache).
-
-# Cache, per gold query: each summary+svos+frame vector channel's normalized scores + the id->(scene_id,book_id) map. Descriptors are not cached — only what a user types (summary + combined svos + S/V/O/S).
-def collect_vector_channels(client, queries: list[dict], *, normalize: str | None = "zscore",
-                            prefetch: int = 50) -> dict:
-    import search
-    out: dict[str, dict] = {}
-    for e in queries:
-        qid = e["id"]
-        entry = {"channels": {}, "meta": {}}
-        if e.get("summary") or _gold_moments(e) or _gold_frame(e):
-            try:
-                scored = search.score_channels(client, summary=e.get("summary"),     # summary + combined svos + S/V/O/S frame
-                                               moments=_gold_moments(e), frame=_gold_frame(e),
-                                               normalize=normalize, prefetch=prefetch)
-                entry["channels"] = scored["channels"]                     # {channel: {id: z}}
-                entry["meta"] = {i: (p.payload.get("scene_id"), p.payload.get("book_id"))
-                                 for i, p in scored["cand"].items()}       # id -> (scene_id, book_id)
-            except Exception as ex:
-                print(f"[evals] {qid} scenes: {type(ex).__name__}: {ex}")
-        out[qid] = entry
-    return out
-
-
-# Re-blend the cached summary+svos+frame channels under (field_weights, combine) -> a Run. Pure math, no search.
-def blend_run(cached: dict, field_weights: dict | None, *,
-              combine: str = "sum", limit: int = 10) -> dict:
-    import search
-    run: dict[str, list] = {}
-    for qid, e in cached.items():
-        if not e["channels"]:
-            run[qid] = []
-            continue
-        scored = {"channels": e["channels"], "ids": list(e["meta"]), "cand": {}}
-        fused = search.blend_channels(scored, field_weights, combine)      # [(id, score)] best-first under these weights
-        meta = e["meta"]
-        run[qid] = [{"scene_id": meta[i][0], "book_id": meta[i][1], "score": sc}
-                    for i, sc in fused[:limit]]
-    return run
-
-
-# Pull one scalar objective out of a score_run aggregate. Rank-1 objectives (the emphasis): top1 (composite), scene@1, book@1. Also mrr, scene_mrr, hit@K, scene_hit@K, p@K.
-def _metric_value(agg: dict, metric: str) -> float:
-    flat = {
-        "top1": agg["top1"],                # rank-1 composite (1.0 exact scene / 0.5 right book / 0)
-        "scene@1": agg["top_scene"],        # rank-1 exact-scene accuracy
-        "book@1": agg["top_book"],          # rank-1 correct-book accuracy
-        "mrr": agg["mrr"],
-        "scene_mrr": agg["scene_mrr"],
-    }
-    if metric in flat:
-        return flat[metric]
-    if metric.startswith("scene_hit@"):
-        return agg["scene_hit"][int(metric.split("@")[1])]
-    if metric.startswith("hit@"):
-        return agg["hit"][int(metric[4:])]
-    if metric.startswith("p@"):
-        return agg["prec"][int(metric[2:])]
-    raise ValueError(f"unknown metric {metric!r} (use top1, scene@1, book@1, mrr, scene_mrr, "
-                     f"hit@K, scene_hit@K, or p@K)")
-
-
-# ** LOCKED **
-# Clamp weights non-negative and renormalize them to sum to 1 (all-zero -> uniform). Mirrors search._resolve_field_weights so the tuned vector is on the same simplex search uses.
-def _normalize_weights(w: dict) -> dict:
-    w = {k: max(0.0, float(v)) for k, v in w.items()}
-    total = sum(w.values())
-    if total <= 0:
-        n = len(w) or 1
-        return {k: 1.0 / n for k in w}
-    return {k: v / total for k, v in w.items()}
-
-
-# Coordinate-ascent tune of the summary+svos+frame field_weights to maximize `metric` on gold (each blend is free). Returns (best_field, best_score, history) with best_field NORMALIZED to sum 1.
-def coordinate_ascent(cached: dict, gold: dict, *, metric: str = "mrr", combine: str = "sum",
-                      limit: int = 10, rounds: int = 4,
-                      grid: tuple = (0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1)) -> tuple:
-    import search
-    seen: list = []                                            # active vector channels across the cache
-    for e in cached.values():
-        for c in e["channels"]:
-            if c not in seen:
-                seen.append(c)
-    chans = [c for c in search.SCENES_VECTORS if c in seen]    # stable canonical order (summary + svos + S/V/O/S)
-    field = {c: float(search.SCENES_DEFAULT_WEIGHTS.get(c, 0.0)) for c in chans}
-
-    def obj(fw):
-        run = blend_run(cached, fw, combine=combine, limit=limit)
-        return _metric_value(score_run(run, gold)["aggregate"], metric)
-
-    best = obj(field)
-    history = [("init", dict(field), best)]
-    for r in range(rounds):
-        improved = False
-        for ch in chans:                                       # optimize each channel weight in turn
-            best_v = field[ch]
-            for v in grid:
-                field[ch] = v
-                s = obj(field)
-                if s > best + 1e-9:
-                    best, best_v, improved = s, v, True
-            field[ch] = best_v
-        history.append((f"round{r + 1}", dict(field), best))
-        if not improved:                                       # converged
-            break
-    return _normalize_weights(field), best, history            # normalize the winning blend to sum 1 (scale-invariant, so score unchanged)
-
-
-# Render the coordinate-ascent result: the winning (normalized) field_weights + per-round score.
-def format_tuning(field: dict, best_score: float, history: list, metric: str) -> str:
-    L = ["", f"COORDINATE-ASCENT TUNE  (objective {metric.upper()})",
-         f"  best {metric} = {best_score:.4f}",
-         "  field_weights (summary + svos + S/V/O/S vector blend, normalized to sum 1):"]
-    for c, v in field.items():
-        L.append(f"    {c:<10} {v:>6.3f}")
-    L.append(f"    {'sum':<10} {sum(field.values()):>6.3f}")
-    L.append("  per-round best:")
-    for tag, _, sc in history:
-        L.append(f"    {tag:<8} {sc:>8.4f}")
-    return "\n".join(L)
-
-
-# ---- persist tuned weights so the read path (search + webtest) picks them up automatically ----
-# Write the tuned field_weights to SrcPaths.TUNED_WEIGHTS_PATH; search.active_field_weights() then uses them as
-# the live default for every None-weight query, so the webtest read path applies them with no restart. Returns the path.
-def save_tuned_weights(field: dict, metric: str, best_score: float) -> str:
-    import time
-    from utils.storage import SrcPaths
-    from utils.read_write import write_json
-    payload = {
-        "field_weights": {k: round(float(v), 6) for k, v in field.items()},
-        "metric": metric, "best_score": round(float(best_score), 6),
-        "source": "evals --tune", "written_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }
-    write_json(SrcPaths.TUNED_WEIGHTS_PATH, payload)             # atomic JSON write
-    return str(SrcPaths.TUNED_WEIGHTS_PATH)
-
-
-# Delete the tuned-weights override so the read path reverts to the schema defaults. Returns a status line.
-def reset_tuned_weights() -> str:
-    from utils.storage import SrcPaths
-    p = SrcPaths.TUNED_WEIGHTS_PATH
-    if p.exists():
-        p.unlink()
-        return f"removed tuned weights: {p} (read path now uses schema defaults)"
-    return f"no tuned weights to remove at {p}"
 
 
 # ---- CLI ----
@@ -473,67 +318,31 @@ def _label_scenes_cli(gold_path: str | None, normalize: str | None) -> None:
               f"{e.get('target_scene_title')}")
 
 
-# CLI entry: parse args, run the chosen A/B mode or the coordinate-ascent tune, print the report.
+# CLI entry: parse args, run the chosen A/B mode, print the report. (Per-field-weight tuning retired, D3.)
 def main():
     import argparse
     import search
     ap = argparse.ArgumentParser(
-        description="A/B two read-path configs on the gold set, or coordinate-ascent tune the field_weights.")
+        description="A/B two read-path configs on the gold set.")
     ap.add_argument("--mode", default="norm", choices=("norm", "lift", "flavor", "combine"),
                     help="norm: A/B normalize (--a vs --b). lift: summary-only vs summary+frame. "
-                         "flavor: what-happens+frame vs + descriptors. combine: sum-blend vs max.")
+                         "flavor: what-happens+frame vs + descriptors. combine: max-blend vs sum.")
     ap.add_argument("--a", default="none", help="normalize for A (mode=norm): none|zscore|minmax")
     ap.add_argument("--b", default="zscore", help="normalize for B (mode=norm): none|zscore|minmax")
     ap.add_argument("--normalize", default="zscore",
-                    help="normalize held fixed for modes lift/flavor/combine + tune: none|zscore|minmax")
+                    help="normalize held fixed for modes lift/flavor/combine: none|zscore|minmax")
     ap.add_argument("--combine", default="sum", choices=("sum", "max"),
-                    help="vector-blend combine held fixed for lift/flavor/tune (sum=weighted blend, max=greatest single)")
+                    help="vector-blend combine held fixed for lift/flavor (sum=additive DEFAULT holds the 0b gold, max=greatest single channel)")
     ap.add_argument("--limit", type=int, default=10, help="results retrieved per query")
     ap.add_argument("--gold", default=None, help="path to a gold query json (default: webtest gold)")
-    ap.add_argument("--tune", action="store_true",
-                    help="coordinate-ascent tune the summary + svos + S/V/O/S field_weights for best --metric")
-    ap.add_argument("--metric", default="top1",
-                    help="tune objective (rank-1 emphasis): top1 | scene@1 | book@1 | mrr | scene_mrr | hit@K | scene_hit@K | p@K")
     ap.add_argument("--label-scenes", action="store_true",
-                    help="auto-label each gold query's target_scene_id (rank-1 in-book, default weights) and write it back")
-    ap.add_argument("--no-save", action="store_true",
-                    help="with --tune: do NOT write the tuned field_weights (skip auto-applying them to the read path)")
-    ap.add_argument("--reset-weights", action="store_true",
-                    help="delete the tuned field_weights override so search + webtest revert to the schema defaults")
+                    help="auto-label each gold query's target_scene_id (rank-1 in-book, default blend) and write it back")
     args = ap.parse_args()
-
-    if args.reset_weights:
-        print(reset_tuned_weights())
-        return
 
     queries, gold = load_gold(args.gold)                       # gold entries + judgments
 
     if args.label_scenes:
         _label_scenes_cli(args.gold, _norm_arg(args.normalize))
-        return
-
-    if args.tune:
-        nrm = _norm_arg(args.normalize)
-        client = search.open_client()
-        try:
-            cached = collect_vector_channels(client, queries, normalize=nrm)   # one expensive pass
-        finally:
-            client.close()
-        field, best_score, history = coordinate_ascent(                       # free re-blends
-            cached, gold, metric=args.metric, combine=args.combine, limit=args.limit)
-        base_run = blend_run(cached, search.SCENES_DEFAULT_WEIGHTS,            # explicit schema baseline (not the live/tuned default)
-                             combine=args.combine, limit=args.limit)
-        tuned_run = blend_run(cached, field, combine=args.combine, limit=args.limit)   # tuned weights
-        cmp = compare_runs(base_run, tuned_run, gold, label_a="default", label_b="tuned")
-        print(format_comparison(cmp))
-        print(format_tuning(field, best_score, history, args.metric))
-        if args.no_save:
-            print("\n[--no-save] tuned weights NOT written; read path keeps its current default.")
-        else:
-            path = save_tuned_weights(field, args.metric, best_score)         # search() + webtest now use these
-            print(f"\napplied: wrote tuned field_weights -> {path}\n"
-                  f"  the webtest read path now uses them automatically (restart not required).\n"
-                  f"  revert with:  python -m evals --reset-weights")
         return
 
     client = search.open_client()

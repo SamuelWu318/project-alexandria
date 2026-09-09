@@ -5,20 +5,21 @@
 > ## ▶ START HERE (new session)
 > 1. Binding house style = `CLAUDE.md` → "Code principles" (readability; comment framework; arrows-down;
 >    one-import-one-method; single-responsibility). It governs every edit. §1 below is a pointer to it.
-> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 8 — `search.py` rewrite**).
+> 2. Current phase = first §6 checklist entry not ✅ (**now Phase 9 — `query.py` + harness + `webtest/`**).
 > 3. Read that phase's **§5 stage design** + its **Appendix A** block (the keep/change/move/drop target).
 > 4. Phase loop: **author the new file FROM SCRATCH** to the house style — the old file is a *behavior*
 >    reference only (via Appendix A), NEVER a copy-paste port → delete the old file → run the phase's
 >    **Checks** → meet **Done-criteria** → update the affected `CLAUDE.md` lines.
 > 5. Flip the phase to ✅ in §6, commit. **One phase per session** unless told otherwise; then stop.
 
-**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–7 DONE** (0b kept the 4 facet vectors → 7-vec
+**STATUS:** design frozen · D1–D5 resolved (§8) · **Phases 0–8 DONE** (0b kept the 4 facet vectors → 7-vec
 set; schema v4 + tags + `vectorstore.py`; `data.gate_facts`; `segment.py` sparse labelling, `process.py`
 deleted; `enrich.py` comprehend-before-judge; `derive.py` mechanical word→number pass; `index.py` builds the
-stores + `embed.py` **deleted**). **Schema wave CLOSED at Phase 7:** `python -m utils.schema --check`,
-`import index`, and `import tests` are all GREEN. The always-current status table lives in `CLAUDE.md`;
-this file drives the *remaining* work (Phases 8–10). **▶ NEXT: Phase 8 — `search.py` rewrite** (§5.6, §6,
-Appendix A search block).
+stores + `embed.py` **deleted**; `search.py` 4-stage read path — hard `pov`/`tense` → semantic → soft
+re-rank — weight stack deleted, default blend `combine="sum"` per the 0b gold). **Schema wave CLOSED at
+Phase 7:** `python -m utils.schema --check`, `import index`, `import tests`, `import search`, `import evals`
+are GREEN. The always-current status table lives in `CLAUDE.md`; this file drives the *remaining* work
+(Phases 9–10). **▶ NEXT: Phase 9 — `query.py` normalizer + harness + `webtest/` slider UI** (§5.7, §6).
 
 **What this document is:** the target product + data model (§2–§5) and the ordered file-by-file restructure
 that lands it (§6, checklisted against Appendix A). Done phases are one line each; the detail that matters
@@ -364,8 +365,13 @@ rebuild are frozen**, so the adapter learns the final manifold.
   hard/soft facets (`pov`/`tense`/`prose_register`/`dialogue_ratio`/`vdi_curve`) + `subject_paths`;
   `derive.derive_records` kept as the idempotent pre-embed safety net; `tests.py` repointed. **Schema wave
   CLOSED** — `--check` / `import index` / `import tests` all GREEN.
-- ☐ **8  `search.py` rewrite** ← **NEXT**
-- ☐ 9  `query.py` + harness + `webtest/`
+- ✅ 8  `search.py` rewrite — 4-stage `search()` (hard `pov`/`tense` → semantic → soft re-rank → slice);
+  `tone`/`intensity`/`arc` filters + the whole per-field weight stack deleted (D3); NEW pure-numeric soft
+  re-rank (`resample`/`curve_dist`/`soft_penalty` + `W_*`/`w*`/`LAMBDA`/`SOFT_PREFETCH`); pure-browse via
+  `scroll`. **Gold decision: default `combine="sum"` (weight-free)** — `max` regressed the 0b gold
+  (book@1 .86 vs .99), so the projected `max` default was overridden. Consumers trimmed (evals tune stack
+  removed; webtest filters→pov/tense; `field_weights` dropped).
+- ☐ **9  `query.py` + harness + `webtest/`** ← **NEXT**
 - ☐ 10 full rebuild → HyDE
 
 Each phase: **author the new file(s) FROM SCRATCH** to the new design + house style, **delete** the old file,
@@ -386,9 +392,26 @@ surface) land after the matching stage code so they target the real tool schemas
 (7 vectors, payload carries every hard/soft facet + `subject_paths`, SQLite=all / vectors=enriched-only,
 re-index overwrites no dupes).
 
-### Phase 8 — `search.py` (rewrite the read path) ← NEXT
-Rewrite `search.py` **in place** to §5.6 (behavior ref = current `search.py` via the Appendix-A search
-block). Order the work:
+### Phase 8 — `search.py` (rewrite the read path) ✅ DONE
+Rewrote `search.py` in place to §5.6: hard `pov`/`tense` filters (`tone`/`intensity`/`arc` filters deleted);
+the whole per-field weight stack removed (D3); NEW pure-numeric stage-3 soft re-rank (`resample`/`curve_dist`/
+`soft_penalty` + `W_*`/`w*`/`LAMBDA`/`SOFT_PREFETCH`, no `tags` import); pure-browse via `client.scroll`; the
+dead local `_as_terms` dropped (import kept). **Blend decision on the 0b gold: weight-free `combine="max"`
+REGRESSED (book@1 .86 / scene@1 .53) vs weight-free `combine="sum"` (book@1 .99 / scene@1 .77, head-to-head
+sum 32 / max 4 / tie 64, every sharpness bucket) — book@1 is human ground truth (§8), so `sum` is the
+committed default and `max` is the A/B alt** (overrides §5.6's projected `max` default; the PLAN's stated
+fallback path). Consumers trimmed to keep imports + the gold A/B green: `evals` lost the per-field-weight
+tune stack (`collect_vector_channels`/`blend_run`/`coordinate_ascent`/`save`/`reset_tuned_weights` + the
+`--tune`/`--metric`/`--reset-weights` CLI) and `run_search` dropped `field_weights`; `webtest` dropped
+`field_weights`, swapped its hard filters tone/intensity/arc→`facet_filter("pov"/"tense")`, and stubbed the
+retired `/api/weights`. Verified on a synthetic new-schema in-memory index (15/15: hard filter, tone-curve
+rising/falling, prose/dialogue sliders, soft-unset identity, `channel_vectors` seam, pure-browse) +
+`import search`/`evals`/`tests` GREEN. `webtest` **import** is blocked ONLY by the stale on-disk `scenes.db`
+(no `pov` column — a module-load `relational.open_db`, the documented old-store caveat), cleared by the
+Phase 10 rebuild; the file byte-compiles + its edits are audited. The full consumer feature rewrite
+(soft-facet A/B, new query shapes, slider UI) is Phase 9.
+
+Original work order (kept for reference):
 - **Hard filters:** delete `tone_filter`/`intensity_filter`/`arc_filter`; in `search()` build the pre-filter
   from `book_filter` + `subject_filter` + `facet_filter("pov", pov)` + `facet_filter("tense", tense)`, and
   swap the `tone`/`intensity`/`arc` params for `pov`/`tense`.

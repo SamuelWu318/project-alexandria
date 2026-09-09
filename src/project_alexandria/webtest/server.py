@@ -173,8 +173,8 @@ def _norm(v):
 
 
 # Run ONE query object over the prebuilt filter -> a result column. Never raises: errors ride back in-band.
-# `tuning` carries the batch-level weight knobs (field_weights, method_weights, combine, normalize); a
-# per-query key overrides it, which overrides the module defaults — so the UI can tune the blend live.
+# `tuning` carries the batch-level blend knobs (method_weights, combine, normalize); a per-query key
+# overrides it, which overrides the module defaults — so the UI can tune the blend live.
 def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | None = None) -> dict:
     mode = q.get("mode", "search")   # echoed back for the UI column header; not a dispatch key
     tuning = tuning or {}
@@ -183,14 +183,13 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | Non
     aw = q.get("anti_weights")
     if anti and not aw:
         aw = [1.0 / len(anti)] * len(anti)
-    field_weights = q.get("field_weights") or tuning.get("field_weights")            # per-channel vector weights
     method_weights = q.get("method_weights") or tuning.get("method_weights") or WEIGHTS  # scenes vs flavor RRF
-    combine = q.get("combine") or tuning.get("combine") or "sum"                      # weighted blend vs greatest match
+    combine = q.get("combine") or tuning.get("combine") or "sum"                      # additive (0b-gold default) vs greatest single
     normalize = _norm(q.get("normalize", tuning.get("normalize", "zscore")))          # per-channel scaling
     try:
         # ONE unified entry: search() activates the what-happens/frame vector channels (summary + svos +
         # subject/verb/object/setting) and/or the flavor channel (descriptors), runs them over `flt`,
-        # blends the vectors by z-normed field_weights, then RRF-merges the methods by method_weights.
+        # blends the vectors weight-free (combine), then RRF-merges the methods by method_weights.
         pts = search.search(
             _client,
             summary=q.get("summary") or None,
@@ -200,7 +199,7 @@ def _run_query(q: dict, limit: int, flt, exact: bool = False, tuning: dict | Non
             weights=q.get("weights"),
             anti_descriptors=anti, anti_weights=aw,
             anti_strength=q.get("anti_strength", 1.0),
-            field_weights=field_weights, method_weights=method_weights,
+            method_weights=method_weights,
             combine=combine, normalize=normalize,
             flt=flt, exact=exact, limit=limit,
         )
@@ -253,10 +252,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"test_queries": tq, "descriptor_queries": dq, "facets": facets,
                                "books": [{"book_id": b, "title": t} for b, t in sorted(_book_title.items())]})
         if p == "/api/weights":
-            fw = search.active_field_weights()   # tuned override (evals --tune) if present, else schema defaults
-            return self._json({"field_weights": {k: round(float(v), 6) for k, v in fw.items()},
-                               "channels": list(search.SCENES_VECTORS),
-                               "tuned": search.SrcPaths.TUNED_WEIGHTS_PATH.exists()})
+            # per-field weights RETIRED (PLAN D3): the semantic blend is weight-free. Legacy stub kept so
+            # the old UI panel doesn't 404; the slider UI replaces it in Phase 9.
+            return self._json({"field_weights": {}, "channels": [], "tuned": False})
         if p == "/api/scene":
             sid = (parse_qs(u.query).get("id") or [""])[0]
             rec = _scenes.get(sid)
@@ -310,18 +308,18 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/search_batch":
             limit = int(body.get("limit", 8))
             queries = body.get("queries", [])
-            # batch-level weight tuning applied to every query (a per-query key still overrides)
-            tuning = {"field_weights": body.get("field_weights"), "method_weights": body.get("method_weights"),
+            # batch-level blend tuning applied to every query (a per-query key still overrides)
+            tuning = {"method_weights": body.get("method_weights"),
                       "combine": body.get("combine"), "normalize": body.get("normalize")}
             # hard pre-filter precedence: a subject-folder branch (subject_path) wins over a single
             # pinned book (book_id). Its book count comes from the SQL tree and drives exact-vs-walk.
             subject_path = body.get("subject_path")   # reversed nav list, e.g. ["Fiction","Italy"]
             book_id = body.get("book_id") or None
-            # flavor-facet hard filters (each a single value or any-of a list): ORTHOGONAL to the
-            # book/subject scope, so ANDed onto whichever primary filter wins below.
-            facets = search._and_filters(search.tone_filter(body.get("tone")),
-                                         search.intensity_filter(body.get("intensity")),
-                                         search.arc_filter(body.get("arc")))
+            # hard facet filters (each a single value or any-of a list): ORTHOGONAL to the book/subject
+            # scope, so ANDed onto whichever primary filter wins below. (tone/intensity/arc retired ->
+            # pov/tense; the tone-curve is now a SOFT re-rank, not a hard filter. Slider UI = Phase 9.)
+            facets = search._and_filters(search.facet_filter("pov", body.get("pov")),
+                                         search.facet_filter("tense", body.get("tense")))
             if subject_path:
                 n = subjects.count_branch(_conn, subject_path)     # books in the branch
                 if n == 0:

@@ -1,43 +1,21 @@
 import numpy as np
 from qdrant_client import QdrantClient, models
-from utils import SrcPaths
-from utils.read_write import read_json   # tuned field_weights override (legacy weight stack, retired in Phase 8)
-from utils.vectorstore import (COLLECTION, EMBED_MODEL, VECTOR_NAMES, MULTIVECTOR_NAMES,   # the Qdrant contract:
-                               SUBJECT_PATHS_FIELD, QUERY_PREFIX, NAMESPACE, point_id, embed,  # defined ONCE in
-                               open_client, book_filter, subject_filter, facet_filter,         # utils/vectorstore.py,
-                               _search_params, _as_terms)                                      # re-exposed here for now
+from utils.vectorstore import (COLLECTION, MULTIVECTOR_NAMES, QUERY_PREFIX, embed,   # the Qdrant contract,
+                               open_client, book_filter, subject_filter, facet_filter,   # defined ONCE in
+                               _search_params, _as_terms)                                 # utils/vectorstore.py
 
 # ---- Read path: query the scene vector DB (import THIS from the app / API) ----
 # Pulls in only qdrant + fastembed — NO LLM, NO segmentation — so the query path stays light. The
-# vector-store CONTRACT (COLLECTION, vector set, embedder, point id, filters) now lives in
+# vector-store CONTRACT (COLLECTION, vector set, embedder, point id, filters) lives in
 # utils/vectorstore.py — the ONE home both this reader and the writer (index.py) import; extracting it
 # removed the old embed->search coupling (principle #4). This file is read LOGIC only. Invariants
 # (CLAUDE.md): EMBED_MODEL must match the index; point_id is a stable uuid5; bge is asymmetric (queries prefixed).
-
-# ---- vector-store contract (imported from utils/vectorstore.py, the ONE home) ----
-# COLLECTION, EMBED_MODEL, VECTOR_NAMES, MULTIVECTOR_NAMES, SUBJECT_PATHS_FIELD, QUERY_PREFIX, NAMESPACE,
-# point_id, embed, open_client, book_filter, subject_filter, facet_filter, _search_params and _as_terms
-# are imported at the top of this file. They are re-exposed as `search.*` for the not-yet-migrated
-# read-path consumers (evals / tests / webtest); utils/vectorstore.py is where they are DEFINED.
-# tone/intensity/arc below are read-side hard filters (retired in the Phase 8 rewrite), so they stay here.
-
-
-# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
-# Restrict a search to scene(s) whose dominant tone matches (payload col `dominant_tone`).
-def tone_filter(tone) -> models.Filter | None:
-    return facet_filter("dominant_tone", tone)
-
-
-# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
-# Restrict a search to scene(s) whose intensity matches (payload col `intensity`).
-def intensity_filter(intensity) -> models.Filter | None:
-    return facet_filter("intensity", intensity)
-
-
-# ** MAIN ** — webtest/evals hard-filter a search by flavor facet (single value or any-of a list)
-# Restrict a search to scene(s) whose narrative arc matches (payload col `arc`).
-def arc_filter(arc) -> models.Filter | None:
-    return facet_filter("arc", arc)
+#
+# Four stages (search(), the one door): (1) HARD pre-filter — book / subject / pov / tense, each an
+# exclude, never softened; (2) SEMANTIC pool — the what-happens (summary + svos + S/V/O/S) and flavor
+# (descriptors) methods, RRF-merged; (3) SOFT re-rank — tilt the pool by the prose / dialogue sliders and
+# the tone CURVE (never excludes); (4) slice to limit. pov/tense replaced the retired tone/intensity/arc
+# hard filters; the per-field `weight` stack is retired (PLAN D3) — the semantic blend is weight-free.
 
 
 # ---- weighted + negative descriptor search (per-descriptor weighting is a QUERY-time op) ----
@@ -77,8 +55,7 @@ def weighted_vector(terms: list[str], weights: list[float]) -> np.ndarray:
     return _unit(acc)
 
 
-# ** MAIN ** — search() runs the flavor channel through here; evals A/Bs it
-# Descriptor search with per-descriptor weights and optional anti-descriptors (weighted centroid of INDIVIDUAL embeddings, anti = subtraction). Returns ScoredPoints best-first.
+# The flavor channel: descriptor search with per-descriptor weights and optional anti-descriptors (weighted centroid of INDIVIDUAL embeddings, anti = subtraction). Returns ScoredPoints best-first.
 def search_weighted_descriptors(
     client: QdrantClient,
     descriptors: list[str],
@@ -111,42 +88,6 @@ def search_weighted_descriptors(
     ).points
 
 
-# ---- field weights (LEGACY — retired in Phase 8) ----
-# The per-field `weight` is RETIRED (PLAN D3): the read path will tune with method_weights + the
-# soft-rank knobs, not per-vector weights. The whole weight stack here — DEFAULT_FIELD_WEIGHTS /
-# SCENES_DEFAULT_WEIGHTS / active_field_weights / _resolve_field_weights and their use in
-# score_channels / blend_channels — is deleted in the Phase 8 read-path rewrite. Frozen below (the
-# pre-D3 scene_schema.json values) ONLY so the read path keeps its exact current blend through the wave.
-DEFAULT_FIELD_WEIGHTS = {"summary": 0.25, "descriptors": 0.25, "svos": 0.5,   # frozen legacy weights
-                        "subject": 0.2, "verb": 0.1, "object": 0.15, "setting": 0.05}
-
-# the vector channels fused INSIDE search_scenes (descriptors is the separate `flavor` method + RRF)
-SCENES_VECTORS = ("summary", "svos", "subject", "verb", "object", "setting")
-SCENES_DEFAULT_WEIGHTS = {k: DEFAULT_FIELD_WEIGHTS.get(k, 0.0) for k in SCENES_VECTORS}
-
-
-# ** MAIN ** — the live default field_weights; every None-weight caller (webtest, evals base runs) resolves through here
-# The DEFAULT field_weights for search: the tuned override that `evals --tune` writes to SrcPaths.TUNED_WEIGHTS_PATH
-# if it exists and is valid, else the schema defaults. Read fresh each call, so a re-tune takes effect with no
-# restart. A caller passing explicit field_weights still overrides this. Bad/empty file -> schema defaults.
-def active_field_weights() -> dict:
-    data = read_json(SrcPaths.TUNED_WEIGHTS_PATH, default=None)   # {"field_weights": {chan: w}, ...} or None
-    if isinstance(data, dict):
-        fw = data.get("field_weights")
-        if isinstance(fw, dict) and any(fw.values()):
-            return {k: float(v) for k, v in fw.items()}
-    return SCENES_DEFAULT_WEIGHTS
-
-
-# ** LOCKED **  ** MAIN ** — embed.py imports this to normalize each multivector field
-# Normalize a multivector field value to a clean list of items (bare string or list -> non-empty trimmed items; None -> []).
-def _as_terms(v) -> list[str]:
-    if v is None:
-        return []
-    items = [v] if isinstance(v, str) else list(v)
-    return [t.strip() for t in items if isinstance(t, str) and t.strip()]
-
-
 # ** LOCKED **
 # Rescale ONE channel's cosines across the candidate pool so a cross-channel MAX compares RELATIVE strength (missing -> channel mean; no-spread -> abstain).
 def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
@@ -177,7 +118,7 @@ def _normalize_pool(raw: dict, ids: list, method: str | None) -> dict:
 DEFAULT_METHOD_WEIGHTS = {"scenes": 0.7, "flavor": 0.3}
 
 
-# ** LOCKED **
+# ** LOCKED **  ** MAIN ** — webtest ANDs its hard filters through here
 # AND several optional filters into one (merge their `must` conditions); None if empty.
 def _and_filters(*filters: models.Filter | None) -> models.Filter | None:
     musts: list = []
@@ -240,18 +181,6 @@ def _channel_queries(summary, moments, frame, channel_vectors: dict | None = Non
     return channels
 
 
-# ** LOCKED **
-# Resolve per-channel weights over the ACTIVE channels: non-negative, renormalized to sum to 1 (all-zero -> equal).
-def _resolve_field_weights(field_weights, names: list) -> dict:
-    base = field_weights if field_weights is not None else active_field_weights()   # tuned override (if any) else schema defaults
-    w = {n: max(0.0, float(base.get(n, 0.0))) for n in names}
-    total = sum(w.values())
-    if total <= 0:
-        return {n: 1.0 / len(names) for n in names}
-    return {n: w[n] / total for n in names}
-
-
-# ** MAIN ** — search_scenes blends these; evals caches them once to re-blend offline while tuning
 # Score every active vector channel over ONE union candidate pool and z-normalize each; returns {"channels": {name: {id: z}}, "cand": {id: point}, "ids": [...]}.
 def score_channels(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
                    channel_vectors: dict | None = None,
@@ -278,26 +207,22 @@ def score_channels(client: QdrantClient, *, summary: str | None = None, moments=
     return {"channels": normed, "cand": cand, "ids": ids}
 
 
-# ** MAIN ** — evals blends cached channels under any weights while tuning
-# Fuse pre-scored channels into one ranking: per-channel z-score * weight, combined by weighted SUM (blend) or MAX (greatest single match). Returns [(id, score)] best-first.
-def blend_channels(scored: dict, field_weights: dict | None = None, combine: str = "sum") -> list:
+# Fuse the z-scored channels into one ranking, WEIGHT-FREE (PLAN D3): combine="sum" = additive over the equal channels (DEFAULT — holds the 0b gold: book@1 .99), "max" = greatest single channel match (kept for A/B; lost the gold, book@1 .86). Returns [(id, score)] best-first.
+def blend_channels(scored: dict, combine: str = "sum") -> list:
     normed, ids = scored["channels"], scored["ids"]
     if not ids or not normed:
         return []
-    weights = _resolve_field_weights(field_weights, list(normed))
     fused = []
     for i in ids:
-        contribs = [weights[name] * normed[name][i] for name in normed]
+        contribs = [normed[name][i] for name in normed]        # each channel already z-scored over the pool
         fused.append((i, max(contribs) if combine == "max" else sum(contribs)))
     fused.sort(key=lambda t: t[1], reverse=True)
     return fused
 
 
-# ** MAIN ** — search() runs the what-happens/frame channel here; evals A/Bs it
-# What-happens + frame search: the summary, svos, and subject/verb/object/setting channels fused by a per-channel z-normalized weighted blend (no channel overpowers by scale; field_weights tilt it). Returns ScoredPoints, pool-relative score.
+# What-happens + frame search: the summary, svos, and subject/verb/object/setting channels z-normalized per channel then fused weight-free (no channel overpowers by scale; combine="sum" additive is the default that holds the 0b gold, "max" = greatest single match). Returns ScoredPoints, pool-relative score.
 def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
-                  channel_vectors: dict | None = None,
-                  field_weights: dict | None = None, combine: str = "sum",
+                  channel_vectors: dict | None = None, combine: str = "sum",
                   limit: int = 5, flt: models.Filter | None = None,
                   prefetch: int | None = None, normalize: str | None = "zscore",
                   exact: bool = False):
@@ -305,7 +230,7 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
     scored = score_channels(client, summary=summary, moments=moments, frame=frame,   # prefetch + z-norm each channel
                             channel_vectors=channel_vectors,                         # pre-embedded (adapter) vectors, if any
                             normalize=normalize, flt=flt, prefetch=prefetch, exact=exact)
-    fused = blend_channels(scored, field_weights, combine)                           # weighted blend over the pool
+    fused = blend_channels(scored, combine)                                          # weight-free blend over the pool
     out = []
     for i, sc in fused[:limit]:
         p = scored["cand"][i]
@@ -314,7 +239,6 @@ def search_scenes(client: QdrantClient, *, summary: str | None = None, moments=N
     return out
 
 
-# ** MAIN ** — per-facet search over ONE frame multivector (subject/verb/object/setting/svos)
 # Query ONE frame multivector on its own as a MAX_SIM matrix, so a scene's score is its best-matching stored facet term.
 def search_frame(client: QdrantClient, field: str, terms, *, limit: int = 5,
                  flt: models.Filter | None = None, exact: bool = False):
@@ -348,38 +272,132 @@ def _rrf(rankings: dict, weights: dict, k: int, limit: int) -> list:
     return out
 
 
-# ** MAIN ** — the ONE search entry: imported by tests, evals, webtest, embed's read side
-# Unified scene search: orchestrate the active retrievers over one filter and MERGE by weighted RRF. Inputs — text (summary/moments/frame) and/or channel_vectors (pre-embedded per-channel query vectors from the learned adapter; override the text-derived ones) drive the scenes method; descriptors drive the flavor method. Knobs — field_weights (the 6 vector channels), method_weights (scenes vs flavor RRF), combine, normalize. Hard pre-filters (ANDed): book_id, subject_branch, tone/intensity/arc (each a single value or any-of a list). Returns ScoredPoints best-first.
+# ---- stage 3: SOFT re-rank (tilt the pool by prose / dialogue sliders + the tone CURVE; never excludes) ----
+# Soft inputs are NUMERIC at the search boundary — `tones` = an ordered list of 1-5 [v,d,i] points,
+# `prose`/`dialogue` = floats in [0,1] or None. The word->coord mapping (tone/intensity words ->
+# tags.moment_vdi, prose word -> tags.prose_coord) is the NORMALIZER's job (query.py), NOT search's, so
+# this stage stays a pure numeric tilt with no `tags` import. Re-rank runs over the semantic pool's
+# PAYLOAD (no extra vector work), so search() prefetches deep (SOFT_PREFETCH) when a slider is set.
+
+# soft-axis mix (which soft signal counts how much) — D5 defaults, fixed in code.
+W_TONE, W_PROSE, W_DIA = 0.5, 0.3, 0.2
+# affect-axis mix inside a curve distance ("rising" is mostly an intensity claim) — D5 defaults.
+CURVE_WV, CURVE_WD, CURVE_WI = 0.3, 0.2, 0.5
+# global soft strength: a worst-case soft miss (penalty 1.0) costs LAMBDA z of semantic score (~±2),
+# so soft reorders near-ties but never overrides a clear semantic winner. Fixed in code.
+LAMBDA = 0.5
+# generous prefetch when any slider is set, so the re-rank has a deep pool to reorder.
+SOFT_PREFETCH = 200
+
+
+# ** LOCKED **
+# Resample the query tone curve onto m candidate moments: linear-interp each [v,d,i] axis at u = j/(m-1); a 1-point query is flat, a 1-moment candidate samples the curve's midpoint.
+def resample(tones, m: int) -> list:
+    k = len(tones)
+    if k == 1:
+        return [[float(a) for a in tones[0]] for _ in range(m)]
+
+    def at(u: float) -> list:                               # sample the k-point curve at u in [0,1]
+        x = u * (k - 1)
+        lo = int(np.floor(x)); hi = min(lo + 1, k - 1); f = x - lo
+        return [float(tones[lo][a]) * (1 - f) + float(tones[hi][a]) * f for a in range(3)]
+
+    if m == 1:
+        return [at(0.5)]                                    # one moment -> the curve's single midpoint summary
+    return [at(j / (m - 1)) for j in range(m)]
+
+
+# ** LOCKED **
+# Mean over positions of the per-axis-weighted Euclidean distance between two m×3 curves (each in [0,1]); result in [0,1].
+def curve_dist(U: list, S: list) -> float:
+    if not U:
+        return 0.0
+    wsum = CURVE_WV + CURVE_WD + CURVE_WI
+    acc = 0.0
+    for u, s in zip(U, S):
+        d2 = CURVE_WV * (u[0] - s[0]) ** 2 + CURVE_WD * (u[1] - s[1]) ** 2 + CURVE_WI * (u[2] - s[2]) ** 2
+        acc += (d2 / wsum) ** 0.5
+    return acc / len(U)
+
+
+# Soft penalty for one candidate: sum ONLY the soft axes present on BOTH the query and this candidate, renormalized — a candidate missing an axis is neither rewarded nor punished on it. Returns [0,1].
+def soft_penalty(payload: dict, prose, dialogue, u_by_len) -> float:
+    pen = wsum = 0.0
+    pr = payload.get("prose_register")
+    if prose is not None and pr is not None:
+        pen += W_PROSE * abs(float(pr) - prose); wsum += W_PROSE
+    dr = payload.get("dialogue_ratio")
+    if dialogue is not None and dr is not None:
+        pen += W_DIA * abs(float(dr) - dialogue); wsum += W_DIA
+    curve = payload.get("vdi_curve")
+    if u_by_len is not None and curve:
+        S = [[float(a) for a in pt] for pt in curve]
+        pen += W_TONE * curve_dist(u_by_len(len(S)), S); wsum += W_TONE
+    return pen / wsum if wsum else 0.0
+
+
+# Stage-3 soft re-rank: z-normalize the pool's semantic scores, subtract LAMBDA*soft_penalty, resort. All soft inputs unset -> the pool is returned UNTOUCHED (identical ranking to no-soft).
+def _soft_rerank(pool: list, prose, dialogue, tones) -> list:
+    if not pool or (prose is None and dialogue is None and not tones):
+        return pool
+    u_by_len = None
+    if tones:
+        memo: dict = {}                                     # moment cap 6 -> <=6 distinct curve lengths
+        def u_by_len(m: int) -> list:
+            if m not in memo:
+                memo[m] = resample(tones, m)
+            return memo[m]
+    scores = np.asarray([p.score for p in pool], dtype=np.float32)
+    std = float(scores.std())
+    z = (scores - float(scores.mean())) / std if std > 1e-9 else np.zeros_like(scores)   # no spread -> soft alone orders
+    for p, zc in zip(pool, z):
+        p.score = float(zc) - LAMBDA * soft_penalty(p.payload, prose, dialogue, u_by_len)
+    pool.sort(key=lambda p: p.score, reverse=True)
+    return pool
+
+
+# ** MAIN ** — the ONE search entry: imported by tests, evals, webtest
+# Unified scene search, four stages: (1) HARD pre-filter (ANDed excludes: book_id, subject_branch, pov, tense — each a single value or any-of a list); (2) SEMANTIC pool — text (summary/moments/frame) and/or channel_vectors (pre-embedded per-channel query vectors from the learned adapter; override the text-derived ones) drive the what-happens method, descriptors drive the flavor method, merged by weighted RRF; NO semantic input but a hard filter or a soft input -> BROWSE the filtered set; (3) SOFT re-rank — the numeric prose/dialogue sliders + the tone CURVE (`tones` = ordered [v,d,i] points) tilt the pool (skipped when all three are unset); (4) slice to limit. Knobs — method_weights (scenes vs flavor RRF), combine (sum/max vector blend; sum default holds the 0b gold), normalize. Returns ScoredPoints best-first.
 def search(client: QdrantClient, *, summary: str | None = None, moments=None, frame=None,
            channel_vectors: dict | None = None,
            descriptors: list[str] | None = None, weights: list[float] | None = None,
            anti_descriptors: list[str] | None = None, anti_weights: list[float] | None = None,
            anti_strength: float = 1.0, book_id: str | None = None, subject_branch=None,
-           tone=None, intensity=None, arc=None,
+           pov=None, tense=None,
+           prose: float | None = None, dialogue: float | None = None, tones=None,
            flt: models.Filter | None = None, limit: int = 5, prefetch: int | None = None,
            normalize: str | None = "zscore", combine: str = "sum",
-           field_weights: dict | None = None, method_weights: dict | None = None,
-           rrf_k: int = 60, exact: bool = False):
+           method_weights: dict | None = None, rrf_k: int = 60, exact: bool = False):
     if flt is None:
         flt = _and_filters(book_filter(book_id), subject_filter(subject_branch),   # AND book + subject +
-                           tone_filter(tone), intensity_filter(intensity),         # flavor-facet hard filters
-                           arc_filter(arc))
-    prefetch = prefetch or max(limit * 5, 50)
+                           facet_filter("pov", pov), facet_filter("tense", tense))  # pov/tense hard facets
+    soft_on = prose is not None or dialogue is not None or bool(tones)
+    prefetch = prefetch or (SOFT_PREFETCH if soft_on else max(limit * 5, 50))       # deep pool when a slider is set
 
     rankings: dict = {}
     if summary or moments or frame or channel_vectors:
-        rankings["scenes"] = search_scenes(                    # what-happens + frame: z-normed weighted blend
+        rankings["scenes"] = search_scenes(                    # what-happens + frame: z-normed weight-free blend
             client, summary=summary, moments=moments, frame=frame, channel_vectors=channel_vectors,
-            field_weights=field_weights,
             combine=combine, limit=prefetch, flt=flt, normalize=normalize, exact=exact)
     if descriptors:
         rankings["flavor"] = search_weighted_descriptors(       # flavor: weighted descriptor centroid
             client, descriptors, weights, anti_descriptors=anti_descriptors,
             anti_weights=anti_weights, anti_strength=anti_strength, limit=prefetch,
             flt=flt, exact=exact)
-    if not rankings:
-        raise ValueError("search needs at least one of: summary, moments, frame, channel_vectors, descriptors")
-    if len(rankings) == 1:
-        return next(iter(rankings.values()))[:limit]           # one method -> its ranking, untouched
-    mw = method_weights or DEFAULT_METHOD_WEIGHTS
-    return _rrf(rankings, mw, rrf_k, limit)                     # >1 method -> weighted rank-fuse
+
+    if rankings:
+        if len(rankings) == 1:
+            pool = list(next(iter(rankings.values())))          # one method -> its ranking
+        else:
+            mw = method_weights or DEFAULT_METHOD_WEIGHTS
+            pool = _rrf(rankings, mw, rrf_k, prefetch)          # >1 method -> weighted rank-fuse (to prefetch depth)
+    elif soft_on or flt is not None:
+        pool = [models.ScoredPoint(id=r.id, version=0, score=0.0, payload=r.payload)   # pure BROWSE: no semantic
+                for r in client.scroll(COLLECTION, scroll_filter=flt,                   # input, so scroll the
+                                       limit=prefetch, with_payload=True)[0]]           # hard-filtered set + soft-rank it
+    else:
+        raise ValueError("search needs a semantic input (summary/moments/frame/channel_vectors/descriptors), "
+                         "a hard filter (book_id/subject_branch/pov/tense), or a soft input (prose/dialogue/tones)")
+
+    pool = _soft_rerank(pool, prose, dialogue, tones)           # stage 3: tilt by sliders + tone curve (or untouched)
+    return pool[:limit]
