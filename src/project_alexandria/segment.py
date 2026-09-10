@@ -6,7 +6,7 @@ from typing import Literal
 
 from data import gate_facts
 from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, PROCESS_PROMPT, PROCESS_CONTINUE_NOTE,
-                   classify_llm_error, Checkpoint, log, schema, inject_retry_notes, SrcPaths)
+                   SPLIT_PROMPT, classify_llm_error, Checkpoint, log, schema, inject_retry_notes, SrcPaths)
 
 # ---- Stage 2: segmentation (SPARSE boundary labels -> reconstruct dramatic-unit scenes) ----
 # The LLM reads a whole chunk (Chunk.scene_payload: read-only context + indexed paragraphs) and returns
@@ -18,14 +18,15 @@ from utils import (read_json, write_json, MODEL, MODEL_PARAMS, CLIENT, PROCESS_P
 # open tail is rejoined by the next section's unlabelled opening. A book's chunks are labelled
 # SEQUENTIALLY (the DRIVER runs books in parallel), so each chunk is told via PROCESS_CONTINUE_NOTE when
 # the previous one left a scene open (a SCENE_CONTINUE); the model then withholds the first SCENE_START so
-# the halves stitch. A soft word-cap then splits any over-long scene at a paragraph break. segment_book is
+# the halves stitch. Any scene past the word ceiling is then FLAGGED and re-split by the LLM into
+# ceil(words / SOFT_MAX_WORDS) contiguous pieces (mechanical paragraph-split as the fallback). segment_book is
 # the single door: it runs the pre-gate, labels every chunk (sequential + checkpointed), reconstructs, and
 # returns flat ingest-ready records (enrichment fields still null). The prompt (PROCESS_PROMPT, in
 # utils/llm.py) and the retry/temperature policy are the USER'S tuning surface — do not touch unless asked.
 
 # ---- LLM boundary-classification schema (forced output_labels tool) ----
 
-SOFT_MAX_WORDS = 1500   # mechanical safety valve: split a longer scene at a paragraph break (tunable)
+SOFT_MAX_WORDS = 1000   # mechanical safety valve: split a longer scene at a paragraph break (tunable; matches the prompt's 1000-word ceiling)
 
 
 class ParagraphLabel(BaseModel):
@@ -224,8 +225,9 @@ def _scenes_from_labels(order: list[int], label_of: dict) -> list[dict]:
     return scenes
 
 
-# Split one scene's kept indices so each piece's word count stays <= SOFT_MAX_WORDS, cutting at the
-# nearest paragraph break (a lone over-cap paragraph is kept whole, like data._pack).
+# MECHANICAL FALLBACK for the LLM re-split (SceneSplitter below): split one scene's kept indices so each
+# piece's word count stays <= SOFT_MAX_WORDS, cutting at the nearest paragraph break (a lone over-cap
+# paragraph is kept whole, like data._pack). Used only when the model cannot deliver a valid split.
 def _cap_split(indices: list[int], word_of: dict) -> list[list[int]]:
     pieces, current, words = [], [], 0
     for idx in indices:
@@ -240,6 +242,159 @@ def _cap_split(indices: list[int], word_of: dict) -> list[list[int]]:
     return pieces
 
 
+# ---- oversize re-split: an over-cap scene -> N contiguous pieces (LLM, mechanical _cap_split fallback) ----
+
+SPLIT_MAX_ATTEMPTS = 6   # total tries before falling back to mechanical _cap_split (retry policy is the user's)
+
+
+# LLM split schema (forced output_splits tool): the first paragraph index of each piece.
+class SplitPoints(BaseModel):
+    piece_starts: list[int]   # GLOBAL paragraph index that begins each piece, reading order; first == scene start
+
+SPLIT_TOOL = pydantic_function_tool(
+    SplitPoints,
+    name="output_splits",
+    description="Return the first paragraph index of each contiguous piece the over-long scene is cut into.",
+)
+SPLIT_TOOL["function"]["strict"] = False   # non-strict, like TOOL above (providers drop strict under require_parameters)
+
+_SPLIT_TOOL_CHOICE = {"type": "function", "function": {"name": "output_splits"}}
+
+
+# Build the split call's user JSON: the target piece count + the scene's paragraphs in reading order.
+def _split_payload(indices: list[int], n_pieces: int, text_of: dict) -> str:
+    return json.dumps({
+        "n_pieces": n_pieces,
+        "indexed_paragraphs": [{"index": i, "text": text_of[i]} for i in indices],
+    })
+
+
+# Validate a split -> (ok, reason for the model): EXACTLY n starts, all inside the scene, strictly ascending,
+# and the first is the scene's first paragraph (so the pieces partition the whole scene from the top).
+def _validate_splits(data: SplitPoints, scene_indices: list[int], n: int):
+    starts = data.piece_starts
+    allowed = set(scene_indices)
+    parts = []
+    if len(starts) != n:
+        parts.append(f"need EXACTLY {n} piece-start indices, got {len(starts)}")
+    extra = sorted({s for s in starts if s not in allowed})
+    if extra:
+        parts.append(f"start indices not in this scene: {extra}")
+    if any(b <= a for a, b in zip(starts, starts[1:])):
+        parts.append("piece starts must be STRICTLY ascending (each piece begins later than the last)")
+    if starts and starts[0] != scene_indices[0]:
+        parts.append(f"the first piece must start at the scene's first paragraph {scene_indices[0]}")
+    return (not parts), "; ".join(parts)
+
+
+# The re-split retry-reminder SECTION (prompt slot-[1] splice), or "" on the first attempt.
+def _split_retry_note(notes: list[str]) -> str:
+    if not notes:
+        return ""
+    lines = "\n".join(f"- previous attempt error (NEVER DO THIS AGAIN): {n}" for n in notes)
+    return ("# RETRY — CUT THIS SCENE WHILE AVOIDING THESE ERRORS\n"
+            "Earlier attempts to split this scene had these errors. FIX THIS:\n"
+            f"{lines}\n")
+
+
+# Slice the scene's contiguous index list at the returned piece-start indices -> a list of index groups.
+# starts are validated (ascending, in-scene, first == scene start), so every group is non-empty.
+def _groups_from_starts(scene_indices: list[int], starts: list[int]) -> list[list[int]]:
+    pos = {idx: k for k, idx in enumerate(scene_indices)}
+    cuts = [pos[s] for s in starts]
+    return [scene_indices[a:b] for a, b in zip(cuts, cuts[1:] + [len(scene_indices)])]
+
+
+class SceneSplitter:
+
+    # ** MAIN ** — segment._resplit_oversize calls this once per flagged (over-cap) scene
+    # Cut ONE over-long scene into EXACTLY n_pieces contiguous pieces via a forced output_splits call,
+    # retrying (fresh convo + replayed misses + climbing temp) until the split validates. BOUNDED: on
+    # SPLIT_MAX_ATTEMPTS exhaustion or a fatal API error it falls back to the mechanical _cap_split, so a
+    # book is never wedged by a stubborn scene. Returns index groups in reading order.
+    def split_scene(self, file_code: str, indices: list[int], n_pieces: int,
+                    word_of: dict, text_of: dict) -> list[list[int]]:
+        if len(indices) < 2:                        # a lone paragraph cannot be cut
+            return _cap_split(indices, word_of)
+        n_pieces = min(n_pieces, len(indices))      # cannot make more pieces than there are paragraphs
+        payload = _split_payload(indices, n_pieces, text_of)
+        notes = []                                  # split misses from earlier attempts, replayed in the note
+
+        for attempt in range(SPLIT_MAX_ATTEMPTS):
+            temp = 0 if attempt == 0 else min(0.75, math.log(attempt ** 0.20) + 0.15)
+            system = inject_retry_notes(SPLIT_PROMPT, notes, _split_retry_note)   # splice the splitter's retry wording
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": payload},
+            ]
+            try:
+                log.info(f"book {file_code}: splitting scene {indices[0]}..{indices[-1]} into {n_pieces} (try {attempt + 1})")
+                response = CLIENT.chat.completions.create(
+                    model=MODEL, temperature=temp, tools=[SPLIT_TOOL],
+                    messages=messages,
+                    tool_choice=_SPLIT_TOOL_CHOICE,   # force THIS stage's tool
+                    **MODEL_PARAMS,                   # routing + reasoning only (no tool_choice)
+                )
+            except Exception as e:
+                if classify_llm_error(e) == "fatal":                  # non-retryable 4xx -> stop, fall back
+                    log.warn(f"book {file_code}: split fatal ({e}) — mechanical fallback")
+                    break
+                sleep = min(2 ** (attempt + 1), 30)
+                log.warn(f"book {file_code}: split transient retry (sleep {sleep}s): {e}")
+                time.sleep(sleep)
+                continue
+
+            # inspect the response: no tool_call / bad args / invalid split -> replay as a note next attempt
+            choices = response.choices
+            msg = choices[0].message if choices else None
+            if not msg or not msg.tool_calls:
+                reason = "did not call the output_splits tool"
+            else:
+                args = msg.tool_calls[0].function.arguments
+                try:
+                    data = SplitPoints.model_validate_json(args)      # schema-validate the tool args
+                except (ValidationError, json.JSONDecodeError, ValueError) as e:
+                    reason = f"arguments failed schema validation: {e}"
+                else:
+                    ok, why = _validate_splits(data, indices, n_pieces)
+                    if ok:
+                        return _groups_from_starts(indices, data.piece_starts)
+                    reason = why
+            notes.append(reason)
+            if len(notes) > 4:
+                notes.pop(0)
+            log.warn(f"book {file_code}: split validation retry {attempt + 1}: {reason[:140]}")
+
+        return _cap_split(indices, word_of)   # LLM split unavailable/invalid -> mechanical safety valve
+
+
+# Flag each reconstructed scene that overshot the word ceiling: scene["oversize"] = the number of pieces to
+# cut it into (ceil(words / SOFT_MAX_WORDS), always >= 2), else 0. This is the word->piece rule the model is
+# later TOLD (2x cap -> 2, 4x cap -> 4, ...). _resplit_oversize scans this flag.
+def _flag_oversize(scenes: list[dict], word_of: dict):
+    for scene in scenes:
+        words = sum(word_of[i] for i in scene["indices"])
+        scene["oversize"] = math.ceil(words / SOFT_MAX_WORDS) if words > SOFT_MAX_WORDS else 0
+
+
+# Scan the flagged scenes and re-split each over-cap one (via the LLM) into its flagged piece count — the
+# semantic replacement for the old blind paragraph-split. A within-cap scene passes straight through; a
+# flagged scene becomes its N pieces (the `broken` head rides the FIRST piece only). SceneSplitter falls
+# back to _cap_split when the LLM cannot deliver a valid split, so this always returns splittable scenes.
+def _resplit_oversize(scenes: list[dict], word_of: dict, text_of: dict, file_code: str) -> list[dict]:
+    splitter = SceneSplitter()
+    out: list[dict] = []
+    for scene in scenes:
+        n = scene.get("oversize") or 0
+        if n < 2:
+            out.append(scene)
+            continue
+        groups = splitter.split_scene(file_code, scene["indices"], n, word_of, text_of)   # LLM cut (fallback inside)
+        for k, idxs in enumerate(groups):
+            out.append({"indices": idxs, "broken": scene["broken"] and k == 0})
+    return out
+
+
 # Derive one scene piece's stitch status from its chunk span: a broken head -> "broken_stitch"; a piece
 # spanning >1 chunk -> "stitched" (its unlabelled fill crossed a chunk boundary); otherwise "complete".
 def _stitch_status(indices: list[int], chunk_of: dict, broken_head: bool) -> str:
@@ -249,11 +404,12 @@ def _stitch_status(indices: list[int], chunk_of: dict, broken_head: bool) -> str
 
 
 # ** MAIN ** — segment_book flattens a book's labels into ingest-ready records here
-# Reconstruct scenes from the label stream, apply the soft word-cap, and flatten into flat records
-# (one record == one future Qdrant point; enrichment fields start null). Every record starts from
-# schema.blank_record() so the shape is defined ONCE in scene_schema.json; only what SEGMENTATION knows
-# is filled. Vectors + the Qdrant envelope are added later — keep this DB-agnostic.
+# Reconstruct scenes from the label stream, flag + LLM-re-split any over-cap scene (mechanical fallback),
+# and flatten into flat records (one record == one future Qdrant point; enrichment fields start null).
+# Every record starts from schema.blank_record() so the shape is defined ONCE in scene_schema.json; only
+# what SEGMENTATION knows is filled. Vectors + the Qdrant envelope are added later — keep this DB-agnostic.
 def _build_records(book, metadata: dict, label_of: dict) -> list[dict]:
+    code = book.file_code
     text_of, chapter_of, chunk_of, word_of = {}, {}, {}, {}
     for chunk in book.chunks:
         for p in chunk.paragraphs:
@@ -262,14 +418,13 @@ def _build_records(book, metadata: dict, label_of: dict) -> list[dict]:
             chunk_of[p.index] = chunk.chunk_index
             word_of[p.index] = len(re.sub(r"<[^>]+>", " ", p.text).split())
 
-    # scenes -> soft-capped pieces; each piece becomes one record (broken flag rides the FIRST piece only)
+    # labels -> scenes -> flag the over-cap ones -> LLM re-split them; each resulting piece becomes one record
     order = sorted(word_of)                     # every paragraph index, reading order (fills the sparse labels)
-    pieces: list[tuple[list[int], bool]] = []
-    for scene in _scenes_from_labels(order, label_of):
-        for k, idxs in enumerate(_cap_split(scene["indices"], word_of)):
-            pieces.append((idxs, scene["broken"] and k == 0))
+    scenes = _scenes_from_labels(order, label_of)               # sparse labels -> dramatic-unit scene groups
+    _flag_oversize(scenes, word_of)                             # mark any scene past the word ceiling for re-split
+    scenes = _resplit_oversize(scenes, word_of, text_of, code)  # LLM cut of the flagged scenes (fallback: _cap_split)
+    pieces = [(scene["indices"], scene["broken"]) for scene in scenes]   # broken head already on the first piece
 
-    code = book.file_code
     author = metadata.get("Author")
     language = metadata.get("Language")
     last = len(pieces) - 1
@@ -341,8 +496,9 @@ def _presegmentation_gate(code, facts: dict, exclude_dir) -> str | None:
 
 # ** MAIN ** — tests.segment_test segments each book through this single door (the driver runs books in parallel)
 # Segment ONE whole book end to end: run the pre-gate, label its chunks in order (sequential +
-# checkpointed, threading the continue-flag), reconstruct dramatic-unit scenes from the labels, soft-cap,
-# and return flat ingest-ready records (an empty list if the book is gated out). Keep DB-agnostic.
+# checkpointed, threading the continue-flag), reconstruct dramatic-unit scenes from the labels, flag +
+# LLM-re-split any over-cap scene, and return flat ingest-ready records (an empty list if the book is
+# gated out). Keep DB-agnostic.
 def segment_book(book, md: dict, checkpoint_base=SrcPaths.CHECKPOINT_DIR,
                  data_path=SrcPaths.DATA_DIR, exclude_dir=SrcPaths.RECALL_DIR) -> list[dict]:
     facts = gate_facts(book.file_code, md, data_path)      # data: rights + subjects + serialized metadata (one door)
