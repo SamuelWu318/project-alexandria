@@ -4,6 +4,11 @@ import openai
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# Index 0: Nemotron ULTRA
+# Index 1: Minimax M3
+# Index 2: Nemotron LIGHTNING
+INDEX = 2
+
 # Load .env ONCE, here, at import time. Every module that needs configuration imports
 # storage (for paths / IO), so importing it populates os.environ for all of them — no
 # other module calls load_dotenv() itself.
@@ -18,25 +23,27 @@ load_dotenv()
 # shape is versioned in exactly one place, utils/schema.py, read from scene_schema.json as
 # `schema.SCHEMA_VERSION` (the old hardcoded duplicate here was removed).
 
-MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
-#MODEL = "minimax/minimax-m3:free"
+models = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "",
+    "nvidia/nemotron-3.5-lightning:free"
+    ]
+
+# Per-model routing + reasoning ONLY. tool_choice is deliberately NOT set here — each stage forces its
+# OWN tool at its .create() call (segment -> output_labels, enrich -> output_enrichment), so the two
+# stages can never inherit the wrong forced tool from a shared dict.
+model_params = [
+    {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Nemotron ULTRA
+    {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Minimax M3
+    {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Nemotron LIGHTNING
+]
+
+MODEL, MODEL_PARAMS = models[INDEX], model_params[INDEX]
 
 CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_KEY"],
 )
-
-# minimax
-# MODEL_PARAMS = {
-#     "tool_choice": "required",
-#     "extra_body": {"reasoning": {"effort": "high"}},
-# }
-
-# nemotron
-MODEL_PARAMS = {
-    "tool_choice": {"type": "function", "function": {"name": "output_enrichment"}},
-    "extra_body": {"provider":{"require_parameters":True}, "reasoning": {"effort": "high"}}, 
-}
 
 WORKERS = 6
 
@@ -315,13 +322,13 @@ def classify_llm_error(e: Exception) -> str:
 def llm_ready_up():
     try:
         messages = [
-        {"role": "system", "content": "respond with 'LLM (model name) from (model provider) is connected and ready with use.' given any message."},
+        {"role": "system", "content": "respond with 'LLM (model name) from (model provider) is connected and ready to use.' given any message."},
         {"role": "user", "content": "hello."},
         ]
         
         response = CLIENT.chat.completions.create(
             model=MODEL, temperature=0,
-            messages=messages,
+            messages=messages
         )
 
         print(f"LLM ready up response: {response.choices[0].message.content}")

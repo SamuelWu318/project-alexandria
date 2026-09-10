@@ -46,8 +46,8 @@ TOOL = pydantic_function_tool(
 # require_parameters:True when strict is set. Pydantic + the label-retry loop validate.
 TOOL["function"]["strict"] = False
 
-# MODEL_PARAMS centralizes routing/reasoning but its tool_choice names the ENRICH tool; each stage
-# overrides that shared tool_choice with its own tool, so force THIS stage's output_labels by name.
+# MODEL_PARAMS centralizes routing/reasoning ONLY (no tool_choice); each stage forces its own tool at
+# the call. This stage's tool is output_labels.
 _TOOL_CHOICE = {"type": "function", "function": {"name": "output_labels"}}
 
 
@@ -127,7 +127,8 @@ class SceneBreaker:
                 response = CLIENT.chat.completions.create(
                     model=MODEL, temperature=temp, tools=[TOOL],
                     messages=messages,
-                    **{**MODEL_PARAMS, "tool_choice": _TOOL_CHOICE},   # keep routing/reasoning; force THIS stage's tool
+                    tool_choice=_TOOL_CHOICE,   # force THIS stage's tool
+                    **MODEL_PARAMS,             # routing + reasoning only (no tool_choice)
                 )
             except Exception as e:
                 # only API/network failures land here; parse/coverage handled below

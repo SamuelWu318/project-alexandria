@@ -158,9 +158,10 @@ def _retry_note(notes: list[str]) -> str:
             f"previous attempts:\n{lines}")
 
 
-# One forced tool call validated into `model_cls` (generic over system_prompt / tool / model_cls). The tool
-# name already matches MODEL_PARAMS' tool_choice (output_enrichment), so MODEL_PARAMS is splatted as-is.
-# Retries never abort: fresh convo + replayed misses; only a fatal API error raises.
+# One forced tool call validated into `model_cls` (generic over system_prompt / tool / model_cls). This
+# stage forces its OWN tool by name at the call (MODEL_PARAMS no longer carries a tool_choice), so a
+# different stage's forced tool can never leak in. Retries never abort: fresh convo + replayed misses;
+# only a fatal API error raises.
 def _run_tool(user_content: str, validate=None, *,
               system_prompt: list = EMBED_PROMPT, tool: dict = BATCH_TOOL,
               model_cls=BatchEnrichment, note_fn=_retry_note):
@@ -181,7 +182,8 @@ def _run_tool(user_content: str, validate=None, *,
             response = CLIENT.chat.completions.create(
                 model=MODEL, temperature=temp, tools=[tool],
                 messages=messages,
-                **MODEL_PARAMS,   # tool_choice (== output_enrichment) + reasoning + routing, centralized in utils/llm.py
+                tool_choice={"type": "function", "function": {"name": tool_name}},   # force THIS stage's tool by name
+                **MODEL_PARAMS,   # routing + reasoning only (no tool_choice), centralized in utils/llm.py
             )
         except Exception as e:
             if classify_llm_error(e) == "fatal":            # non-retryable 4xx -> abort

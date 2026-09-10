@@ -11,7 +11,7 @@ import index
 import search
 import query
 
-from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS, vectorstore
+from utils import write_json, read_json, relational, subjects, log, SrcPaths, llm, llm_ready_up, WORKERS, vectorstore, MODEL
 from qdrant_client import QdrantClient
 
 # ---- interactive test / smoke harness (run by hand, not pytest) ----
@@ -329,10 +329,11 @@ def stay_awake():
 
 # ** ENTRY ** — step 1: download each book's -h.zip into DATA_DIR (parallel wgets, then validate + rebuild bad ones).
 def step_one_retrieval(file_ids, force=False):
+    log.info("Step 1: Retrieval")
     if not file_ids: return
 
     Path(SrcPaths.DATA_DIR).mkdir(parents=True, exist_ok=True)
-    procs = []
+    procs = {}
 
     for file_id in file_ids:
         # skip regardless if file_id does not exist; skip only if file exists and not force
@@ -342,35 +343,48 @@ def step_one_retrieval(file_ids, force=False):
         if current_zip.is_file(): current_zip.unlink()
 
         cmd = ["wget", "-nc", "-nd", "-q", "--no-check-certificate", f"https://aleph.gutenberg.org/cache/epub/{file_id}/pg{file_id}-h.zip"]
-        procs.append(subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR))   # launch the download
+        procs[file_id] = subprocess.Popen(cmd, cwd=SrcPaths.DATA_DIR)   # launch the download
         log.info(f"book {file_id}: downloading")
         time.sleep(2)
 
-    # validation
+    for id, p in procs.items():
+        p.wait() 
+        log.info(f"Book {id}: downloading finished")
+
+    # validation — collect EVERY bad zip (rebuild accumulates across the whole loop, not per-iteration)
+    rebuild = []
     for file_id in file_ids:
-        rebuild = []
         if not zipfile.is_zipfile(SrcPaths.DATA_DIR / f"pg{file_id}-h.zip"):
             log.warn(f"book {file_id}: missing or invalid zip — rebuild")
             rebuild.append(file_id)
-    step_one_retrieval(rebuild, force=True)      # re-download the bad ones
+    if rebuild:
+        step_one_retrieval(rebuild, force=True)  # re-download the bad ones (guarded: [] would recurse into a no-op)
 
-    for p in procs:
-        p.wait()                                 # block until every download finishes
+    log.info("books retrieved")
 
 # ** ENTRY ** — step 2: segment every downloaded book into scenes (build library, then segment_test each).
-# Books segment in PARALLEL (up to WORKERS at once); each book's chunks run sequentially inside
-# segment_book so the cross-section continue-flag threads chunk->chunk (segment_test handles a missing
-# book gracefully via its metadata check).
+# Books segment in PARALLEL; each book's chunks run sequentially inside segment_book so the cross-section
+# continue-flag threads chunk->chunk (segment_test handles a missing book gracefully via its metadata check).
+# Lane count ADAPTS to the book count: min(WORKERS, #books) — fewer books than WORKERS uses exactly that many
+# lanes (never over-allocates, never hits max_workers=0), more books cap at WORKERS.
 def step_two_processing(file_ids):
+    log.info("Step 2: Processing")
+    file_ids = [fid for fid in file_ids if fid]      # drop blank/commented holes so the lane count is real
+    if not file_ids: 
+        log.warn("No file_ids")
+        return                          # nothing to segment (all commented out)
+    log.info(f"Readying LLM {MODEL}")
     if not llm_ready_up(): sys.exit("LLM issue")     # fail fast if the LLM is unreachable
 
     with stay_awake():   # process runs long — survive a closed lid
         metadata, books = build_library(data_path=SrcPaths.DATA_DIR, recall_path=SrcPaths.RECALL_DIR)
-        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        lanes = min(WORKERS, len(file_ids))          # one lane per book, capped at WORKERS, always >= 1 here
+        with ThreadPoolExecutor(max_workers=lanes) as ex:
             list(ex.map(lambda fid: segment_test(metadata, books, fid), file_ids))   # one book per lane
 
 # ** ENTRY ** — step 3: enrich + index each book that has a scenes json.
 def step_three_embedding(file_ids):
+    log.info("Step 3: Embedding")
     with stay_awake():   # embed runs long — survive a closed lid
         exist_ids = []
         for file_id in file_ids:
