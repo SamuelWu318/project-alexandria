@@ -4,7 +4,7 @@
 # imported by their module name, e.g. `from utils import schema`. SCHEMA_VERSION is intentionally
 # NOT re-exported here — it lives solely in schema.py (the single source), read as `schema.SCHEMA_VERSION`.
 from utils.checkpoint import Checkpoint
-from utils.llm import MODEL, MODEL_PARAMS, CLIENT, classify_llm_error, llm_ready_up, WORKERS, PROCESS_PROMPT, PROCESS_CONTINUE_NOTE, EMBED_PROMPT, inject_retry_notes
+from utils.llm import MODEL, MODEL_PARAMS, CLIENT, classify_llm_error, llm_ready_up, WORKERS, PROCESS_PROMPT, PROCESS_CONTINUE_NOTE, SPLIT_PROMPT, EMBED_PROMPT, inject_retry_notes
 from utils.storage import SrcPaths
 from utils.tags import Tone, Arc, Intensity, POV, Tense, ProseRegister
 from utils.read_write import read_text, write_text, read_json, write_json
@@ -16,4 +16,4 @@ __all__ = ["Checkpoint", "MODEL", "MODEL_PARAMS", "CLIENT", "llm_ready_up",
            "classify_llm_error", "SrcPaths", "read_json", "write_json",
            "read_text", "write_text", "Tone", "Arc", "Intensity",
            "POV", "Tense", "ProseRegister",
-           "WORKERS", "PROCESS_PROMPT", "PROCESS_CONTINUE_NOTE", "EMBED_PROMPT", "inject_retry_notes"]
+           "WORKERS", "PROCESS_PROMPT", "PROCESS_CONTINUE_NOTE", "SPLIT_PROMPT", "EMBED_PROMPT", "inject_retry_notes"]
