@@ -176,8 +176,11 @@ class SceneBreaker:
 # global, SPARSE {paragraph index -> label} map (only boundary paragraphs appear). Sequential is what
 # carries the cross-section handshake: after each chunk, `pending` = it emitted a SCENE_CONTINUE, and that
 # flag is fed to the NEXT chunk so the model continues (not restarts) the carried-over scene. The DRIVER
-# runs whole books in parallel; within a book, order matters, so this stays single-threaded.
-def _label_book(book, checkpoint_base) -> dict:
+# runs whole books in parallel; within a book, order matters, so this stays single-threaded. Returns the
+# label map AND its checkpoint — it does NOT clear the checkpoint; the caller (segment_book) clears it only
+# after the WHOLE book is done (labels AND the LLM re-split in _build_records), so a crash mid-re-split
+# resumes from the cached labels instead of re-labelling every chunk.
+def _label_book(book, checkpoint_base) -> tuple[dict, Checkpoint]:
     ckpt = Checkpoint(checkpoint_base, f"pg{book.file_code}",       # per-book resume cache (typed codec)
                       load=ChunkLabels.model_validate,
                       dump=lambda d: d.model_dump(mode="json"))
@@ -196,8 +199,7 @@ def _label_book(book, checkpoint_base) -> dict:
             label_of[lab.index] = lab.label
         pending = any(lab.label == "SCENE_CONTINUE" for lab in data.labels)   # open tail -> next chunk continues it
 
-    ckpt.clear()   # book fully labelled: checkpoints no longer needed
-    return label_of
+    return label_of, ckpt   # NOT cleared here — segment_book clears after the re-split also succeeds
 
 
 # ---- reconstruct scenes from the sparse label stream ----
@@ -498,12 +500,15 @@ def _presegmentation_gate(code, facts: dict, exclude_dir) -> str | None:
 # Segment ONE whole book end to end: run the pre-gate, label its chunks in order (sequential +
 # checkpointed, threading the continue-flag), reconstruct dramatic-unit scenes from the labels, flag +
 # LLM-re-split any over-cap scene, and return flat ingest-ready records (an empty list if the book is
-# gated out). Keep DB-agnostic.
+# gated out). The per-book checkpoint is cleared ONLY after the re-split also succeeds, so a crash during
+# the (LLM) re-split resumes from the cached labels rather than re-labelling the whole book. Keep DB-agnostic.
 def segment_book(book, md: dict, checkpoint_base=SrcPaths.CHECKPOINT_DIR,
                  data_path=SrcPaths.DATA_DIR, exclude_dir=SrcPaths.RECALL_DIR) -> list[dict]:
     facts = gate_facts(book.file_code, md, data_path)      # data: rights + subjects + serialized metadata (one door)
     if _presegmentation_gate(book.file_code, facts, exclude_dir):
         return []                                          # excluded: no records
 
-    label_of = _label_book(book, checkpoint_base)                   # sequential forced LLM label per chunk -> {index: label}
-    return _build_records(book, facts["metadata"], label_of)        # labels -> scenes -> flat records
+    label_of, ckpt = _label_book(book, checkpoint_base)             # sequential forced LLM label per chunk -> {index: label} (+ its checkpoint)
+    records = _build_records(book, facts["metadata"], label_of)     # labels -> scenes -> LLM re-split over-cap -> flat records
+    ckpt.clear()   # ONLY now: labels + re-split both done, so the resume cache is safe to drop (a crash before here keeps it)
+    return records

@@ -5,9 +5,9 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 # Index 0: Nemotron ULTRA
-# Index 1: Minimax M3
+# Index 1: Poolside Laguna
 # Index 2: Nemotron LIGHTNING
-INDEX = 2
+INDEX = 0
 
 # Load .env ONCE, here, at import time. Every module that needs configuration imports
 # storage (for paths / IO), so importing it populates os.environ for all of them — no
@@ -25,7 +25,7 @@ load_dotenv()
 
 models = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "",
+    "poolside/laguna-s-2.1:free",
     "nvidia/nemotron-3.5-lightning:free"
     ]
 
@@ -34,7 +34,7 @@ models = [
 # stages can never inherit the wrong forced tool from a shared dict.
 model_params = [
     {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Nemotron ULTRA
-    {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Minimax M3
+    {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Poolside Laguna
     {"extra_body": {"provider": {"require_parameters": True}, "reasoning": {"effort": "high"}}},   # Nemotron LIGHTNING
 ]
 
