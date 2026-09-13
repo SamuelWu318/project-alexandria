@@ -3,9 +3,8 @@ from pathlib import Path
 from dataclasses import dataclass
 
 # ---- paths: single source of truth for the on-disk layout (LOCKED · no methods) ----
-# Every path the pipeline touches lives here; the corpus + all outputs live under MASTER_DIR.
-# Edit a path or the layout in ONE place. (The Qdrant collection/vector config lives in
-# search.py and the prompts in process.py/embed.py — deliberately NOT here.)
+# Every path the pipeline touches; corpus + outputs live under MASTER_DIR. Edit the layout in ONE place.
+# (Qdrant/vector config lives in utils/vectorstore.py, prompts in utils/llm.py — deliberately not here.)
 
 # ** LOCKED **  ** MAIN ** — imported as SrcPaths by nearly every module
 @dataclass(frozen=True)
@@ -24,6 +23,7 @@ class SrcPaths:
     DB_PATH: Path         = MASTER_DIR / "databases" / "scenes.db"       # local on-disk SQLite mirror (no server needed)
     QDRANT_DIR: Path      = MASTER_DIR / "databases" / "qdrant_db"       # local on-disk Qdrant (no server needed)
     SEGMENTS_DIR: Path    = MASTER_DIR / "segments"                 # pre-segmentation staging (Book.to_json)
-    TUNED_WEIGHTS_PATH: Path = MASTER_DIR / "tuned_weights.json"     # evals --tune writes field_weights here; search() reads it as its live default (webtest picks it up)
+    TUNED_WEIGHTS_PATH: Path = MASTER_DIR / "tuned_weights.json"     # legacy field-weights file (the --tune stack was retired, D3)
+    ADAPTER_DIR: Path     = MASTER_DIR / "adapter"                  # learned HyDE query-adapter: dataset (X/Y/meta) + fitted weights (train/)
     # scene-record registry: a CODE asset shipped with the package (utils/schema/), NOT master data
     SCHEMA_PATH: Path     = UTILS_DIR / "schema" / "scene_schema.json"

@@ -1,17 +1,10 @@
 from utils import tags   # word -> coordinate tables (the ONLY heavy-free foundation dep; search is lazy)
 
 # ---- Query Normalizer (read-path front door): a writer's request -> search.search input ----
-# The seam between "what a human typed / dialed" and search()'s structured input. Two jobs, no more:
-#   1. SINGLE BEAT — the free-text summary is treated as ONE scene target and searched as-is (no
-#      automatic decomposition into beats, no svos-facet extraction). Both were built, tried, and DELETED
-#      (utils/qsplit.py, the multi-beat gold); do NOT resurrect them. Multi-beat ("a duel AND a pardon")
-#      stays a SEPARATE, caller-built future feature.
-#   2. WORD -> COORD — the soft controls arrive as WORDS/sliders and search() wants NUMBERS, and the
-#      word->coord mapping lives HERE, not in search (search has no `tags` import). So this file turns a
-#      tone/intensity word-curve into search's numeric `tones`, a prose word into the `prose` float, and
-#      passes the already-numeric dialogue slider + the hard facets (pov/tense/book_id) straight through.
-# Output contract == kwargs for search.search(): {summary, moments, pov, tense, book_id, prose, dialogue,
-# tones, descriptors}. search is imported lazily (like evals) so importing this module stays cheap.
+# Two jobs: (1) SINGLE BEAT — the summary is one scene target, searched as-is (no beat-split, no svos-facet
+# extraction; both were tried + DELETED — don't resurrect; multi-beat is a future caller-built feature).
+# (2) WORD -> COORD — soft controls arrive as WORDS/sliders, search wants NUMBERS, and that mapping lives
+# HERE (search has no `tags` import). Output == search.search kwargs; search imported lazily to stay cheap.
 
 NORMALIZER_STAGE = "single-beat"
 
@@ -27,9 +20,7 @@ def _beat_words(beat) -> tuple:
     return beat[0], beat[1]                                    # a 2-seq: (tone_word, intensity_word)
 
 
-# A tone-curve of (tone, intensity) WORD pairs -> search's numeric `tones` = ordered [[v,d,i], ...] (None/empty -> None).
-# Each pair maps through tags.moment_vdi — the SAME word->coord derive.py uses for a scene's stored vdi_curve,
-# so a query curve and an indexed curve live on one scale. Raises ValueError naming any out-of-vocab word.
+# (tone, intensity) WORD pairs -> numeric `tones` [[v,d,i],...] via tags.moment_vdi (same scale as derive's vdi_curve); out-of-vocab raises.
 def tone_curve(beats) -> list | None:
     if not beats:
         return None
@@ -58,16 +49,10 @@ def prose_level(word) -> float | None:
 
 
 # ** MAIN ** — wrap a writer's request into one search.search kwargs dict (single beat)
-# Turn a request into ONE QueryObject with no splitting: the whole `summary` is the holistic summary vector
-# AND the one `moments` beat (so the svos channel fires too); the soft WORDS become search's numbers here
-# (prose word -> prose float, tone/intensity word-curve -> tones [[v,d,i]...], dialogue slider passes as a
-# float); the hard facets (pov/tense/book_id) + descriptors pass straight through. Only set keys are emitted,
-# so search()'s own defaults hold for the rest. A summary-less request (hard filter or a slider only) is a
-# valid pure-BROWSE object; a wholly empty request -> {}.
-# DELIBERATE: the moment's svos FACETS (subject/verb/object/setting) are left empty — filling them from the
-# text adds no information the summary + svos channels don't already carry, and was DECLINED (no measured
-# win). Descriptor auto-routing (pulling feeling words out of the free text) is likewise OFF by default —
-# add it only behind a measured retrieval win. Do NOT re-add either without one.
+# ONE QueryObject, no splitting: `summary` is both the holistic vector and the single `moments` beat (fires
+# svos); soft WORDS become numbers here; hard facets + descriptors pass through; only set keys emitted (a
+# summary-less request = a valid pure-BROWSE object, empty request -> {}).
+# DELIBERATE: svos facets left empty + descriptor auto-routing OFF (both declined, no measured win) — don't re-add without one.
 def to_query_object(summary: str = "", *, pov=None, tense=None, book_id: str | None = None,
                     prose=None, dialogue: float | None = None, tones=None,
                     descriptors: list[str] | None = None) -> QueryObject:

@@ -3,20 +3,11 @@ import json
 from pathlib import Path
 
 # ---- retrieval eval + A/B comparator for the read path ----
-# Answers ONE question: does approach A or B retrieve better on the gold set? The EMPHASIS is rank-1 —
-# is the 1st result the correct BOOK and the correct SCENE? Ground truth is two-level: book_id (always)
-# and target_scene_id (auto-labeled by `--label-scenes`: the rank-1 in-book scene under the default blend).
-# Headline metrics are top_scene / top_book (rank-1 accuracy) + the top1 composite (1.0 exact scene,
-# 0.5 right book, 0.0 miss); MRR / Hit@k / scene-MRR are secondary. The scorer grades OUTPUTS (a Run)
-# without re-running search; run_search drives search() to produce a Run. Gold queries carry a summary +
-# subject/verb/object/setting frame + a combined `svos` clause (synthesized from that frame) +
-# descriptors, so they exercise the summary/svos/frame vector channels + the descriptor flavor channel.
-# The semantic blend is WEIGHT-FREE (per-field weights retired, D3); the A/B knobs are normalize + combine
-# (max/sum) + method_weights. `--mode soft` is the soft-facet A/B: hold the semantic query fixed, move ONE
-# slider (prose / dialogue / tone-curve) read off the gold, and confirm the intended reorder — an UNSET
-# slider is inert by construction (search skips stage 3). Soft words map to numbers through query.py's
-# converters (the SAME mapping the app uses), so the A/B exercises the real word->coord path.
-# Run: `python -m evals` (see --mode).
+# A/B two read configs on the gold: which retrieves better? Rank-1 emphasis — is result #1 the right BOOK
+# and the right SCENE? Gold = book_id (always) + target_scene_id (`--label-scenes` auto-labels it). Headline:
+# top_scene/top_book + the top1 composite (1.0 scene / 0.5 book / 0 miss); MRR/Hit@k secondary. score_run
+# grades a Run (no re-search); run_search drives search() to make one. Blend is weight-free (D3); `--mode
+# soft` A/Bs one slider (words->numbers via query.py). Run: `python -m evals` (see --mode).
 
 # Run  = dict[query_id, list[{"scene_id": str, "book_id": str, "score": float}]]  best-first
 # Gold = dict[query_id, {"book_id": str, "scene_id": str | None, "sharpness": int | None}]  scene_id = target scene
@@ -220,15 +211,13 @@ def format_comparison(cmp: dict) -> str:
 # ---- driver: produce a Run from the unified search() ----
 
 # ** MAIN ** — every A/B mode runs through here
-# Drive the unified search() over the gold queries with one FULL config -> a Run. Channel flags gate which
-# semantic channels run (isolate one for an A/B); method_weights/combine/normalize set the blend (per-field
-# weights retired, D3). The soft/hard config (pov/tense hard filters + prose/dialogue/tones soft sliders,
-# all NUMERIC — words are mapped upstream by query.py) is applied uniformly to EVERY query, so a soft A/B
-# holds the semantic query fixed and moves one slider batch-wide.
+# Drive search() over the gold queries with one config -> a Run. Channel flags isolate a channel;
+# method_weights/combine/normalize set the blend; soft/hard config (numeric, via query.py) applies to every
+# query. `adapter` (HyDE): a callable e -> channel_vectors overriding a channel per query (None = text path).
 def run_search(client, queries: list[dict], *, use_summary: bool = True, use_moments: bool = True,
                use_frame: bool = True, use_descriptors: bool = False,
                pov=None, tense=None, prose: float | None = None,
-               dialogue: float | None = None, tones=None,
+               dialogue: float | None = None, tones=None, adapter=None,
                method_weights: dict | None = None,
                combine: str = "sum", normalize: str | None = "zscore", limit: int = 10) -> dict:
     import search
@@ -238,9 +227,10 @@ def run_search(client, queries: list[dict], *, use_summary: bool = True, use_mom
         moments = _gold_moments(e) if use_moments else None                # combined svos clause -> svos channel
         frame = _gold_frame(e) if use_frame else None                      # subject/verb/object/setting query terms
         descriptors = (e.get("descriptors") or None) if use_descriptors else None
+        channel_vectors = adapter(e) if adapter else None                  # HyDE: per-query pre-embedded channel override
         try:
             pts = search.search(client, summary=summary, moments=moments, frame=frame,   # unified search
-                                descriptors=descriptors,
+                                descriptors=descriptors, channel_vectors=channel_vectors,
                                 pov=pov, tense=tense,                       # hard facets (exclude)
                                 prose=prose, dialogue=dialogue, tones=tones,  # soft sliders (tilt)
                                 method_weights=method_weights, combine=combine,
@@ -266,9 +256,7 @@ def _gold_moments(e: dict):
     return e.get("moments") or e.get("svos") or None
 
 
-# A gold entry's soft/hard config as search kwargs {pov, tense, prose, dialogue, tones}, with the WORD
-# fields (prose word, tone/intensity word-curve) mapped to numbers by query.py — the SAME converter the app
-# uses, so the A/B path and the live path stay in lock-step. Only present fields are returned.
+# A gold entry's soft/hard config as search kwargs; WORD fields mapped to numbers via query.py; present keys only.
 def _gold_soft(e: dict) -> dict:
     import query
     out = {}
@@ -285,10 +273,8 @@ def _gold_soft(e: dict) -> dict:
     return out
 
 
-# The soft kwargs for a one-slider A/B on `axis`: prose/dialogue take `value` (default 1.0 = grand / all-
-# dialogue); tones uses a synthetic RISING intensity curve (calm -> peak, neutral valence/dominance) so the
-# reorder has a concrete arc to sort by. {} for an unknown axis. The A/B's other run leaves soft UNSET, which
-# search treats as stage-3 skipped (inert) — so the pair shows both "slider reorders" and "unset is inert".
+# Soft kwargs for a one-slider A/B on `axis`: prose/dialogue take `value`; tones uses a synthetic rising
+# curve. {} for an unknown axis. The A/B's other run leaves soft unset (inert).
 def _soft_axis(axis: str, value: float = 1.0) -> dict:
     if axis == "prose":
         return {"prose": value}
@@ -301,11 +287,8 @@ def _soft_axis(axis: str, value: float = 1.0) -> dict:
 
 # ---- scene-target auto-labeling (fills gold's target_scene_id so rank-1 can be graded at the SCENE level) ----
 
-# Auto-label each query's correct scene: the rank-1 scene WITHIN its own book under the default what-happens
-# query (summary + svos + frame). Mutates queries in place, writing target_scene_id/summary + the labeled
-# scene's own soft/hard facets (pov/tense + prose_register/dialogue_ratio/vdi_curve, so a soft A/B has a real
-# per-query target); None if unresolved. Returns (n_labeled, n_missing). Review the written summaries before
-# trusting scene metrics. (scene_title is gone from the schema — the summary is the human-readable label.)
+# Auto-label each query's target scene: rank-1 WITHIN its book under the default blend. Writes target_scene_id/
+# summary + that scene's pov/tense/prose_register/dialogue_ratio/vdi_curve (the soft gold). Returns (n_labeled, n_missing).
 def autolabel_scenes(client, queries: list[dict], *, normalize: str | None = "zscore") -> tuple:
     import search
     labeled = missing = 0

@@ -5,10 +5,9 @@ from typing import Iterable, Iterator
 from utils import SrcPaths, read_json
 
 # ---- subject-tree store: the SQL home of the Gutenberg subject trie (book-level grain) ----
-# Sibling to relational.py, but a different grain + source: the BOOK subject taxonomy from catalog
-# metadata, flattened to indexed rows so retrieval is a slice, not a whole-file load. ONE row per
-# (book, right-anchored subject prefix): a reversed path "...Italy -- Fiction" stores each ancestor
-# suffix ("Italy -- Fiction") + its parent ("Fiction"); both indexed, so the SQL B-trees ARE the tree.
+# Book-grain subject taxonomy from catalog metadata, flattened to indexed rows (retrieval = a slice, not a
+# whole-file load). ONE row per (book, right-anchored subject prefix): a reversed "...Italy -- Fiction"
+# stores each ancestor suffix + its parent, both indexed — the SQL B-trees ARE the tree.
 
 DELIM = " -- "   # Gutenberg subject component delimiter (broadest term rightmost)
 

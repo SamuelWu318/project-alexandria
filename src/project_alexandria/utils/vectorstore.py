@@ -6,14 +6,11 @@ from fastembed import TextEmbedding
 from utils import SrcPaths, schema   # scene-record registry — drives the named-vector set
 
 # ---- Qdrant contract: the ONE home of the vector-store primitives ----
-# The read path (search.py) and the write path (index.py) BOTH import this module. Extracting the
-# contract here removes the old wrong-direction coupling where the writer imported 7 symbols out of the
-# reader (principle #4 in CLAUDE.md). This file owns the shared vocabulary — collection name, named-vector
-# set, embedder, stable point id, payload-filter builders — and NOTHING here queries or indexes; the
-# read/write LOGIC lives in search.py / index.py. Pulls in only qdrant + fastembed (no LLM), so both
-# sides stay light. Invariants (CLAUDE.md): EMBED_MODEL MUST match the model the index was built with;
-# point_id is a stable uuid5 so a re-index overwrites; bge is asymmetric (queries get QUERY_PREFIX,
-# indexed passages + descriptor queries stay raw); a multivector field MUST be queried with a matrix.
+# Both search.py (read) and index.py (write) import this; it owns the shared vocabulary (collection name,
+# named-vector set, embedder, stable point id, payload filters) but queries/indexes NOTHING — that logic
+# lives in search.py/index.py. Only qdrant + fastembed (no LLM). Invariants: EMBED_MODEL must match the built
+# index; point_id is a stable uuid5 (re-index overwrites); bge is asymmetric (queries get QUERY_PREFIX); a
+# multivector field must be queried with a matrix.
 
 # ---- config ----
 
@@ -21,16 +18,12 @@ from utils import SrcPaths, schema   # scene-record registry — drives the name
 COLLECTION = "scenes"
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"     # MUST match the model the index was built with
-# named vectors == the registry's vector:true fields (summary + descriptors single; svos + the four
-# subject/verb/object/setting facets multivector — the committed 7-vector set, PLAN Phase 0b).
+# named vectors = the registry's vector:true fields (7: summary/descriptors single + svos/subject/verb/object/setting multivector).
 VECTOR_NAMES = schema.VECTOR_NAMES
-# multivector:true fields: a LIST of per-item vectors scored by MAX_SIM (max-pool). MUST be queried
-# with a matrix (list of vectors), even a 1-row one — a flat vector is rejected by the index.
+# multivector:true fields: a LIST of per-item vectors scored by MAX_SIM; MUST be queried with a matrix (even 1-row).
 MULTIVECTOR_NAMES = frozenset(schema.MULTIVECTOR_NAMES)
 
-# order-aware svos (PLAN §3.2): the svos beats carry SVOS_POS_DIMS extra positional dims, so the svos
-# named vector is WIDER than the bare embed dim; every other named vector is the bare dim. index.py sizes
-# its Qdrant params through vector_size; a re-index rebuilds the collection if this width drifts.
+# order-aware svos (PLAN §3.2): svos beats carry SVOS_POS_DIMS extra positional dims (wider than the bare embed dim; sized via vector_size).
 SVOS_POS_DIMS = 2
 
 # ** LOCKED **  ** MAIN ** — index.py sizes each named vector's Qdrant params through here
@@ -77,16 +70,11 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 
 # ---- order-aware svos beat encoding (PLAN §3.2) — index + query MUST share this or svos scores are junk ----
-# Event ORDER can't come from MAX_SIM (it is permutation-invariant), so it is baked into each svos beat
-# vector: a normalized-position component is appended. For beat k of a K-beat sequence, u = k/(K-1) (u=0
-# when K=1), and the beat vector is
-#     v = [ sqrt(1-β)·unit(sem) ; sqrt(β)·p(u) ] ,   p(u) = [cos(freq·u), sin(freq·u)] ,   ||v|| = 1
-# so cos(v_q, v_s) = (1-β)·sem_cos + β·pos_cos, with pos_cos = cos(freq·|u_q-u_s|) in [0,1] — position
-# never flips a sign, it only WITHHOLDS reward. MAX_SIM over these prefers beats that agree BOTH in meaning
-# AND in relative position (in-order), but SOFTLY: a strong out-of-order match still wins if its sem_cos
-# clears the β gap. β is the order-strength ⟷ recall-robustness knob (β=0 == today's order-free svos). u is
-# taken over each side's OWN beat count, so a query's beats and a scene's compare by relative position —
-# never by raw index or a forced common length. svos ONLY — subject/verb/object/setting stay order-free sets.
+# MAX_SIM is permutation-invariant, so ORDER is baked into each beat vector: for beat k of K, u = k/(K-1),
+#     v = [ sqrt(1-β)·unit(sem) ; sqrt(β)·p(u) ] ,  p(u) = [cos(π/2·u), sin(π/2·u)] ,  ‖v‖ = 1
+# so cos = (1-β)·sem_cos + β·pos_cos — position only WITHHOLDS reward (never flips sign), so MAX_SIM softly
+# prefers in-order matches. β = order strength (β=0 = order-free). u is per-side, so beats compare by relative
+# position. svos ONLY — the four facets stay order-free.
 
 # order strength in [0,1); tune on the gold (PLAN §3.2), β=0 is the order-free fallback.
 SVOS_POS_BETA = 0.2

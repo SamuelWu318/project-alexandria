@@ -3,7 +3,6 @@
   "test_queries": [
     {
       "id": "q-84-1",
-      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 1,
@@ -18,13 +17,49 @@
         "nightmarish",
         "frantic"
       ],
-      "target_scene_id": "84-25",
-      "target_scene_title": "Victor creates the creature and flees in horror",
-      "target_scene_summary": "A creator flees from his newly animated being."
+      "target_scene_id": "84-23",
+      "target_scene_summary": "A creator brings an artificial being to life, recoils, flees, and suffers a nightmare before confronting the creature at the bedside.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.22,
+          0.52,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Victor creates the creature and flees in horror"
     },
     {
       "id": "q-84-1-amb",
-      "variant": "ambiguous",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 1,
@@ -39,13 +74,49 @@
         "nightmarish",
         "frantic"
       ],
-      "target_scene_id": "84-25",
-      "target_scene_title": "Victor creates the creature and flees in horror",
-      "target_scene_summary": "A creator flees from his newly animated being."
+      "target_scene_id": "84-23",
+      "target_scene_summary": "A creator brings an artificial being to life, recoils, flees, and suffers a nightmare before confronting the creature at the bedside.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.22,
+          0.52,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Victor creates the creature and flees in horror"
     },
     {
       "id": "q-84-2",
-      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 2,
@@ -60,13 +131,49 @@
         "shattering",
         "agonizing"
       ],
-      "target_scene_id": "84-138",
-      "target_scene_title": "Elizabeth's murder and Victor's horrified grief",
-      "target_scene_summary": "A husband discovers his bride murdered on their wedding night."
+      "target_scene_id": "84-98",
+      "target_scene_summary": "Newlyweds embark on a lake voyage shadowed by the bride's dark presentiment, but night brings a storm, the groom's armed vigil, the bride's murder by his monstrous foe, and the monster's escape into the waters.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1311743951612903,
+      "target_vdi_curve": [
+        [
+          0.9,
+          0.62,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Elizabeth's murder and Victor's horrified grief"
     },
     {
       "id": "q-84-2-amb",
-      "variant": "ambiguous",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 2,
@@ -81,13 +188,49 @@
         "shattering",
         "agonizing"
       ],
-      "target_scene_id": "84-138",
-      "target_scene_title": "Elizabeth's murder and Victor's horrified grief",
-      "target_scene_summary": "A husband discovers his bride murdered on their wedding night."
+      "target_scene_id": "84-98",
+      "target_scene_summary": "Newlyweds embark on a lake voyage shadowed by the bride's dark presentiment, but night brings a storm, the groom's armed vigil, the bride's murder by his monstrous foe, and the monster's escape into the waters.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1311743951612903,
+      "target_vdi_curve": [
+        [
+          0.9,
+          0.62,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Elizabeth's murder and Victor's horrified grief"
     },
     {
       "id": "q-84-3",
-      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 3,
@@ -102,13 +245,39 @@
         "desperate",
         "malignant"
       ],
-      "target_scene_id": "84-110",
-      "target_scene_title": "The daemon appears and Victor destroys the female",
-      "target_scene_summary": "A creator destroys his nearly finished creation while the monster watches from the window."
+      "target_scene_id": "84-83",
+      "target_scene_summary": "A creator destroys his unfinished second creature while his first creation watches, provoking the monster's vengeful despair.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The daemon appears and Victor destroys the female"
     },
     {
       "id": "q-84-3-amb",
-      "variant": "ambiguous",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 3,
@@ -123,13 +292,39 @@
         "desperate",
         "malignant"
       ],
-      "target_scene_id": "84-110",
-      "target_scene_title": "The daemon appears and Victor destroys the female",
-      "target_scene_summary": "A creator destroys his nearly finished creation while the monster watches from the window."
+      "target_scene_id": "84-83",
+      "target_scene_summary": "A creator destroys his unfinished second creature while his first creation watches, provoking the monster's vengeful despair.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The daemon appears and Victor destroys the female"
     },
     {
       "id": "q-84-4",
-      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 4,
@@ -144,13 +339,39 @@
         "hopeful",
         "sincere"
       ],
-      "target_scene_id": "84-81",
-      "target_scene_title": "Interview with De Lacey, seeking acceptance",
-      "target_scene_summary": "A blind hermit listens kindly to a stranger's plea for friendship."
+      "target_scene_id": "84-62",
+      "target_scene_summary": "A hideous outcast approaches a blind old man alone in a cottage, reveals his loneliness and pleads for help winning the acceptance of the family he has secretly aided.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ],
+        [
+          0.68,
+          0.5,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Interview with De Lacey, seeking acceptance"
     },
     {
       "id": "q-84-4-amb",
-      "variant": "ambiguous",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 4,
@@ -165,13 +386,39 @@
         "hopeful",
         "sincere"
       ],
-      "target_scene_id": "84-81",
-      "target_scene_title": "Interview with De Lacey, seeking acceptance",
-      "target_scene_summary": "A blind hermit listens kindly to a stranger's plea for friendship."
+      "target_scene_id": "84-62",
+      "target_scene_summary": "A hideous outcast approaches a blind old man alone in a cottage, reveals his loneliness and pleads for help winning the acceptance of the family he has secretly aided.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ],
+        [
+          0.68,
+          0.5,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Interview with De Lacey, seeking acceptance"
     },
     {
       "id": "q-84-5",
-      "variant": "specific",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 5,
@@ -186,13 +433,49 @@
         "raw",
         "haunting"
       ],
-      "target_scene_id": "84-159",
-      "target_scene_title": "Walton finds Creature weeping over Frankenstein",
-      "target_scene_summary": "A captain discovers a monstrous being weeping over its creator's body."
+      "target_scene_id": "84-6",
+      "target_scene_summary": "A ship's captain grows deeply attached to a rescued stranger whose profound grief moves him, and the stranger reacts with horror when the captain declares his willingness to sacrifice everything for scientific glory.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.10934393638170974,
+      "target_vdi_curve": [
+        [
+          0.68,
+          0.5,
+          0.2
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Walton finds Creature weeping over Frankenstein"
     },
     {
       "id": "q-84-5-amb",
-      "variant": "ambiguous",
       "book_id": "84",
       "book_title": "Frankenstein",
       "sharpness": 5,
@@ -207,13 +490,49 @@
         "raw",
         "haunting"
       ],
-      "target_scene_id": "84-159",
-      "target_scene_title": "Walton finds Creature weeping over Frankenstein",
-      "target_scene_summary": "A captain discovers a monstrous being weeping over its creator's body."
+      "target_scene_id": "84-110",
+      "target_scene_summary": "An explorer discovers a gigantic creature mourning over a dead friend's coffin, hears the creature's confession of murder and misery, condemns him as a hypocrite, and listens as the creature recounts his rejection by humanity before declaring his intention to commit suicide in the frozen wilderness.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.30240738705067605,
+      "target_vdi_curve": [
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ],
+        [
+          0.4,
+          0.36,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Walton finds Creature weeping over Frankenstein"
     },
     {
       "id": "q-98-1",
-      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 1,
@@ -228,13 +547,49 @@
         "desperate",
         "ingenious"
       ],
-      "target_scene_id": "98-290",
-      "target_scene_title": "Carton swaps clothes with Darnay",
-      "target_scene_summary": "A man secretly exchanges clothes with a condemned prisoner to die in his place."
+      "target_scene_id": "98-196",
+      "target_scene_summary": "A condemned prisoner in a revolutionary prison reconciles himself to death, composes final letters to his wife and father, endures a night of fitful dreams and waking obsession with the execution machine, and steadies his mind as the fatal hour draws near.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.006810588537650989,
+      "target_vdi_curve": [
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.78,
+          0.46,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.64,
+          0.56,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.8,
+          0.44,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Carton swaps clothes with Darnay"
     },
     {
       "id": "q-98-1-amb",
-      "variant": "ambiguous",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 1,
@@ -249,13 +604,49 @@
         "desperate",
         "ingenious"
       ],
-      "target_scene_id": "98-290",
-      "target_scene_title": "Carton swaps clothes with Darnay",
-      "target_scene_summary": "A man secretly exchanges clothes with a condemned prisoner to die in his place."
+      "target_scene_id": "98-196",
+      "target_scene_summary": "A condemned prisoner in a revolutionary prison reconciles himself to death, composes final letters to his wife and father, endures a night of fitful dreams and waking obsession with the execution machine, and steadies his mind as the fatal hour draws near.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.006810588537650989,
+      "target_vdi_curve": [
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.78,
+          0.46,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.64,
+          0.56,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.8,
+          0.44,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Carton swaps clothes with Darnay"
     },
     {
       "id": "q-98-2",
-      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 2,
@@ -270,13 +661,44 @@
         "brutal",
         "aristocratic"
       ],
-      "target_scene_id": "98-89",
-      "target_scene_title": "The carriage kills a child and the Marquis pays a coin",
-      "target_scene_summary": "A speeding aristocratic carriage kills a child and the nobleman tosses a gold coin as compensation."
+      "target_scene_id": "98-57",
+      "target_scene_summary": "A wine vendor consoles the bereaved father with fatalistic philosophy; the aristocrat throws another coin, but a coin flies back into his carriage, prompting threats of extermination, while a knitting woman meets his gaze unflinchingly as the procession passes.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.19686162624821682,
+      "target_vdi_curve": [
+        [
+          0.68,
+          0.5,
+          0.55
+        ],
+        [
+          0.26,
+          0.68,
+          0.2
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ],
+        [
+          0.42,
+          0.56,
+          0.2
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The carriage kills a child and the Marquis pays a coin"
     },
     {
       "id": "q-98-2-amb",
-      "variant": "ambiguous",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 2,
@@ -291,13 +713,44 @@
         "brutal",
         "aristocratic"
       ],
-      "target_scene_id": "98-89",
-      "target_scene_title": "The carriage kills a child and the Marquis pays a coin",
-      "target_scene_summary": "A speeding aristocratic carriage kills a child and the nobleman tosses a gold coin as compensation."
+      "target_scene_id": "98-57",
+      "target_scene_summary": "A wine vendor consoles the bereaved father with fatalistic philosophy; the aristocrat throws another coin, but a coin flies back into his carriage, prompting threats of extermination, while a knitting woman meets his gaze unflinchingly as the procession passes.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.19686162624821682,
+      "target_vdi_curve": [
+        [
+          0.68,
+          0.5,
+          0.55
+        ],
+        [
+          0.26,
+          0.68,
+          0.2
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ],
+        [
+          0.42,
+          0.56,
+          0.2
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The carriage kills a child and the Marquis pays a coin"
     },
     {
       "id": "q-98-3",
-      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 3,
@@ -312,13 +765,49 @@
         "pitiable",
         "somber"
       ],
-      "target_scene_id": "98-27",
-      "target_scene_title": "Garret door opens, shoemaker Manette revealed",
-      "target_scene_summary": "A young woman faces her father making shoes in a gloomy garret."
+      "target_scene_id": "98-21",
+      "target_scene_summary": "A wine-shop keeper and a visitor enter a dark garret where a white-haired former prisoner makes shoes, his mind shattered by long solitary confinement, and question him until he identifies himself only by his prison cell number.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.17182175622542595,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ],
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Garret door opens, shoemaker Manette revealed"
     },
     {
       "id": "q-98-3-amb",
-      "variant": "ambiguous",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 3,
@@ -333,13 +822,49 @@
         "pitiable",
         "somber"
       ],
-      "target_scene_id": "98-27",
-      "target_scene_title": "Garret door opens, shoemaker Manette revealed",
-      "target_scene_summary": "A young woman faces her father making shoes in a gloomy garret."
+      "target_scene_id": "98-21",
+      "target_scene_summary": "A wine-shop keeper and a visitor enter a dark garret where a white-haired former prisoner makes shoes, his mind shattered by long solitary confinement, and question him until he identifies himself only by his prison cell number.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.17182175622542595,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ],
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Garret door opens, shoemaker Manette revealed"
     },
     {
       "id": "q-98-4",
-      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 4,
@@ -354,13 +879,39 @@
         "communal",
         "foreboding"
       ],
-      "target_scene_id": "98-20",
-      "target_scene_title": "Broken wine cask draws desperate crowd",
-      "target_scene_summary": "Starving Parisians desperately drink spilled wine from a broken cask."
+      "target_scene_id": "98-15",
+      "target_scene_summary": "A broken wine cask spills into a Paris street, drawing a desperate crowd to drink from the mud, ending with a man writing blood on a wall as a grim omen.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.9,
+          0.62,
+          0.55
+        ],
+        [
+          0.86,
+          0.58,
+          0.55
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Broken wine cask draws desperate crowd"
     },
     {
       "id": "q-98-4-amb",
-      "variant": "ambiguous",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 4,
@@ -375,13 +926,39 @@
         "communal",
         "foreboding"
       ],
-      "target_scene_id": "98-20",
-      "target_scene_title": "Broken wine cask draws desperate crowd",
-      "target_scene_summary": "Starving Parisians desperately drink spilled wine from a broken cask."
+      "target_scene_id": "98-15",
+      "target_scene_summary": "A broken wine cask spills into a Paris street, drawing a desperate crowd to drink from the mud, ending with a man writing blood on a wall as a grim omen.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.9,
+          0.62,
+          0.55
+        ],
+        [
+          0.86,
+          0.58,
+          0.55
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Broken wine cask draws desperate crowd"
     },
     {
       "id": "q-98-5",
-      "variant": "specific",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 5,
@@ -396,13 +973,49 @@
         "vengeful",
         "exultant"
       ],
-      "target_scene_id": "98-176",
-      "target_scene_title": "Surrender of the Bastille and cries for prisoners",
-      "target_scene_summary": "A revolutionary mob storms a fortress demanding prisoners and records."
+      "target_scene_id": "98-119",
+      "target_scene_summary": "A revolutionary mob arms itself in the streets, surges toward the Bastille, and after hours of fierce fighting breaches the fortress gates.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.13108221476510068,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Surrender of the Bastille and cries for prisoners"
     },
     {
       "id": "q-98-5-amb",
-      "variant": "ambiguous",
       "book_id": "98",
       "book_title": "A Tale of Two Cities",
       "sharpness": 5,
@@ -417,13 +1030,49 @@
         "vengeful",
         "exultant"
       ],
-      "target_scene_id": "98-176",
-      "target_scene_title": "Surrender of the Bastille and cries for prisoners",
-      "target_scene_summary": "A revolutionary mob storms a fortress demanding prisoners and records."
+      "target_scene_id": "98-119",
+      "target_scene_summary": "A revolutionary mob arms itself in the streets, surges toward the Bastille, and after hours of fierce fighting breaches the fortress gates.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.13108221476510068,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Surrender of the Bastille and cries for prisoners"
     },
     {
       "id": "q-103-1",
-      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 1,
@@ -438,13 +1087,44 @@
         "ruthless",
         "calculated"
       ],
-      "target_scene_id": "103-156",
-      "target_scene_title": "Ship sold and burned for fuel",
-      "target_scene_summary": "A traveler buys a ship for double its value and orders it dismantled for fuel to win a wager."
+      "target_scene_id": "103-105",
+      "target_scene_summary": "A determined traveler buys a steamship from its captain, then systematically dismantles and burns the vessel for fuel to maintain speed toward a critical deadline.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.2738657359885034,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Ship sold and burned for fuel"
     },
     {
       "id": "q-103-1-amb",
-      "variant": "ambiguous",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 1,
@@ -459,13 +1139,44 @@
         "ruthless",
         "calculated"
       ],
-      "target_scene_id": "103-156",
-      "target_scene_title": "Ship sold and burned for fuel",
-      "target_scene_summary": "A traveler buys a ship for double its value and orders it dismantled for fuel to win a wager."
+      "target_scene_id": "103-105",
+      "target_scene_summary": "A determined traveler buys a steamship from its captain, then systematically dismantles and burns the vessel for fuel to maintain speed toward a critical deadline.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.2738657359885034,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Ship sold and burned for fuel"
     },
     {
       "id": "q-103-2",
-      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 2,
@@ -480,13 +1191,44 @@
         "clever",
         "tense"
       ],
-      "target_scene_id": "103-44",
-      "target_scene_title": "Passepartout's daring rescue and escape",
-      "target_scene_summary": "A servant impersonates a dead ruler to rescue a condemned woman from a funeral pyre."
+      "target_scene_id": "103-34",
+      "target_scene_summary": "A disguised rescuer infiltrates a ritual sacrifice, feigns a resurrected husband to seize the intended victim, and flees with her amid the crowd's terror.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.005479452054794521,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Passepartout's daring rescue and escape"
     },
     {
       "id": "q-103-2-amb",
-      "variant": "ambiguous",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 2,
@@ -501,13 +1243,44 @@
         "clever",
         "tense"
       ],
-      "target_scene_id": "103-44",
-      "target_scene_title": "Passepartout's daring rescue and escape",
-      "target_scene_summary": "A servant impersonates a dead ruler to rescue a condemned woman from a funeral pyre."
+      "target_scene_id": "103-34",
+      "target_scene_summary": "A disguised rescuer infiltrates a ritual sacrifice, feigns a resurrected husband to seize the intended victim, and flees with her amid the crowd's terror.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.005479452054794521,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Passepartout's daring rescue and escape"
     },
     {
       "id": "q-103-3",
-      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 3,
@@ -522,13 +1295,49 @@
         "chaotic",
         "daring"
       ],
-      "target_scene_id": "103-132",
-      "target_scene_title": "Sioux attack thwarted by Passepartout's heroism",
-      "target_scene_summary": "A servant detaches a locomotive from a besieged train to save passengers from attackers."
+      "target_scene_id": "103-93",
+      "target_scene_summary": "Before the duel can begin, Sioux warriors attack the moving train, prompting a desperate battle until a servant detaches the engine and brings the cars to safety near a fort.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.019634263715110685,
+      "target_vdi_curve": [
+        [
+          0.54,
+          0.46,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Sioux attack thwarted by Passepartout's heroism"
     },
     {
       "id": "q-103-3-amb",
-      "variant": "ambiguous",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 3,
@@ -543,13 +1352,49 @@
         "chaotic",
         "daring"
       ],
-      "target_scene_id": "103-132",
-      "target_scene_title": "Sioux attack thwarted by Passepartout's heroism",
-      "target_scene_summary": "A servant detaches a locomotive from a besieged train to save passengers from attackers."
+      "target_scene_id": "103-93",
+      "target_scene_summary": "Before the duel can begin, Sioux warriors attack the moving train, prompting a desperate battle until a servant detaches the engine and brings the cars to safety near a fort.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.019634263715110685,
+      "target_vdi_curve": [
+        [
+          0.54,
+          0.46,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Sioux attack thwarted by Passepartout's heroism"
     },
     {
       "id": "q-103-4",
-      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 4,
@@ -564,13 +1409,49 @@
         "stoic",
         "decisive"
       ],
-      "target_scene_id": "103-8",
-      "target_scene_title": "Fogg seals the wager and departs at once",
-      "target_scene_summary": "A composed gentleman formalizes a twenty-thousand-pound wager and departs immediately for the journey."
+      "target_scene_id": "103-6",
+      "target_scene_summary": "A composed gentleman claims the world can be circled in eighty days, details the route, dismisses every objection, and wagers his fortune on departing immediately to prove it.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.5625433125433126,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.55
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.84,
+          0.52,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Fogg seals the wager and departs at once"
     },
     {
       "id": "q-103-4-amb",
-      "variant": "ambiguous",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 4,
@@ -585,13 +1466,49 @@
         "stoic",
         "decisive"
       ],
-      "target_scene_id": "103-8",
-      "target_scene_title": "Fogg seals the wager and departs at once",
-      "target_scene_summary": "A composed gentleman formalizes a twenty-thousand-pound wager and departs immediately for the journey."
+      "target_scene_id": "103-6",
+      "target_scene_summary": "A composed gentleman claims the world can be circled in eighty days, details the route, dismisses every objection, and wagers his fortune on departing immediately to prove it.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.5625433125433126,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.55
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.84,
+          0.52,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Fogg seals the wager and departs at once"
     },
     {
       "id": "q-103-5",
-      "variant": "specific",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 5,
@@ -606,13 +1523,39 @@
         "triumphant",
         "tense"
       ],
-      "target_scene_id": "103-170",
-      "target_scene_title": "Fogg appears at the final second",
-      "target_scene_summary": "A wager reaches its final seconds when the traveler appears just in time."
+      "target_scene_id": "103-107",
+      "target_scene_summary": "A released traveler races toward London by special train but arrives five minutes past the deadline, losing the wager despite circling the globe.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.9
+        ],
+        [
+          0.74,
+          0.54,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Fogg appears at the final second"
     },
     {
       "id": "q-103-5-amb",
-      "variant": "ambiguous",
       "book_id": "103",
       "book_title": "Around the World in Eighty Days",
       "sharpness": 5,
@@ -627,13 +1570,39 @@
         "triumphant",
         "tense"
       ],
-      "target_scene_id": "103-170",
-      "target_scene_title": "Fogg appears at the final second",
-      "target_scene_summary": "A wager reaches its final seconds when the traveler appears just in time."
+      "target_scene_id": "103-107",
+      "target_scene_summary": "A released traveler races toward London by special train but arrives five minutes past the deadline, losing the wager despite circling the globe.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.9
+        ],
+        [
+          0.74,
+          0.54,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Fogg appears at the final second"
     },
     {
       "id": "q-215-1",
-      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 1,
@@ -648,13 +1617,49 @@
         "savage",
         "triumphant"
       ],
-      "target_scene_id": "215-27",
-      "target_scene_title": "Buck kills Spitz, claims primordial dominance",
-      "target_scene_summary": "A cunning challenger defeats a seasoned champion in a deadly duel for dominance."
+      "target_scene_id": "215-16",
+      "target_scene_summary": "An exhausted sled dog endures a mad dog's pursuit and a rival's attack, then sparks a covert mutiny that unravels the team's discipline.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.034837235865219876,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.24,
+          0.2
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Buck kills Spitz, claims primordial dominance"
     },
     {
       "id": "q-215-1-amb",
-      "variant": "ambiguous",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 1,
@@ -669,13 +1674,49 @@
         "savage",
         "triumphant"
       ],
-      "target_scene_id": "215-27",
-      "target_scene_title": "Buck kills Spitz, claims primordial dominance",
-      "target_scene_summary": "A cunning challenger defeats a seasoned champion in a deadly duel for dominance."
+      "target_scene_id": "215-16",
+      "target_scene_summary": "An exhausted sled dog endures a mad dog's pursuit and a rival's attack, then sparks a covert mutiny that unravels the team's discipline.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.034837235865219876,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.24,
+          0.2
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Buck kills Spitz, claims primordial dominance"
     },
     {
       "id": "q-215-2",
-      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 2,
@@ -690,13 +1731,49 @@
         "loving",
         "tense"
       ],
-      "target_scene_id": "215-48",
-      "target_scene_title": "Buck pulls the thousand pounds and wins",
-      "target_scene_summary": "A devoted dog pulls an impossible load for his beloved master."
+      "target_scene_id": "215-41",
+      "target_scene_summary": "A devoted master whispers a challenge to his powerful sled dog who then strains against an immense frozen load and hauls it a measured distance to win a wager after which the master refuses a fortune for the animal and embraces him fiercely.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.06604308390022676,
+      "target_vdi_curve": [
+        [
+          0.78,
+          0.46,
+          0.55
+        ],
+        [
+          0.86,
+          0.56,
+          0.55
+        ],
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.86,
+          0.56,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Buck pulls the thousand pounds and wins"
     },
     {
       "id": "q-215-2-amb",
-      "variant": "ambiguous",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 2,
@@ -711,13 +1788,49 @@
         "loving",
         "tense"
       ],
-      "target_scene_id": "215-48",
-      "target_scene_title": "Buck pulls the thousand pounds and wins",
-      "target_scene_summary": "A devoted dog pulls an impossible load for his beloved master."
+      "target_scene_id": "215-41",
+      "target_scene_summary": "A devoted master whispers a challenge to his powerful sled dog who then strains against an immense frozen load and hauls it a measured distance to win a wager after which the master refuses a fortune for the animal and embraces him fiercely.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.06604308390022676,
+      "target_vdi_curve": [
+        [
+          0.78,
+          0.46,
+          0.55
+        ],
+        [
+          0.86,
+          0.56,
+          0.55
+        ],
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.86,
+          0.56,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Buck pulls the thousand pounds and wins"
     },
     {
       "id": "q-215-3",
-      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 3,
@@ -732,13 +1845,39 @@
         "primordial",
         "savage"
       ],
-      "target_scene_id": "215-54",
-      "target_scene_title": "The epic four-day moose hunt",
-      "target_scene_summary": "A primordial dog hunts a massive bull moose across four relentless days."
+      "target_scene_id": "215-47",
+      "target_scene_summary": "A relentless predator isolates a wounded bull moose from its herd and harries it without rest until the great beast collapses from exhaustion.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.18,
+          0.82,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The epic four-day moose hunt"
     },
     {
       "id": "q-215-3-amb",
-      "variant": "ambiguous",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 3,
@@ -753,13 +1892,39 @@
         "primordial",
         "savage"
       ],
-      "target_scene_id": "215-54",
-      "target_scene_title": "The epic four-day moose hunt",
-      "target_scene_summary": "A primordial dog hunts a massive bull moose across four relentless days."
+      "target_scene_id": "215-47",
+      "target_scene_summary": "A relentless predator isolates a wounded bull moose from its herd and harries it without rest until the great beast collapses from exhaustion.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.18,
+          0.82,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The epic four-day moose hunt"
     },
     {
       "id": "q-215-4",
-      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 4,
@@ -774,13 +1939,44 @@
         "merciless",
         "shocking"
       ],
-      "target_scene_id": "215-9",
-      "target_scene_title": "Curly's death teaches the law of fang",
-      "target_scene_summary": "A sled dog witnesses a pack brutally kill a friendly companion and learns the law of fang."
+      "target_scene_id": "215-6",
+      "target_scene_summary": "A newly arrived sled dog witnesses a friendly companion torn apart by a savage pack and learns the brutal law of survival in the wild.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Curly's death teaches the law of fang"
     },
     {
       "id": "q-215-4-amb",
-      "variant": "ambiguous",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 4,
@@ -795,13 +1991,44 @@
         "merciless",
         "shocking"
       ],
-      "target_scene_id": "215-9",
-      "target_scene_title": "Curly's death teaches the law of fang",
-      "target_scene_summary": "A sled dog witnesses a pack brutally kill a friendly companion and learns the law of fang."
+      "target_scene_id": "215-6",
+      "target_scene_summary": "A newly arrived sled dog witnesses a friendly companion torn apart by a savage pack and learns the brutal law of survival in the wild.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Curly's death teaches the law of fang"
     },
     {
       "id": "q-215-5",
-      "variant": "specific",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 5,
@@ -816,13 +2043,49 @@
         "grieving",
         "furious"
       ],
-      "target_scene_id": "215-56",
-      "target_scene_title": "Rampage against Yeehats and Thornton's death",
-      "target_scene_summary": "A grieving dog slaughters his master's killers then mourns by the pool holding his body."
+      "target_scene_id": "215-48",
+      "target_scene_summary": "A victorious hunter returns to his camp only to discover his human companions slaughtered, unleashing a frenzied vengeance upon the attackers before finding his beloved master dead in a pool.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Rampage against Yeehats and Thornton's death"
     },
     {
       "id": "q-215-5-amb",
-      "variant": "ambiguous",
       "book_id": "215",
       "book_title": "The Call of the Wild",
       "sharpness": 5,
@@ -837,13 +2100,49 @@
         "grieving",
         "furious"
       ],
-      "target_scene_id": "215-56",
-      "target_scene_title": "Rampage against Yeehats and Thornton's death",
-      "target_scene_summary": "A grieving dog slaughters his master's killers then mourns by the pool holding his body."
+      "target_scene_id": "215-48",
+      "target_scene_summary": "A victorious hunter returns to his camp only to discover his human companions slaughtered, unleashing a frenzied vengeance upon the attackers before finding his beloved master dead in a pool.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Rampage against Yeehats and Thornton's death"
     },
     {
       "id": "q-1342-1",
-      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 1,
@@ -858,13 +2157,44 @@
         "tense",
         "insulted"
       ],
-      "target_scene_id": "1342-142",
-      "target_scene_title": "Darcy arrives and makes his proud proposal",
-      "target_scene_summary": "A proud gentleman proposes insultingly to a woman who defies his expectation."
+      "target_scene_id": "1342-47",
+      "target_scene_summary": "A spirited young woman repeatedly rejects a pompous suitor who refuses to accept her refusal, insisting she is merely playing coy, until she withdraws in frustrated silence.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.840922415477819,
+      "target_vdi_curve": [
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Darcy arrives and makes his proud proposal"
     },
     {
       "id": "q-1342-1-amb",
-      "variant": "ambiguous",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 1,
@@ -879,13 +2209,44 @@
         "tense",
         "insulted"
       ],
-      "target_scene_id": "1342-142",
-      "target_scene_title": "Darcy arrives and makes his proud proposal",
-      "target_scene_summary": "A proud gentleman proposes insultingly to a woman who defies his expectation."
+      "target_scene_id": "1342-47",
+      "target_scene_summary": "A spirited young woman repeatedly rejects a pompous suitor who refuses to accept her refusal, insisting she is merely playing coy, until she withdraws in frustrated silence.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.840922415477819,
+      "target_vdi_curve": [
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Darcy arrives and makes his proud proposal"
     },
     {
       "id": "q-1342-2",
-      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 2,
@@ -900,13 +2261,49 @@
         "comic",
         "pompous"
       ],
-      "target_scene_id": "1342-78",
-      "target_scene_title": "Collins proposes with pompous absurdity",
-      "target_scene_summary": "A pompous clergyman proposes marriage with absurdly practical reasons."
+      "target_scene_id": "1342-29",
+      "target_scene_summary": "The cousin's pompous letter is read in full, detailing his patronage by a noblewoman and proposing a weeklong visit, while the family reacts with mockery, contempt, dismissal, and grudging acceptance.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.8130592503022974,
+      "target_vdi_curve": [
+        [
+          0.42,
+          0.56,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.44,
+          0.66,
+          0.55
+        ],
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.26,
+          0.68,
+          0.2
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Collins proposes with pompous absurdity"
     },
     {
       "id": "q-1342-2-amb",
-      "variant": "ambiguous",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 2,
@@ -921,13 +2318,49 @@
         "comic",
         "pompous"
       ],
-      "target_scene_id": "1342-78",
-      "target_scene_title": "Collins proposes with pompous absurdity",
-      "target_scene_summary": "A pompous clergyman proposes marriage with absurdly practical reasons."
+      "target_scene_id": "1342-44",
+      "target_scene_summary": "A mortified young woman endures her family's public foolishness at a country ball while an unwanted suitor clings to her side and a proud gentleman keeps his distance.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1969269363436814,
+      "target_vdi_curve": [
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.44,
+          0.66,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.55
+        ],
+        [
+          0.8,
+          0.44,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.2
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Collins proposes with pompous absurdity"
     },
     {
       "id": "q-1342-3",
-      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 3,
@@ -942,13 +2375,44 @@
         "humbled",
         "moved"
       ],
-      "target_scene_id": "1342-229",
-      "target_scene_title": "Elizabeth reads Mrs. Gardiner's revealing letter",
-      "target_scene_summary": "A young woman learns a proud gentleman secretly rescued her disgraced sister."
+      "target_scene_id": "1342-152",
+      "target_scene_summary": "A young woman reads a letter revealing a proud gentleman secretly arranged a scandalous marriage for her sister, and she reflects on her past behavior toward him.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.4,
+          0.36,
+          0.55
+        ],
+        [
+          0.16,
+          0.18,
+          0.55
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.5,
+          0.4,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Elizabeth reads Mrs. Gardiner's revealing letter"
     },
     {
       "id": "q-1342-3-amb",
-      "variant": "ambiguous",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 3,
@@ -963,13 +2427,44 @@
         "humbled",
         "moved"
       ],
-      "target_scene_id": "1342-229",
-      "target_scene_title": "Elizabeth reads Mrs. Gardiner's revealing letter",
-      "target_scene_summary": "A young woman learns a proud gentleman secretly rescued her disgraced sister."
+      "target_scene_id": "1342-152",
+      "target_scene_summary": "A young woman reads a letter revealing a proud gentleman secretly arranged a scandalous marriage for her sister, and she reflects on her past behavior toward him.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.4,
+          0.36,
+          0.55
+        ],
+        [
+          0.16,
+          0.18,
+          0.55
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.5,
+          0.4,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Elizabeth reads Mrs. Gardiner's revealing letter"
     },
     {
       "id": "q-1342-4",
-      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 4,
@@ -984,13 +2479,49 @@
         "cold",
         "dismissive"
       ],
-      "target_scene_id": "1342-5",
-      "target_scene_title": "Darcy and Bingley debate dancing partners",
-      "target_scene_summary": "A haughty man declines dancing and slights a young woman."
+      "target_scene_id": "1342-39",
+      "target_scene_summary": "A gentleman and his sisters invite a family to a ball, favoring the eldest daughter, while a clergyman secures the heroine's first dances and rain traps the younger sisters indoors.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1553225168183617,
+      "target_vdi_curve": [
+        [
+          0.86,
+          0.58,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.32,
+          0.38,
+          0.2
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Darcy and Bingley debate dancing partners"
     },
     {
       "id": "q-1342-4-amb",
-      "variant": "ambiguous",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 4,
@@ -1005,13 +2536,49 @@
         "cold",
         "dismissive"
       ],
-      "target_scene_id": "1342-5",
-      "target_scene_title": "Darcy and Bingley debate dancing partners",
-      "target_scene_summary": "A haughty man declines dancing and slights a young woman."
+      "target_scene_id": "1342-41",
+      "target_scene_summary": "A young woman accepts a dance with a proud gentleman, engages in a tense, silent, then verbally sparring partnership that turns to pointed references about a mutual acquaintance, ending in mutual dissatisfaction though the gentleman harbors a growing attraction.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.543257165499934,
+      "target_vdi_curve": [
+        [
+          0.54,
+          0.46,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.82,
+          0.5,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.36,
+          0.24,
+          0.2
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Darcy and Bingley debate dancing partners"
     },
     {
       "id": "q-1342-5",
-      "variant": "specific",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 5,
@@ -1026,13 +2593,44 @@
         "tender",
         "hopeful"
       ],
-      "target_scene_id": "1342-271",
-      "target_scene_title": "Darcy proposes again and Elizabeth accepts",
-      "target_scene_summary": "A proud gentleman proposes again and a spirited woman accepts him."
+      "target_scene_id": "1342-52",
+      "target_scene_summary": "A calculating young woman maneuvers a pompous suitor into proposing to her, her family celebrates the advantageous match, and the betrothed couple navigate secrecy and social expectations before the suitor departs.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.17733065057008718,
+      "target_vdi_curve": [
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.9,
+          0.62,
+          0.9
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Darcy proposes again and Elizabeth accepts"
     },
     {
       "id": "q-1342-5-amb",
-      "variant": "ambiguous",
       "book_id": "1342",
       "book_title": "Pride and Prejudice",
       "sharpness": 5,
@@ -1047,13 +2645,44 @@
         "tender",
         "hopeful"
       ],
-      "target_scene_id": "1342-271",
-      "target_scene_title": "Darcy proposes again and Elizabeth accepts",
-      "target_scene_summary": "A proud gentleman proposes again and a spirited woman accepts him."
+      "target_scene_id": "1342-52",
+      "target_scene_summary": "A calculating young woman maneuvers a pompous suitor into proposing to her, her family celebrates the advantageous match, and the betrothed couple navigate secrecy and social expectations before the suitor departs.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.17733065057008718,
+      "target_vdi_curve": [
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.9,
+          0.62,
+          0.9
+        ],
+        [
+          0.36,
+          0.24,
+          0.55
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Darcy proposes again and Elizabeth accepts"
     },
     {
       "id": "q-1661-1",
-      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 1,
@@ -1068,13 +2697,49 @@
         "climactic",
         "shocking"
       ],
-      "target_scene_id": "1661-137",
-      "target_scene_title": "The snake strikes and the scream echoes",
-      "target_scene_summary": "A deadly snake strikes, prompting a fatal scream that signals the case's resolution."
+      "target_scene_id": "1661-82",
+      "target_scene_summary": "Two investigators endure a tense night vigil, confront a deadly snake, and discover the villain dead by his own weapon.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1320798514391829,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.55
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The snake strikes and the scream echoes"
     },
     {
       "id": "q-1661-1-amb",
-      "variant": "ambiguous",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 1,
@@ -1089,13 +2754,49 @@
         "climactic",
         "shocking"
       ],
-      "target_scene_id": "1661-137",
-      "target_scene_title": "The snake strikes and the scream echoes",
-      "target_scene_summary": "A deadly snake strikes, prompting a fatal scream that signals the case's resolution."
+      "target_scene_id": "1661-82",
+      "target_scene_summary": "Two investigators endure a tense night vigil, confront a deadly snake, and discover the villain dead by his own weapon.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.1320798514391829,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.92,
+          0.9,
+          0.55
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The snake strikes and the scream echoes"
     },
     {
       "id": "q-1661-2",
-      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 2,
@@ -1110,13 +2811,49 @@
         "anticipatory",
         "revealing"
       ],
-      "target_scene_id": "1661-119",
-      "target_scene_title": "Holmes reveals the blue carbuncle hidden in the goose",
-      "target_scene_summary": "A detective reveals a stolen jewel was hidden inside a goose."
+      "target_scene_id": "1661-70",
+      "target_scene_summary": "A cornered thief recounts how he hid a stolen jewel in a goose, lost it in a mix-up, and failed to recover it before the trail went cold.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.9726718520075678,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Holmes reveals the blue carbuncle hidden in the goose"
     },
     {
       "id": "q-1661-2-amb",
-      "variant": "ambiguous",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 2,
@@ -1131,13 +2868,49 @@
         "anticipatory",
         "revealing"
       ],
-      "target_scene_id": "1661-119",
-      "target_scene_title": "Holmes reveals the blue carbuncle hidden in the goose",
-      "target_scene_summary": "A detective reveals a stolen jewel was hidden inside a goose."
+      "target_scene_id": "1661-70",
+      "target_scene_summary": "A cornered thief recounts how he hid a stolen jewel in a goose, lost it in a mix-up, and failed to recover it before the trail went cold.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.9726718520075678,
+      "target_vdi_curve": [
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Holmes reveals the blue carbuncle hidden in the goose"
     },
     {
       "id": "q-1661-3",
-      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 3,
@@ -1152,13 +2925,49 @@
         "revelatory",
         "astonishing"
       ],
-      "target_scene_id": "1661-101",
-      "target_scene_title": "In the cell washing prisoner reveals Neville St Clair",
-      "target_scene_summary": "A detective washes a prisoner's face revealing the missing man in disguise."
+      "target_scene_id": "1661-60",
+      "target_scene_summary": "A detective party enters a prison cell, washes a sleeping prisoner's face, and reveals a missing gentleman beneath a beggar's disguise.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.31812577065351416,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.76,
+          0.44,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "In the cell washing prisoner reveals Neville St Clair"
     },
     {
       "id": "q-1661-3-amb",
-      "variant": "ambiguous",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 3,
@@ -1173,13 +2982,49 @@
         "revelatory",
         "astonishing"
       ],
-      "target_scene_id": "1661-101",
-      "target_scene_title": "In the cell washing prisoner reveals Neville St Clair",
-      "target_scene_summary": "A detective washes a prisoner's face revealing the missing man in disguise."
+      "target_scene_id": "1661-60",
+      "target_scene_summary": "A detective party enters a prison cell, washes a sleeping prisoner's face, and reveals a missing gentleman beneath a beggar's disguise.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.31812577065351416,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.76,
+          0.44,
+          0.55
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "In the cell washing prisoner reveals Neville St Clair"
     },
     {
       "id": "q-1661-4",
-      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 4,
@@ -1194,13 +3039,49 @@
         "lucky",
         "gratifying"
       ],
-      "target_scene_id": "1661-24",
-      "target_scene_title": "Wilson gets the League copying job",
-      "target_scene_summary": "A red-headed pawnbroker wins a lucrative copying job after a bizarre hair inspection."
+      "target_scene_id": "1661-12",
+      "target_scene_summary": "A pawnbroker recounts to a consulting detective how his assistant led him to answer a newspaper advertisement for a league of red-headed men, joining a vast crowd of applicants at a city office.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.9676184399425746,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.24,
+          0.2
+        ],
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Wilson gets the League copying job"
     },
     {
       "id": "q-1661-4-amb",
-      "variant": "ambiguous",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 4,
@@ -1215,13 +3096,49 @@
         "lucky",
         "gratifying"
       ],
-      "target_scene_id": "1661-24",
-      "target_scene_title": "Wilson gets the League copying job",
-      "target_scene_summary": "A red-headed pawnbroker wins a lucrative copying job after a bizarre hair inspection."
+      "target_scene_id": "1661-13",
+      "target_scene_summary": "A red-haired applicant joins a crowd of rivals, passes a bizarre physical inspection, accepts oddly restrictive copying work, and labors for weeks before the position vanishes without warning.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.9996879875195008,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.8,
+          0.48,
+          0.2
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Wilson gets the League copying job"
     },
     {
       "id": "q-1661-5",
-      "variant": "specific",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 5,
@@ -1237,12 +3154,48 @@
         "intellectual"
       ],
       "target_scene_id": "1661-1",
-      "target_scene_title": "Watson visits Holmes; Holmes deduces Watson's life",
-      "target_scene_summary": "A detective astounds his friend with precise deductions from tiny clues."
+      "target_scene_summary": "A reunited companion visits a brilliant detective at his lodgings, witnesses a display of deductive reasoning, and observes the arrival of a mysterious masked client bearing an anonymous note.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.6656137832017229,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.8,
+          0.48,
+          0.2
+        ],
+        [
+          0.82,
+          0.5,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.55
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Watson visits Holmes; Holmes deduces Watson's life"
     },
     {
       "id": "q-1661-5-amb",
-      "variant": "ambiguous",
       "book_id": "1661",
       "book_title": "The Adventures of Sherlock Holmes",
       "sharpness": 5,
@@ -1258,12 +3211,48 @@
         "intellectual"
       ],
       "target_scene_id": "1661-1",
-      "target_scene_title": "Watson visits Holmes; Holmes deduces Watson's life",
-      "target_scene_summary": "A detective astounds his friend with precise deductions from tiny clues."
+      "target_scene_summary": "A reunited companion visits a brilliant detective at his lodgings, witnesses a display of deductive reasoning, and observes the arrival of a mysterious masked client bearing an anonymous note.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.6656137832017229,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.8,
+          0.48,
+          0.2
+        ],
+        [
+          0.82,
+          0.5,
+          0.55
+        ],
+        [
+          0.76,
+          0.44,
+          0.55
+        ],
+        [
+          0.92,
+          0.9,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Watson visits Holmes; Holmes deduces Watson's life"
     },
     {
       "id": "q-2147-1",
-      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 1,
@@ -1278,13 +3267,39 @@
         "fatal",
         "haunting"
       ],
-      "target_scene_id": "2147-156",
-      "target_scene_title": "The painter's bride dies for his art",
-      "target_scene_summary": "An artist's portrait drains his young bride's life away."
+      "target_scene_id": "2147-125",
+      "target_scene_summary": "A painter obsessed with capturing his young bride's likeness works tirelessly on her portrait in a dark turret chamber, unaware that each brushstroke drains her life until the final touch completes the masterpiece and reveals her death.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.9992175273865415,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.24,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The painter's bride dies for his art"
     },
     {
       "id": "q-2147-1-amb",
-      "variant": "ambiguous",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 1,
@@ -1299,13 +3314,39 @@
         "fatal",
         "haunting"
       ],
-      "target_scene_id": "2147-156",
-      "target_scene_title": "The painter's bride dies for his art",
-      "target_scene_summary": "An artist's portrait drains his young bride's life away."
+      "target_scene_id": "2147-125",
+      "target_scene_summary": "A painter obsessed with capturing his young bride's likeness works tirelessly on her portrait in a dark turret chamber, unaware that each brushstroke drains her life until the final touch completes the masterpiece and reveals her death.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.9992175273865415,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.24,
+          0.2
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The painter's bride dies for his art"
     },
     {
       "id": "q-2147-2",
-      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 2,
@@ -1320,13 +3361,44 @@
         "nightmarish",
         "bloody"
       ],
-      "target_scene_id": "2147-110",
-      "target_scene_title": "Sailor recounts beast's escape and murders",
-      "target_scene_summary": "A sailor confesses to witnessing an escaped ape brutally murder two women."
+      "target_scene_id": "2147-82",
+      "target_scene_summary": "A mariner's captive ape escapes with a razor, flees through night streets, scales a lightning rod into a bedroom, and savagely kills two women while the owner watches from outside.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Sailor recounts beast's escape and murders"
     },
     {
       "id": "q-2147-2-amb",
-      "variant": "ambiguous",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 2,
@@ -1341,13 +3413,44 @@
         "nightmarish",
         "bloody"
       ],
-      "target_scene_id": "2147-110",
-      "target_scene_title": "Sailor recounts beast's escape and murders",
-      "target_scene_summary": "A sailor confesses to witnessing an escaped ape brutally murder two women."
+      "target_scene_id": "2147-82",
+      "target_scene_summary": "A mariner's captive ape escapes with a razor, flees through night streets, scales a lightning rod into a bedroom, and savagely kills two women while the owner watches from outside.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.55
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Sailor recounts beast's escape and murders"
     },
     {
       "id": "q-2147-3",
-      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 3,
@@ -1362,13 +3465,49 @@
         "dazzling",
         "triumphant"
       ],
-      "target_scene_id": "2147-66",
-      "target_scene_title": "Second dig reveals bones, chest, and gold",
-      "target_scene_summary": "A treasure hunt yields an immense buried chest of gold and jewels."
+      "target_scene_id": "2147-50",
+      "target_scene_summary": "The party relocates the excavation site based on a corrected measurement, digs with growing anticipation, uncovers human remains and coins, then unearths a massive iron-bound chest filled with gold and jewels.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.040111291444470204,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ],
+        [
+          0.9,
+          0.62,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Second dig reveals bones, chest, and gold"
     },
     {
       "id": "q-2147-3-amb",
-      "variant": "ambiguous",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 3,
@@ -1383,13 +3522,49 @@
         "dazzling",
         "triumphant"
       ],
-      "target_scene_id": "2147-66",
-      "target_scene_title": "Second dig reveals bones, chest, and gold",
-      "target_scene_summary": "A treasure hunt yields an immense buried chest of gold and jewels."
+      "target_scene_id": "2147-50",
+      "target_scene_summary": "The party relocates the excavation site based on a corrected measurement, digs with growing anticipation, uncovers human remains and coins, then unearths a massive iron-bound chest filled with gold and jewels.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.040111291444470204,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ],
+        [
+          0.9,
+          0.62,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Second dig reveals bones, chest, and gold"
     },
     {
       "id": "q-2147-4",
-      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 4,
@@ -1404,13 +3579,49 @@
         "frantic",
         "vertiginous"
       ],
-      "target_scene_id": "2147-51",
-      "target_scene_title": "Frantic descent, landing, and first contact with moon people",
-      "target_scene_summary": "A plummeting aeronaut crashes into a city of silent, grinning moon-dwellers."
+      "target_scene_id": "2147-36",
+      "target_scene_summary": "A balloonist plummets toward the moon, discovers a breathable atmosphere too thin to slow his fall, jettisons all cargo and cuts loose his car before crashing into a city of silent, staring beings.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.22,
+          0.38,
+          0.2
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Frantic descent, landing, and first contact with moon people"
     },
     {
       "id": "q-2147-4-amb",
-      "variant": "ambiguous",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 4,
@@ -1425,13 +3636,49 @@
         "frantic",
         "vertiginous"
       ],
-      "target_scene_id": "2147-51",
-      "target_scene_title": "Frantic descent, landing, and first contact with moon people",
-      "target_scene_summary": "A plummeting aeronaut crashes into a city of silent, grinning moon-dwellers."
+      "target_scene_id": "2147-36",
+      "target_scene_summary": "A balloonist plummets toward the moon, discovers a breathable atmosphere too thin to slow his fall, jettisons all cargo and cuts loose his car before crashing into a city of silent, staring beings.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.22,
+          0.38,
+          0.2
+        ],
+        [
+          0.74,
+          0.54,
+          0.55
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Frantic descent, landing, and first contact with moon people"
     },
     {
       "id": "q-2147-5",
-      "variant": "specific",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 5,
@@ -1446,13 +3693,44 @@
         "uncanny",
         "sublime"
       ],
-      "target_scene_id": "2147-149",
-      "target_scene_title": "Phantom ship descends; narrator boards",
-      "target_scene_summary": "A castaway boards a phantom ship that descends and destroys his vessel."
+      "target_scene_id": "2147-120",
+      "target_scene_summary": "A shipwrecked narrator watches a colossal phantom vessel descend upon his foundering craft, is flung aboard the stranger, and hides in its hold while an ancient, muttering crewman passes near his concealment.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.007672021098058019,
+      "target_vdi_curve": [
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Phantom ship descends; narrator boards"
     },
     {
       "id": "q-2147-5-amb",
-      "variant": "ambiguous",
       "book_id": "2147",
       "book_title": "The Works of Edgar Allan Poe — Volume 1",
       "sharpness": 5,
@@ -1467,13 +3745,44 @@
         "uncanny",
         "sublime"
       ],
-      "target_scene_id": "2147-149",
-      "target_scene_title": "Phantom ship descends; narrator boards",
-      "target_scene_summary": "A castaway boards a phantom ship that descends and destroys his vessel."
+      "target_scene_id": "2147-120",
+      "target_scene_summary": "A shipwrecked narrator watches a colossal phantom vessel descend upon his foundering craft, is flung aboard the stranger, and hides in its hold while an ancient, muttering crewman passes near his concealment.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.007672021098058019,
+      "target_vdi_curve": [
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Phantom ship descends; narrator boards"
     },
     {
       "id": "q-2701-1",
-      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 1,
@@ -1488,13 +3797,44 @@
         "fervent",
         "fierce"
       ],
-      "target_scene_id": "2701-140",
-      "target_scene_title": "The catechism and the gold doubloon oath",
-      "target_scene_summary": "A captain offers gold for a specific white whale."
+      "target_scene_id": "2701-85",
+      "target_scene_summary": "A captain reveals a white whale took his leg, declares a hunt for that whale, overcomes his first mate's objections, and secures the crew's allegiance.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.7540322580645161,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The catechism and the gold doubloon oath"
     },
     {
       "id": "q-2701-1-amb",
-      "variant": "ambiguous",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 1,
@@ -1509,13 +3849,44 @@
         "fervent",
         "fierce"
       ],
-      "target_scene_id": "2701-140",
-      "target_scene_title": "The catechism and the gold doubloon oath",
-      "target_scene_summary": "A captain offers gold for a specific white whale."
+      "target_scene_id": "2701-85",
+      "target_scene_summary": "A captain reveals a white whale took his leg, declares a hunt for that whale, overcomes his first mate's objections, and secures the crew's allegiance.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.7540322580645161,
+      "target_vdi_curve": [
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The catechism and the gold doubloon oath"
     },
     {
       "id": "q-2701-2",
-      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 2,
@@ -1530,13 +3901,44 @@
         "final",
         "solemn"
       ],
-      "target_scene_id": "2701-492",
-      "target_scene_title": "Ahab's death; ship sinks; flag nailed forever",
-      "target_scene_summary": "A captain dies harpooning a whale; ship sinks, flag nailed forever."
+      "target_scene_id": "2701-307",
+      "target_scene_summary": "A monomaniacal captain strikes his white whale nemesis, is dragged under by the line, and his ship sinks in a vortex claiming the crew, while a harpooneer nails the flag to the sinking mast as a bird is caught in the fabric, and the sea rolls on.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.2892016082711086,
+      "target_vdi_curve": [
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Ahab's death; ship sinks; flag nailed forever"
     },
     {
       "id": "q-2701-2-amb",
-      "variant": "ambiguous",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 2,
@@ -1551,13 +3953,44 @@
         "final",
         "solemn"
       ],
-      "target_scene_id": "2701-492",
-      "target_scene_title": "Ahab's death; ship sinks; flag nailed forever",
-      "target_scene_summary": "A captain dies harpooning a whale; ship sinks, flag nailed forever."
+      "target_scene_id": "2701-307",
+      "target_scene_summary": "A monomaniacal captain strikes his white whale nemesis, is dragged under by the line, and his ship sinks in a vortex claiming the crew, while a harpooneer nails the flag to the sinking mast as a bird is caught in the fabric, and the sea rolls on.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.2892016082711086,
+      "target_vdi_curve": [
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.08,
+          0.15,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Ahab's death; ship sinks; flag nailed forever"
     },
     {
       "id": "q-2701-3",
-      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 3,
@@ -1572,13 +4005,44 @@
         "tender",
         "wonder"
       ],
-      "target_scene_id": "2701-25",
-      "target_scene_title": "Waking beside Queequeg's tattooed arm on quilt",
-      "target_scene_summary": "A sleeper wakes to find a stranger's tattooed arm embracing him like a quilt."
+      "target_scene_id": "2701-45",
+      "target_scene_summary": "A sailor wakes at dawn to find his harpooneer companion ending a religious fast and argues against the practice as unhealthy nonsense, but the harpooneer counters with a tale of cannibal feasting and remains unconvinced, regarding the sailor with condescending compassion.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.022689994532531437,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.68,
+          0.5,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Waking beside Queequeg's tattooed arm on quilt"
     },
     {
       "id": "q-2701-3-amb",
-      "variant": "ambiguous",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 3,
@@ -1593,13 +4057,44 @@
         "tender",
         "wonder"
       ],
-      "target_scene_id": "2701-25",
-      "target_scene_title": "Waking beside Queequeg's tattooed arm on quilt",
-      "target_scene_summary": "A sleeper wakes to find a stranger's tattooed arm embracing him like a quilt."
+      "target_scene_id": "2701-45",
+      "target_scene_summary": "A sailor wakes at dawn to find his harpooneer companion ending a religious fast and argues against the practice as unhealthy nonsense, but the harpooneer counters with a tale of cannibal feasting and remains unconvinced, regarding the sailor with condescending compassion.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.022689994532531437,
+      "target_vdi_curve": [
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.7,
+          0.42,
+          0.55
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.68,
+          0.5,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Waking beside Queequeg's tattooed arm on quilt"
     },
     {
       "id": "q-2701-4",
-      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 4,
@@ -1614,13 +4109,39 @@
         "dignified",
         "weathered"
       ],
-      "target_scene_id": "2701-36",
-      "target_scene_title": "Father Mapple ascends to his impregnable pulpit",
-      "target_scene_summary": "An aged former harpooneer climbs a ship's ladder to his isolated pulpit."
+      "target_scene_id": "2701-22",
+      "target_scene_summary": "A venerable chaplain enters the storm-lashed chapel, sheds his soaked maritime garments, climbs a ship-like ladder to the pulpit, and retracts the ladder to isolate himself above the congregation.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Father Mapple ascends to his impregnable pulpit"
     },
     {
       "id": "q-2701-4-amb",
-      "variant": "ambiguous",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 4,
@@ -1635,13 +4156,39 @@
         "dignified",
         "weathered"
       ],
-      "target_scene_id": "2701-36",
-      "target_scene_title": "Father Mapple ascends to his impregnable pulpit",
-      "target_scene_summary": "An aged former harpooneer climbs a ship's ladder to his isolated pulpit."
+      "target_scene_id": "2701-22",
+      "target_scene_summary": "A venerable chaplain enters the storm-lashed chapel, sheds his soaked maritime garments, climbs a ship-like ladder to the pulpit, and retracts the ladder to isolate himself above the congregation.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.5,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Father Mapple ascends to his impregnable pulpit"
     },
     {
       "id": "q-2701-5",
-      "variant": "specific",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 5,
@@ -1656,13 +4203,39 @@
         "terrifying",
         "solitary"
       ],
-      "target_scene_id": "2701-331",
-      "target_scene_title": "Pip's abandonment and mystical transformation",
-      "target_scene_summary": "A castaway sailor experiences divine visions while abandoned at sea."
+      "target_scene_id": "2701-224",
+      "target_scene_summary": "The same cabin boy jumps from a whaleboat again but this time is left behind in the vast open ocean as the ship sails on, abandoned to a terrifying solitude while the narrator reflects on the cruelty of the crew's calculation.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.2,
+          0.26,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Pip's abandonment and mystical transformation"
     },
     {
       "id": "q-2701-5-amb",
-      "variant": "ambiguous",
       "book_id": "2701",
       "book_title": "Moby Dick",
       "sharpness": 5,
@@ -1677,13 +4250,39 @@
         "terrifying",
         "solitary"
       ],
-      "target_scene_id": "2701-331",
-      "target_scene_title": "Pip's abandonment and mystical transformation",
-      "target_scene_summary": "A castaway sailor experiences divine visions while abandoned at sea."
+      "target_scene_id": "2701-224",
+      "target_scene_summary": "The same cabin boy jumps from a whaleboat again but this time is left behind in the vast open ocean as the ship sails on, abandoned to a terrifying solitude while the narrator reflects on the cruelty of the crew's calculation.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.2,
+          0.26,
+          0.9
+        ],
+        [
+          0.2,
+          0.3,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Pip's abandonment and mystical transformation"
     },
     {
       "id": "q-4300-1",
-      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 1,
@@ -1698,13 +4297,49 @@
         "mock-heroic",
         "chaotic"
       ],
-      "target_scene_id": "4300-286",
-      "target_scene_title": "Chase, catastrophe, and aftermath",
-      "target_scene_summary": "A thrown biscuit tin sparks a mock-apocalyptic catastrophe report."
+      "target_scene_id": "4300-167",
+      "target_scene_summary": "In a Dublin pub, a circle of men trades anti-Semitic slurs about an absent Jewish acquaintance, dissects his lineage and dead son, then orders drinks.",
+      "target_pov": "third",
+      "target_tense": "present",
+      "target_prose_register": 0.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Chase, catastrophe, and aftermath"
     },
     {
       "id": "q-4300-1-amb",
-      "variant": "ambiguous",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 1,
@@ -1719,13 +4354,49 @@
         "mock-heroic",
         "chaotic"
       ],
-      "target_scene_id": "4300-286",
-      "target_scene_title": "Chase, catastrophe, and aftermath",
-      "target_scene_summary": "A thrown biscuit tin sparks a mock-apocalyptic catastrophe report."
+      "target_scene_id": "4300-167",
+      "target_scene_summary": "In a Dublin pub, a circle of men trades anti-Semitic slurs about an absent Jewish acquaintance, dissects his lineage and dead son, then orders drinks.",
+      "target_pov": "third",
+      "target_tense": "present",
+      "target_prose_register": 0.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.15,
+          0.78,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Chase, catastrophe, and aftermath"
     },
     {
       "id": "q-4300-2",
-      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 2,
@@ -1741,12 +4412,48 @@
         "theatrical"
       ],
       "target_scene_id": "4300-0",
-      "target_scene_title": "Buck Mulligan's mock priestly ritual",
-      "target_scene_summary": "A medical student performs a mock religious ritual while shaving, mocking his housemate."
+      "target_scene_summary": "A medical student stages a mock mass on a tower roof, shaves while exchanging sharp banter with a younger companion, accuses him of refusing his dying mother's plea, and presses a false reconciliation as they overlook the bay.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.44,
+          0.66,
+          0.55
+        ],
+        [
+          0.28,
+          0.32,
+          0.55
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ],
+        [
+          0.4,
+          0.36,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Buck Mulligan's mock priestly ritual"
     },
     {
       "id": "q-4300-2-amb",
-      "variant": "ambiguous",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 2,
@@ -1761,13 +4468,44 @@
         "blasphemous",
         "theatrical"
       ],
-      "target_scene_id": "4300-0",
-      "target_scene_title": "Buck Mulligan's mock priestly ritual",
-      "target_scene_summary": "A medical student performs a mock religious ritual while shaving, mocking his housemate."
+      "target_scene_id": "4300-91",
+      "target_scene_summary": "A flippant young man disrupts a library gathering with blasphemous parody, then joins scholars debating literary theories before reading a telegram aloud and warning a rival poet of a murder threat.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.44,
+          0.66,
+          0.9
+        ],
+        [
+          0.82,
+          0.5,
+          0.55
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Buck Mulligan's mock priestly ritual"
     },
     {
       "id": "q-4300-3",
-      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 3,
@@ -1782,13 +4520,49 @@
         "dreamy",
         "tense"
       ],
-      "target_scene_id": "4300-302",
-      "target_scene_title": "Gerty and Bloom share fireworks climax alone",
-      "target_scene_summary": "A young woman performs for a watching man during a fireworks display."
+      "target_scene_id": "4300-179",
+      "target_scene_summary": "During a beachside benediction a young woman becomes aware of a man's intense gaze on her body, maneuvers to display herself, feels her menstruation begin, and recognizes his worshipful desire fixed upon her.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.16,
+          0.18,
+          0.55
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Gerty and Bloom share fireworks climax alone"
     },
     {
       "id": "q-4300-3-amb",
-      "variant": "ambiguous",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 3,
@@ -1803,13 +4577,49 @@
         "dreamy",
         "tense"
       ],
-      "target_scene_id": "4300-302",
-      "target_scene_title": "Gerty and Bloom share fireworks climax alone",
-      "target_scene_summary": "A young woman performs for a watching man during a fireworks display."
+      "target_scene_id": "4300-179",
+      "target_scene_summary": "During a beachside benediction a young woman becomes aware of a man's intense gaze on her body, maneuvers to display herself, feels her menstruation begin, and recognizes his worshipful desire fixed upon her.",
+      "target_pov": "third",
+      "target_tense": "past",
+      "target_prose_register": 1.0,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ],
+        [
+          0.46,
+          0.62,
+          0.55
+        ],
+        [
+          0.16,
+          0.18,
+          0.55
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Gerty and Bloom share fireworks climax alone"
     },
     {
       "id": "q-4300-4",
-      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 4,
@@ -1824,13 +4634,39 @@
         "gentle",
         "warm"
       ],
-      "target_scene_id": "4300-40",
-      "target_scene_title": "Bloom's morning kitchen ritual with cat",
-      "target_scene_summary": "A middle-aged man prepares breakfast, feeds his cat, and quietly leaves his sleeping wife."
+      "target_scene_id": "4300-30",
+      "target_scene_summary": "A man lets his cat out into the garden, tends to his bowels in the outhouse while reading a magazine, and hears church bells tolling for a funeral.",
+      "target_pov": "third",
+      "target_tense": "mixed",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.8,
+          0.48,
+          0.2
+        ],
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Bloom's morning kitchen ritual with cat"
     },
     {
       "id": "q-4300-4-amb",
-      "variant": "ambiguous",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 4,
@@ -1845,13 +4681,39 @@
         "gentle",
         "warm"
       ],
-      "target_scene_id": "4300-40",
-      "target_scene_title": "Bloom's morning kitchen ritual with cat",
-      "target_scene_summary": "A middle-aged man prepares breakfast, feeds his cat, and quietly leaves his sleeping wife."
+      "target_scene_id": "4300-30",
+      "target_scene_summary": "A man lets his cat out into the garden, tends to his bowels in the outhouse while reading a magazine, and hears church bells tolling for a funeral.",
+      "target_pov": "third",
+      "target_tense": "mixed",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.8,
+          0.48,
+          0.2
+        ],
+        [
+          0.64,
+          0.56,
+          0.2
+        ],
+        [
+          0.84,
+          0.52,
+          0.2
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Bloom's morning kitchen ritual with cat"
     },
     {
       "id": "q-4300-5",
-      "variant": "specific",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 5,
@@ -1866,13 +4728,49 @@
         "nostalgic",
         "earthy"
       ],
-      "target_scene_id": "4300-511",
-      "target_scene_title": "Molly's sexual reverie, desire for Monday",
-      "target_scene_summary": "A wife lies awake as desire and memory flood her consciousness."
+      "target_scene_id": "4300-333",
+      "target_scene_summary": "A woman lies in bed before dawn, her mind roaming across a distant marriage, sexual longing, a dead child, a young visitor, and a remembered proposal on a hill.",
+      "target_pov": "first",
+      "target_tense": "present",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ],
+        [
+          0.2,
+          0.26,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.56,
+          0.42,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Molly's sexual reverie, desire for Monday"
     },
     {
       "id": "q-4300-5-amb",
-      "variant": "ambiguous",
       "book_id": "4300",
       "book_title": "Ulysses",
       "sharpness": 5,
@@ -1887,13 +4785,49 @@
         "nostalgic",
         "earthy"
       ],
-      "target_scene_id": "4300-511",
-      "target_scene_title": "Molly's sexual reverie, desire for Monday",
-      "target_scene_summary": "A wife lies awake as desire and memory flood her consciousness."
+      "target_scene_id": "4300-333",
+      "target_scene_summary": "A woman lies in bed before dawn, her mind roaming across a distant marriage, sexual longing, a dead child, a young visitor, and a remembered proposal on a hill.",
+      "target_pov": "first",
+      "target_tense": "present",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.26,
+          0.68,
+          0.55
+        ],
+        [
+          0.78,
+          0.72,
+          0.9
+        ],
+        [
+          0.2,
+          0.26,
+          0.55
+        ],
+        [
+          0.22,
+          0.38,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.56,
+          0.42,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Molly's sexual reverie, desire for Monday"
     },
     {
       "id": "q-64317-1",
-      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 1,
@@ -1908,13 +4842,39 @@
         "haunting",
         "solitary"
       ],
-      "target_scene_id": "64317-15",
-      "target_scene_title": "Gatsby reaches toward the green light",
-      "target_scene_summary": "A neighbor stands alone on his lawn at night, reaching toward a distant green light across the water."
+      "target_scene_id": "64317-7",
+      "target_scene_summary": "A disturbed visitor drives home through the summer night, settles on his lawn to watch the darkness, and glimpses a solitary neighbor stretching toward a distant green light across the water before the figure vanishes into shadow.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.011082693947144074,
+      "target_vdi_curve": [
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.32,
+          0.38,
+          0.2
+        ],
+        [
+          0.4,
+          0.36,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.2
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Gatsby reaches toward the green light"
     },
     {
       "id": "q-64317-1-amb",
-      "variant": "ambiguous",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 1,
@@ -1929,13 +4889,39 @@
         "haunting",
         "solitary"
       ],
-      "target_scene_id": "64317-15",
-      "target_scene_title": "Gatsby reaches toward the green light",
-      "target_scene_summary": "A neighbor stands alone on his lawn at night, reaching toward a distant green light across the water."
+      "target_scene_id": "64317-7",
+      "target_scene_summary": "A disturbed visitor drives home through the summer night, settles on his lawn to watch the darkness, and glimpses a solitary neighbor stretching toward a distant green light across the water before the figure vanishes into shadow.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.011082693947144074,
+      "target_vdi_curve": [
+        [
+          0.22,
+          0.52,
+          0.55
+        ],
+        [
+          0.32,
+          0.38,
+          0.2
+        ],
+        [
+          0.4,
+          0.36,
+          0.9
+        ],
+        [
+          0.36,
+          0.4,
+          0.2
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Gatsby reaches toward the green light"
     },
     {
       "id": "q-64317-2",
-      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 2,
@@ -1950,13 +4936,44 @@
         "bittersweet",
         "tender"
       ],
-      "target_scene_id": "64317-55",
-      "target_scene_title": "Shirts of many colours make Daisy weep",
-      "target_scene_summary": "A wealthy man displays his possessions to a former lover who weeps at their beauty."
+      "target_scene_id": "64317-32",
+      "target_scene_summary": "A wealthy man guides a narrator and a woman through his opulent mansion, culminating in a display of fine shirts that overwhelms the woman with emotion.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.2084026622296173,
+      "target_vdi_curve": [
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.86,
+          0.58,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Shirts of many colours make Daisy weep"
     },
     {
       "id": "q-64317-2-amb",
-      "variant": "ambiguous",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 2,
@@ -1971,13 +4988,44 @@
         "bittersweet",
         "tender"
       ],
-      "target_scene_id": "64317-55",
-      "target_scene_title": "Shirts of many colours make Daisy weep",
-      "target_scene_summary": "A wealthy man displays his possessions to a former lover who weeps at their beauty."
+      "target_scene_id": "64317-32",
+      "target_scene_summary": "A wealthy man guides a narrator and a woman through his opulent mansion, culminating in a display of fine shirts that overwhelms the woman with emotion.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.2084026622296173,
+      "target_vdi_curve": [
+        [
+          0.76,
+          0.82,
+          0.55
+        ],
+        [
+          0.86,
+          0.58,
+          0.55
+        ],
+        [
+          0.72,
+          0.34,
+          0.55
+        ],
+        [
+          0.8,
+          0.66,
+          0.9
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Shirts of many colours make Daisy weep"
     },
     {
       "id": "q-64317-3",
-      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 3,
@@ -1992,13 +5040,44 @@
         "tense",
         "heartbreaking"
       ],
-      "target_scene_id": "64317-78",
-      "target_scene_title": "The core confrontation: She never loved you",
-      "target_scene_summary": "A lover demands his beloved deny her marriage, but she confesses she loved both men."
+      "target_scene_id": "64317-50",
+      "target_scene_summary": "Tom weaponizes intimate memories to prove Daisy's enduring attachment, shattering Gatsby's demand for total renunciation and prompting Daisy to admit she loved them both.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.5,
+      "target_vdi_curve": [
+        [
+          0.56,
+          0.42,
+          0.55
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "The core confrontation: She never loved you"
     },
     {
       "id": "q-64317-3-amb",
-      "variant": "ambiguous",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 3,
@@ -2013,13 +5092,44 @@
         "tense",
         "heartbreaking"
       ],
-      "target_scene_id": "64317-78",
-      "target_scene_title": "The core confrontation: She never loved you",
-      "target_scene_summary": "A lover demands his beloved deny her marriage, but she confesses she loved both men."
+      "target_scene_id": "64317-50",
+      "target_scene_summary": "Tom weaponizes intimate memories to prove Daisy's enduring attachment, shattering Gatsby's demand for total renunciation and prompting Daisy to admit she loved them both.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.5,
+      "target_vdi_curve": [
+        [
+          0.56,
+          0.42,
+          0.55
+        ],
+        [
+          0.06,
+          0.12,
+          0.9
+        ],
+        [
+          0.18,
+          0.82,
+          0.9
+        ],
+        [
+          0.38,
+          0.72,
+          0.9
+        ],
+        [
+          0.26,
+          0.68,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "The core confrontation: She never loved you"
     },
     {
       "id": "q-64317-4",
-      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 4,
@@ -2034,13 +5144,44 @@
         "hollow",
         "final"
       ],
-      "target_scene_id": "64317-97",
-      "target_scene_title": "Gatsby's death in the swimming pool",
-      "target_scene_summary": "A dreamer floats in his pool waiting for a call that never comes and dies."
+      "target_scene_id": "64317-64",
+      "target_scene_summary": "A man waits by his pool for a promised call that never arrives, drifts on a mattress, and is shot dead, his body found by his sole companion beside the murderer's corpse.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.42,
+          0.56,
+          0.9
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Gatsby's death in the swimming pool"
     },
     {
       "id": "q-64317-4-amb",
-      "variant": "ambiguous",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 4,
@@ -2055,13 +5196,44 @@
         "hollow",
         "final"
       ],
-      "target_scene_id": "64317-97",
-      "target_scene_title": "Gatsby's death in the swimming pool",
-      "target_scene_summary": "A dreamer floats in his pool waiting for a call that never comes and dies."
+      "target_scene_id": "64317-64",
+      "target_scene_summary": "A man waits by his pool for a promised call that never arrives, drifts on a mattress, and is shot dead, his body found by his sole companion beside the murderer's corpse.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.0,
+      "target_vdi_curve": [
+        [
+          0.36,
+          0.4,
+          0.2
+        ],
+        [
+          0.32,
+          0.38,
+          0.55
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.12,
+          0.22,
+          0.9
+        ],
+        [
+          0.42,
+          0.56,
+          0.9
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Gatsby's death in the swimming pool"
     },
     {
       "id": "q-64317-5",
-      "variant": "specific",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 5,
@@ -2076,13 +5248,39 @@
         "bleak",
         "ironic"
       ],
-      "target_scene_id": "64317-109",
-      "target_scene_title": "Sparse funeral in the rain with owl-eyed man",
-      "target_scene_summary": "Only a handful of mourners attend a once-popular man's rainy funeral."
+      "target_scene_id": "64317-70",
+      "target_scene_summary": "A sparse funeral procession moves through rain to a graveside where only a handful of mourners gather, including a stranger who knew the deceased only through his books.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.12815405046480743,
+      "target_vdi_curve": [
+        [
+          0.32,
+          0.38,
+          0.2
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.5,
+          0.4,
+          0.55
+        ]
+      ],
+      "variant": "specific",
+      "target_scene_title": "Sparse funeral in the rain with owl-eyed man"
     },
     {
       "id": "q-64317-5-amb",
-      "variant": "ambiguous",
       "book_id": "64317",
       "book_title": "The Great Gatsby",
       "sharpness": 5,
@@ -2097,9 +5295,36 @@
         "bleak",
         "ironic"
       ],
-      "target_scene_id": "64317-109",
-      "target_scene_title": "Sparse funeral in the rain with owl-eyed man",
-      "target_scene_summary": "Only a handful of mourners attend a once-popular man's rainy funeral."
+      "target_scene_id": "64317-70",
+      "target_scene_summary": "A sparse funeral procession moves through rain to a graveside where only a handful of mourners gather, including a stranger who knew the deceased only through his books.",
+      "target_pov": "first",
+      "target_tense": "past",
+      "target_prose_register": 0.75,
+      "target_dialogue_ratio": 0.12815405046480743,
+      "target_vdi_curve": [
+        [
+          0.32,
+          0.38,
+          0.2
+        ],
+        [
+          0.54,
+          0.46,
+          0.55
+        ],
+        [
+          0.42,
+          0.56,
+          0.55
+        ],
+        [
+          0.5,
+          0.4,
+          0.55
+        ]
+      ],
+      "variant": "ambiguous",
+      "target_scene_title": "Sparse funeral in the rain with owl-eyed man"
     }
   ]
 }

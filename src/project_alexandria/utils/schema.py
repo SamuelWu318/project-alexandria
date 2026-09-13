@@ -5,9 +5,8 @@ from pathlib import Path
 from utils import SrcPaths
 
 # ---- scene-record schema: the SINGLE SOURCE OF TRUTH ----
-# Loads scene_schema.json (the editable master registry) and DERIVES every store's field contract
-# from it, so the schema is defined ONCE. Stays stdlib-light on purpose (json + pathlib) — the
-# reconcile path must run without pulling in the LLM client; tags/relational/qdrant imports are LAZY.
+# Loads scene_schema.json (the master registry) and DERIVES every store's field contract from it — schema
+# defined ONCE. Stdlib-light (json + pathlib) so reconcile runs without the LLM client (heavy imports LAZY).
 # Workflow: edit scene_schema.json -> `python -m utils.schema --check` (parity) / `--reconcile` (ripple).
 
 # a hard floor: the master MUST declare these, so a bad edit can never strip the join columns.
@@ -61,7 +60,7 @@ def _default(name: str):
     return SCHEMA_VERSION if d == "$schema_version" else d
 
 
-# ** MAIN ** — process.scenes_to_records starts every new scene from this null template
+# ** MAIN ** — segment._build_records starts every new scene from this null template
 # A fresh scene record: every JSON field at its declared default.
 def blank_record() -> dict:
     return {name: _default(name) for name in JSON_FIELDS}
@@ -268,8 +267,7 @@ def sync_qdrant() -> int:
 # ---- CLI ----
 
 # Assert the derived contract matches every store's constants + pydantic models. Returns an exit code.
-# During the restructure's schema wave a pipeline store may not be migrated yet; its import is guarded
-# so --check RUNS and REPORTS the lag instead of crashing (relational is foundation, always importable).
+# Store imports are guarded so --check REPORTS a lagging/unmigrated store instead of crashing.
 def _check() -> int:
     from utils import relational
     problems = []

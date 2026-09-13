@@ -2,9 +2,8 @@ from __future__ import annotations
 import logging, os, sys
 
 # ---- console logging (LOCKED · stdlib `logging`, one logger, configured once) ----
-# Verbosity: set ALEXANDRIA_LOG_LEVEL in the env, or call set_level() at runtime.
-# Emits to stdout so stage headers interleave with the harness's print()ed results;
-# point the handler at sys.stderr to split logs from results.
+# Verbosity via ALEXANDRIA_LOG_LEVEL env or set_level(). Emits to stdout so stage headers interleave with
+# the harness's print()ed results (point the handler at sys.stderr to split logs from results).
 
 _LOGGER_NAME = "alexandria"
 

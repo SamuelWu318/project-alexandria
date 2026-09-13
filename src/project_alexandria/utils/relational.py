@@ -5,9 +5,8 @@ from typing import Any, Iterable
 from utils import SrcPaths, schema   # schema = the scene-record registry (utils/schema.py)
 
 # ---- schema constants (DERIVED from scene_schema.json via schema.py — do not hand-edit) ----
-# This module owns HOW the SQLite mirror behaves (upsert / filter / navigate); the field list,
-# column types, and indexes all come from the registry so every store stays in lockstep. Edit
-# scene_schema.json, then `python -m utils.schema --check` (parity) and `--reconcile` (ripple).
+# Owns HOW the SQLite mirror behaves (upsert/filter/navigate); the field list/types/indexes come from the
+# registry so stores stay in lockstep. Edit scene_schema.json, then `python -m utils.schema --check`/`--reconcile`.
 _COLS = schema.SQL_COLS             # upsert column order == registry order
 _FILTERABLE = schema.FILTERABLE     # find()/count() WHERE + GROUP BY whitelist (injection guard)
 _SCHEMA = schema.create_table_sql()  # CREATE TABLE + indexes, generated from the registry
@@ -134,7 +133,7 @@ def count(conn: sqlite3.Connection, **filters: Any) -> int:
 
 
 # ** LOCKED **
-# GROUP BY count over one whitelisted column, e.g. tally(conn, 'dominant_tone') -> {tone: n}.
+# GROUP BY count over one whitelisted column, e.g. tally(conn, 'pov') -> {pov: n}.
 def tally(conn: sqlite3.Connection, column: str) -> dict[str, int]:
     if column not in _FILTERABLE:
         raise KeyError(f"not a groupable column: {column!r}")

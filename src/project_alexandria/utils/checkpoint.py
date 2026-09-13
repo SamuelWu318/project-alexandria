@@ -5,10 +5,8 @@ from typing import Any, Callable
 from utils.read_write import read_json, write_json
 
 # ---- resumable per-item work cache (LOCKED · MAIN — used by segmentation + enrichment) ----
-# One dir per book, one atomic json per finished item; missing/corrupt reads -> None (recompute);
-# the dir is dropped once the book completes. storage owns the atomic bytes, this owns the resume
-# lifecycle. An optional load/dump codec keeps a typed payload working without dragging that type
-# into the IO layer; a codec error on load counts as corrupt (-> recompute).
+# One dir per book, one atomic json per finished item; missing/corrupt read -> None (recompute); dir dropped
+# when the book completes. Optional load/dump codec types the payload; a codec error on load = corrupt.
 
 # ** LOCKED **  ** MAIN ** — instantiated by segment.segment_book and enrich.enrich_file
 class Checkpoint:
