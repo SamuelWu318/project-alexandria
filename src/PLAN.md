@@ -177,9 +177,12 @@ add queries):
 - **Step 1 — pool:** for each query, run search over a few configs, dedupe, and store the **top-20 candidate
   scenes** per query to a JSON (`scene_id` + `summary` + facets — enough for the model to judge).
 - **Step 2 — select:** chunk-feed the query + its 20 candidates to the LLM under a select/judge system
-  prompt; it returns the **top-5** most content-similar, ranked. Freeze `{query → [5 scene_ids]}` as the gold.
-- The class owns pool → chunked-LLM-select → write-back (one call makes more gold). The **system prompt is
-  the USER's tuning surface** (like the pipeline prompts). Uses `utils.llm` (CLIENT / MODEL / retry policy).
+  prompt; it returns the **top-5** most content-similar, ranked. Freeze the gold to `pool_queries.json` in the
+  QUERIES.JSON format — one entry per query = the rough query fields + a best-first `matches` list
+  ({scene_id, book_id, summary, reason}).
+- The class owns pool → chunked-LLM-select → write-back (one call makes more gold), and **runs as a file**
+  (`python -m similarity_gold`, no args: pool-if-missing → select). The **system prompt is the USER's tuning
+  surface** (like the pipeline prompts). Uses `utils.llm` (CLIENT / MODEL / retry policy).
 - Score any method with **P@5 / nDCG@5** vs the frozen gold.
 - Caveat (pooling): a great scene no config surfaces never enters the pool → counts non-relevant; pool
   diverse configs deep to mitigate.
@@ -190,3 +193,31 @@ top-5 gold. If similarity ≠ needle, HyDE / retuning re-opens against the top-5
 
 **Build order:** (a) rough query set → (b) pool-top-20 JSON → (c) the select class + system prompt → the
 top-5 gold → (d) P@5/nDCG@5 scorer in `evals` → (e) the cross-lens A/B. Then update `CLAUDE.md` + flip ✅.
+
+**Built so far (branch `restructure`, uncommitted):**
+- (a) ✅ `webtest/gold/rough_queries.json` — 30 entries (10 generic·1-sent / 10 specific·1-sent / 10
+  specific·2–3-sent), each carrying INTUITION sliders (soft only: `tones` word-pairs + `prose` word +
+  `dialogue` float; pov/tense left unset so hard filters never EXCLUDE). All slider words verified in-vocab
+  through `query.tone_curve` / `query.prose_level`. The A/B runs each query twice (semantic-only vs +sliders).
+- (b) ✅ `similarity_gold.py` `SimilarityGold.pool()` — runs each query through `query.run` over 3 configs
+  (semantic sum, semantic max, +sliders), round-robin merges so every config contributes, keeps top-20
+  candidates (scene_id + summary + facets — the judge reads **summaries + facets, NOT prose**;
+  full-prose/excerpt declined 2026-09-14: cheap + consistent with the retriever's own summary/moment signal).
+  VERIFIED on the live index: 30 queries × 20 candidates, written to `webtest/gold/pool_candidates.json`.
+- (c) ✅ BUILT + smoke-verified (1-query live LLM: retry loop fired + recovered, 3 valid in-pool ranked picks
+  with reasons — judge honored "fewer when the pool lacks 5"): `SELECT_PROMPT` (utils/llm.py, USER's surface) +
+  `similarity_gold.py` `select()` — forced `output_selection` tool (`TopFive`), candidate-membership +
+  dedupe validation, retry loop reusing `utils.llm` (classify_llm_error / inject_retry_notes), chunk
+  tournament (CHUNK=20, one call at depth 20). Writes `webtest/gold/pool_queries.json` in the QUERIES.JSON
+  format — a `pool_queries` list, one entry per query = the rough query fields + a best-first `matches` list
+  ({scene_id, book_id, summary, reason}; summary+reason kept for audit, scorer reads scene_id only). **Run as
+  a FILE** (`python -m similarity_gold`, no args): `main()` pools if `pool_candidates.json` is missing, then
+  selects. `build()` = pool → select (programmatic door).
+- (d) ✅ `evals.py`: `load_rough` / `load_similarity_gold` / `run_rough` (per-query sliders via `query.run`) /
+  `score_similarity` (P@k + graded nDCG@k, IDCG from the gold's own order) / `format_similarity`. Scorer
+  unit-checked (perfect→1.0/1.0; losing the #1 gold→P .8 / nDCG .51).
+- (e) ✅ wired: `evals --mode similarity` A/Bs semantic-only vs +sliders, scored P@5/nDCG@5 (runs once the
+  gold JSON exists). Cross-lens (needle vs similarity on the same method) = read both reports side by side.
+
+**Left:** build the actual gold (`python -m similarity_gold` — user-triggered; tune `SELECT_PROMPT` first if
+desired), then run `evals --mode similarity` for the real numbers + the HyDE / combine / slider A/Bs against it.

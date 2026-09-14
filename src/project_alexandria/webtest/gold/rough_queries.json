@@ -1,0 +1,245 @@
+{
+  "_note": "Phase 11 rough / similarity query set (hand-authored, extend freely). 30 base configs: 10 generic 1-sentence, 10 specific 1-sentence, 10 specific 2-3-sentence. Each carries INTUITION sliders (soft only: tones curve + prose word + dialogue float) so the SAME 30 run twice -- semantic-only vs + sliders = 60 configs, an A/B. Slider WORDS come from the tag tables (utils.tags Tone/Intensity/ProseRegister) and convert through query.tone_curve / query.prose_level -- NEVER hand-type coordinates. `tones` = ordered [tone_word, intensity_word] beats. pov/tense are left unset on purpose (hard filters EXCLUDE; the goal is similar scenes, not a narrowed set).",
+  "rough_queries": [
+    {
+      "id": "r-gen-01",
+      "variant": "generic",
+      "summary": "A tense confrontation between two characters.",
+      "tones": [["suspense", "moderate"], ["rage", "high"]],
+      "prose": "measured",
+      "dialogue": 0.6
+    },
+    {
+      "id": "r-gen-02",
+      "variant": "generic",
+      "summary": "A quiet moment of grief after a loss.",
+      "tones": [["melancholy", "moderate"], ["grief", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.1
+    },
+    {
+      "id": "r-gen-03",
+      "variant": "generic",
+      "summary": "A joyful reunion between long-separated friends.",
+      "tones": [["hope", "moderate"], ["joy", "high"]],
+      "prose": "measured",
+      "dialogue": 0.7
+    },
+    {
+      "id": "r-gen-04",
+      "variant": "generic",
+      "summary": "A dangerous journey through a hostile wilderness.",
+      "tones": [["dread", "moderate"], ["suspense", "high"]],
+      "prose": "measured",
+      "dialogue": 0.2
+    },
+    {
+      "id": "r-gen-05",
+      "variant": "generic",
+      "summary": "A moment of sudden betrayal.",
+      "tones": [["surprise", "high"], ["rage", "high"]],
+      "prose": "plain",
+      "dialogue": 0.5
+    },
+    {
+      "id": "r-gen-06",
+      "variant": "generic",
+      "summary": "A tender romantic encounter.",
+      "tones": [["tenderness", "moderate"], ["passion", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.4
+    },
+    {
+      "id": "r-gen-07",
+      "variant": "generic",
+      "summary": "A chaotic battle.",
+      "tones": [["dread", "high"], ["rage", "high"], ["triumph", "moderate"]],
+      "prose": "grand",
+      "dialogue": 0.1
+    },
+    {
+      "id": "r-gen-08",
+      "variant": "generic",
+      "summary": "A character wrestles with a fateful decision.",
+      "tones": [["anxiety", "moderate"], ["defiance", "high"]],
+      "prose": "measured",
+      "dialogue": 0.3
+    },
+    {
+      "id": "r-gen-09",
+      "variant": "generic",
+      "summary": "An eerie, foreboding atmosphere before something goes wrong.",
+      "tones": [["foreboding", "moderate"], ["dread", "high"]],
+      "prose": "grand",
+      "dialogue": 0.1
+    },
+    {
+      "id": "r-gen-10",
+      "variant": "generic",
+      "summary": "A triumphant victory won against the odds.",
+      "tones": [["suspense", "high"], ["triumph", "high"]],
+      "prose": "grand",
+      "dialogue": 0.2
+    },
+    {
+      "id": "r-spec1-01",
+      "variant": "specific-1sent",
+      "summary": "A soldier returns home from war to find everything he knew has changed.",
+      "tones": [["nostalgia", "moderate"], ["bittersweet", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.3
+    },
+    {
+      "id": "r-spec1-02",
+      "variant": "specific-1sent",
+      "summary": "A thief creeps through a sleeping mansion at night to steal a jewel.",
+      "tones": [["suspense", "high"], ["anxiety", "moderate"]],
+      "prose": "measured",
+      "dialogue": 0.05
+    },
+    {
+      "id": "r-spec1-03",
+      "variant": "specific-1sent",
+      "summary": "A doomed lover pleads at a deathbed as the beloved slips away.",
+      "tones": [["despair", "moderate"], ["grief", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.4
+    },
+    {
+      "id": "r-spec1-04",
+      "variant": "specific-1sent",
+      "summary": "A captain rallies his terrified crew as the ship founders in a storm.",
+      "tones": [["terror", "high"], ["defiance", "high"], ["hope", "moderate"]],
+      "prose": "grand",
+      "dialogue": 0.6
+    },
+    {
+      "id": "r-spec1-05",
+      "variant": "specific-1sent",
+      "summary": "A prisoner quietly plots an escape from a locked cell.",
+      "tones": [["suspense", "moderate"], ["hope", "high"]],
+      "prose": "plain",
+      "dialogue": 0.15
+    },
+    {
+      "id": "r-spec1-06",
+      "variant": "specific-1sent",
+      "summary": "A child discovers a hidden door and steps into a strange new world.",
+      "tones": [["curiosity", "high"], ["wonder", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.2
+    },
+    {
+      "id": "r-spec1-07",
+      "variant": "specific-1sent",
+      "summary": "Two rivals meet for a duel of honor at dawn.",
+      "tones": [["suspense", "high"], ["dread", "moderate"], ["grief", "moderate"]],
+      "prose": "measured",
+      "dialogue": 0.3
+    },
+    {
+      "id": "r-spec1-08",
+      "variant": "specific-1sent",
+      "summary": "A jury returns and a verdict is delivered in a crowded courtroom.",
+      "tones": [["suspense", "high"], ["relief", "moderate"]],
+      "prose": "plain",
+      "dialogue": 0.7
+    },
+    {
+      "id": "r-spec1-09",
+      "variant": "specific-1sent",
+      "summary": "A hunter stalks dangerous prey through a forest until it turns on him.",
+      "tones": [["suspense", "low"], ["terror", "high"]],
+      "prose": "measured",
+      "dialogue": 0.05
+    },
+    {
+      "id": "r-spec1-10",
+      "variant": "specific-1sent",
+      "summary": "A monarch is betrayed by a trusted advisor in the throne room.",
+      "tones": [["contempt", "moderate"], ["menace", "high"]],
+      "prose": "grand",
+      "dialogue": 0.6
+    },
+    {
+      "id": "r-spec2-01",
+      "variant": "specific-multisent",
+      "summary": "A weary traveler arrives at an inn during a snowstorm. A stranger by the fire offers an ominous warning, and the traveler slowly realizes he is being hunted.",
+      "tones": [["serenity", "low"], ["foreboding", "moderate"], ["dread", "high"]],
+      "prose": "measured",
+      "dialogue": 0.5
+    },
+    {
+      "id": "r-spec2-02",
+      "variant": "specific-multisent",
+      "summary": "Two estranged brothers meet years after a bitter falling-out. Old wounds reopen as they argue, but by the end a fragile reconciliation begins.",
+      "tones": [["rage", "high"], ["melancholy", "moderate"], ["tenderness", "moderate"]],
+      "prose": "measured",
+      "dialogue": 0.8
+    },
+    {
+      "id": "r-spec2-03",
+      "variant": "specific-multisent",
+      "summary": "A young woman defies her family to marry for love. Her father forbids the match, and she flees into the night with her lover.",
+      "tones": [["defiance", "high"], ["passion", "high"], ["hope", "moderate"]],
+      "prose": "lyrical",
+      "dialogue": 0.6
+    },
+    {
+      "id": "r-spec2-04",
+      "variant": "specific-multisent",
+      "summary": "During a plague, a doctor works desperately to save a dying village. He loses patient after patient, and at last succumbs to despair.",
+      "tones": [["compassion", "moderate"], ["grief", "high"], ["despair", "high"]],
+      "prose": "measured",
+      "dialogue": 0.2
+    },
+    {
+      "id": "r-spec2-05",
+      "variant": "specific-multisent",
+      "summary": "A shipwrecked sailor washes ashore on a deserted island. Alone and starving, he searches for water and slowly loses hope of rescue.",
+      "tones": [["loneliness", "moderate"], ["despair", "high"]],
+      "prose": "lyrical",
+      "dialogue": 0.02
+    },
+    {
+      "id": "r-spec2-06",
+      "variant": "specific-multisent",
+      "summary": "An old king divides his kingdom among his heirs. Flattery wins over honesty, and he banishes the one child who truly loves him.",
+      "tones": [["pride", "high"], ["rage", "high"], ["regret", "moderate"]],
+      "prose": "grand",
+      "dialogue": 0.7
+    },
+    {
+      "id": "r-spec2-07",
+      "variant": "specific-multisent",
+      "summary": "A detective confronts the murderer in a locked drawing room. Laying out the evidence piece by piece, he watches the killer's composure finally crack.",
+      "tones": [["suspense", "high"], ["contempt", "moderate"], ["triumph", "moderate"]],
+      "prose": "measured",
+      "dialogue": 0.75
+    },
+    {
+      "id": "r-spec2-08",
+      "variant": "specific-multisent",
+      "summary": "A soldier in the trenches waits for the order to advance. When the whistle blows he charges across open ground into the guns.",
+      "tones": [["dread", "high"], ["terror", "high"]],
+      "prose": "plain",
+      "dialogue": 0.1
+    },
+    {
+      "id": "r-spec2-09",
+      "variant": "specific-multisent",
+      "summary": "A grieving widow visits her husband's grave each morning. One day she finds a stranger there who knew him, and learns a secret that reshapes her memory.",
+      "tones": [["grief", "moderate"], ["surprise", "high"], ["bittersweet", "moderate"]],
+      "prose": "lyrical",
+      "dialogue": 0.4
+    },
+    {
+      "id": "r-spec2-10",
+      "variant": "specific-multisent",
+      "summary": "A revolution erupts in the city square. The crowd storms the palace gates, and a young idealist raises the banner as the guards open fire.",
+      "tones": [["excitement", "high"], ["triumph", "high"], ["terror", "high"]],
+      "prose": "grand",
+      "dialogue": 0.3
+    }
+  ]
+}
