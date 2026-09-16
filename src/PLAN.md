@@ -4,14 +4,15 @@
 invariants + memory `project-restructure-plan`; this file no longer re-describes them. **Phase 10 is now
 essentially done** (§2: 10.1 rebuild ✅, 10.2 verify ✅, 10.3 β=0.2 ✅, 10.4 HyDE v0 built + measured → **no
 lift on the needle gold → parked**). The live driver is now **Phase 11 (§6): eval realignment** — the
-product goal is a **top-5 of content-similar scenes**, NOT "retrieve the one iconic scene," so we build the
-sets that measure THAT before trusting any retrieval change (HyDE included).
+product goal is a **top-5 of content-similar scenes**, NOT "retrieve the one iconic scene." The first
+attempt (a pooled, LLM-selected top-5 gold) was **abandoned as circular** (§6); the kept direction is a
+**scene-level** needle floor plus a **non-circular** scene-similarity eval, still to be designed.
 
 > ## ▶ START HERE (new session)
 > 1. **House style = `CLAUDE.md` → "Code principles"** (readability; comment framework; arrows-down;
 >    one-import-one-method; single-responsibility). Binding on every edit.
-> 2. **Phase 10 (§2) is done** — skim it for context. **The work now is Phase 11 (§6):** build the rough
->    query set + the LLM-selected top-5 similarity gold, then A/B needle-vs-similarity for the best top-5.
+> 2. **Phase 10 (§2) is done** — skim it for context. **The work now is Phase 11 (§6):** the pooled
+>    top-5-gold approach was abandoned as circular; design a non-circular, scene-level similarity eval.
 > 3. Author to the house style, run the step's **Checks**, meet **Done**, update the affected `CLAUDE.md`
 >    lines (diagram / invariants / ownership / run-ref) so the always-loaded map never lies, flip ✅, commit.
 > 4. Running modules on this machine (PYTHONPATH + venv): memory `reference-restructure-run-verify`.
@@ -144,80 +145,55 @@ added; `evals.run_search` gained an `adapter=` hook. `train_adapter.py` (v1 torc
 
 ---
 
-## 6. Phase 11 — eval realignment (needle → similarity → scored top-5)  *(ACTIVE)*
+## 6. Phase 11 — eval realignment (scene-level needle → non-circular similarity)  *(ACTIVE)*
 
 **Why.** A writer wants scenes *like* the one they describe — matched on action / plot / beats / feel, to
 reuse — NOT one specific book scene. So retrieval quality means **the top-5 are all strong CONTENT matches,
-best-first**. Every metric so far (scene@1 / book@1 vs one labelled iconic scene) grades *needle-finding*,
-which is blind to top-5 similarity — that is why HyDE 10.4 "failing" the needle gold says nothing about the
-real goal. Build sets that measure the goal, then re-judge every retrieval change against them.
+best-first**. `scene@1` / `book@1` vs one labelled iconic scene grades *needle-finding*, blind to top-5
+similarity — which is why HyDE 10.4 "failing" the needle gold says nothing about the real goal.
 
-**Three eval directions** — score the SAME methods under each; the payoff is learning whether the needle
-lens and the similarity lens AGREE or DIVERGE:
-1. **Needle** — existing `webtest/gold/test_queries.json` (one `target_scene_id`) → scene@1 / book@1 / MRR.
-   Keep as an exact-retrieval capability check.
-2. **Rough / similarity (qualitative)** — realistic *loose* writer queries; read the top-5 side-by-side
-   (baseline vs a method) + cheap proxies (subject/verb/object + tone-arc overlap). No fixed answer.
-3. **Scored top-5 (benchmark)** — the SAME rough queries + an LLM-selected top-5 relevance set → **P@5 /
-   nDCG@5**. Reproducible; the durable benchmark for the product goal.
+**ABANDONED — the pooled, LLM-selected top-5 gold (removed 2026-09-15; do NOT rebuild).** The first attempt
+froze a relevance gold: per rough query, pool the top-20 candidates over a few configs → LLM selects the 5
+best → freeze → score P@5/nDCG@5. It is **circular**:
+- The gold can only contain scenes the retriever ALREADY surfaced (**gold ⊂ the retriever's own top-20
+  pool**), so it grades rank-agreement *inside the retriever's funnel*: blind to a recall miss, and it
+  **punishes** a retrieval change that finds a genuinely better scene the original pool lacked (counts as
+  non-relevant). Pooling near-clone configs of ONE retriever makes the bias severe (unlike TREC's diverse
+  systems). It also graded `book_id` match, which the product goal doesn't care about.
+- Diagnostic that settled it (keep for the record): on the 30 rough queries one `sum` config already
+  recovered the gold at **recall@20 ≈ .91 / recall@50 ≈ .97** but only **recall@5 ≈ .38**. Retrieval finds
+  the right neighborhood; the real gap is **top-5 ORDERING on loose queries**. The P@5 (~.33) was measuring
+  retriever-vs-judge ordering agreement, not similarity — and sliders / `combine=max` both slightly hurt it.
+- Removed with it: `similarity_gold.py`, `webtest/gold/{pool_candidates,pool_queries,rough_queries}.json`,
+  `SELECT_PROMPT` (+ its `utils.__init__` export), and everything behind `evals --mode similarity`
+  (`load_rough` / `load_similarity_gold` / `_rel` / `_ndcg` / `score_similarity` / `format_similarity` /
+  `run_rough` / `_similarity_cli` + the `--rough`/`--sim-gold`/`similarity` CLI args). `evals` modes today:
+  `norm|lift|flavor|combine|soft`.
 
-**Rough query set** (`webtest/gold/rough_queries.json`; hand-authored, easy to extend):
-- **10** GENERIC, summary-only, ONE sentence · **10** SPECIFIC (no scene in particular), ONE sentence ·
-  **10** SPECIFIC, TWO–THREE sentences  → **30 base configs (semantic only)**.
-- **THEN repeat the same 30 WITH sliders tuned on intuition** (e.g. a fight → higher tension + a
-  rage/vengeance tone; a deathbed → falling arc, low dialogue) → **30 slidered configs**. 60 total = an A/B
-  of "semantic only vs + intuition sliders."
-- **Slider numbers come DIRECTLY from the tag tables:** store the tone/intensity/prose WORDS
-  (`tags.Tone` / `tags.Intensity` / `tags.ProseRegister`) and convert through `query.tone_curve` /
-  `query.prose_level` (the app's word→coord path: `tags.moment_vdi` / `tags.prose_coord`). NEVER hand-type
-  coordinates — the tag tables stay the one source of truth.
+**KEPT — the needle gold as a capability floor, re-headlined to SCENE level.** `webtest/gold/test_queries.json`
+stays the exact-retrieval check. Move the emphasis off book: `book@1` is trivially easy (.97 — books have
+distinct vocab/style) and says nothing about scene similarity, so headline **scene@1 / scene-MRR / scene
+Hit@5** and demote book-match to a diagnostic. (`evals.score_run` still reports a book+scene composite as its
+headline `top1` — the scene-level re-headline is a small, **unbuilt** code change.)
 
-**Scored top-5 gold builder** — a reproducible py **CLASS** + a NEW **system prompt** (regenerate whenever we
-add queries):
-- **Step 1 — pool:** for each query, run search over a few configs, dedupe, and store the **top-20 candidate
-  scenes** per query to a JSON (`scene_id` + `summary` + facets — enough for the model to judge).
-- **Step 2 — select:** chunk-feed the query + its 20 candidates to the LLM under a select/judge system
-  prompt; it returns the **top-5** most content-similar, ranked. Freeze the gold to `pool_queries.json` in the
-  QUERIES.JSON format — one entry per query = the rough query fields + a best-first `matches` list
-  ({scene_id, book_id, summary, reason}).
-- The class owns pool → chunked-LLM-select → write-back (one call makes more gold), and **runs as a file**
-  (`python -m similarity_gold`, no args: pool-if-missing → select). The **system prompt is the USER's tuning
-  surface** (like the pipeline prompts). Uses `utils.llm` (CLIENT / MODEL / retry policy).
-- Score any method with **P@5 / nDCG@5** vs the frozen gold.
-- Caveat (pooling): a great scene no config surfaces never enters the pool → counts non-relevant; pool
-  diverse configs deep to mitigate.
+**OPEN — resolve before any fine-tune (under discussion; nothing built):**
+1. **A non-circular scene-similarity eval** — the target must be fixed *before* retrieval (so it can reward
+   finding scenes the current retriever misses). Candidates:
+   - *Held-out paraphrase recall* — LLM-generate several loose queries per source scene at varying sharpness;
+     target = that scene; report recall@5 / MRR. The natural extension of the needle idea to loose queries.
+   - *Synthetic "twin" recall* — LLM rewrites a scene (new setting/names, same action + beats + feel); query
+     with the twin, target = the original. Measures action/feel similarity invariant to surface words.
+   - *Eval-time LLM graded relevance* — judge each (query, retrieved-scene) pair **fresh** at eval time (0–3),
+     average over the top-5. The honest version of the abandoned idea: never freeze a pool, so a
+     newly-surfaced good scene is rewarded. Costs LLM calls per run → keep the query set small.
+   - *Cheap proxies* for CI regression: subject/verb/object overlap + tone-arc distance, query-target vs top-5.
+2. **Corpus size.** 10 books / 1647 scenes is small — for many queries a true "5 similar scenes" may not even
+   exist, capping any similarity metric. Growing the corpus (a) makes similar-5 real (density) and (b) lets us
+   **hold out whole books** for a generalization eval → do it *before* serious fine-tuning.
+3. **Which fine-tune.** HyDE v0 (parked, §2 10.4) hurt needle by pulling toward same-book lookalikes; that may
+   HELP top-5 similarity — but only a non-circular similarity eval can tell. Re-open it (and `combine` / slider
+   variants, an embedding fine-tune, or a re-ranker over the top-20) only once #1 exists.
 
-**Then:** A/B baseline vs HyDE-adapter (and `combine` / slider variants) under BOTH the needle gold and the
-top-5 gold. If similarity ≠ needle, HyDE / retuning re-opens against the top-5 objective — the adapter's
-"pull toward nearby lookalikes" that hurt needle-finding may HELP a top-5 of similar scenes.
-
-**Build order:** (a) rough query set → (b) pool-top-20 JSON → (c) the select class + system prompt → the
-top-5 gold → (d) P@5/nDCG@5 scorer in `evals` → (e) the cross-lens A/B. Then update `CLAUDE.md` + flip ✅.
-
-**Built so far (branch `restructure`, uncommitted):**
-- (a) ✅ `webtest/gold/rough_queries.json` — 30 entries (10 generic·1-sent / 10 specific·1-sent / 10
-  specific·2–3-sent), each carrying INTUITION sliders (soft only: `tones` word-pairs + `prose` word +
-  `dialogue` float; pov/tense left unset so hard filters never EXCLUDE). All slider words verified in-vocab
-  through `query.tone_curve` / `query.prose_level`. The A/B runs each query twice (semantic-only vs +sliders).
-- (b) ✅ `similarity_gold.py` `SimilarityGold.pool()` — runs each query through `query.run` over 3 configs
-  (semantic sum, semantic max, +sliders), round-robin merges so every config contributes, keeps top-20
-  candidates (scene_id + summary + facets — the judge reads **summaries + facets, NOT prose**;
-  full-prose/excerpt declined 2026-09-14: cheap + consistent with the retriever's own summary/moment signal).
-  VERIFIED on the live index: 30 queries × 20 candidates, written to `webtest/gold/pool_candidates.json`.
-- (c) ✅ BUILT + smoke-verified (1-query live LLM: retry loop fired + recovered, 3 valid in-pool ranked picks
-  with reasons — judge honored "fewer when the pool lacks 5"): `SELECT_PROMPT` (utils/llm.py, USER's surface) +
-  `similarity_gold.py` `select()` — forced `output_selection` tool (`TopFive`), candidate-membership +
-  dedupe validation, retry loop reusing `utils.llm` (classify_llm_error / inject_retry_notes), chunk
-  tournament (CHUNK=20, one call at depth 20). Writes `webtest/gold/pool_queries.json` in the QUERIES.JSON
-  format — a `pool_queries` list, one entry per query = the rough query fields + a best-first `matches` list
-  ({scene_id, book_id, summary, reason}; summary+reason kept for audit, scorer reads scene_id only). **Run as
-  a FILE** (`python -m similarity_gold`, no args): `main()` pools if `pool_candidates.json` is missing, then
-  selects. `build()` = pool → select (programmatic door).
-- (d) ✅ `evals.py`: `load_rough` / `load_similarity_gold` / `run_rough` (per-query sliders via `query.run`) /
-  `score_similarity` (P@k + graded nDCG@k, IDCG from the gold's own order) / `format_similarity`. Scorer
-  unit-checked (perfect→1.0/1.0; losing the #1 gold→P .8 / nDCG .51).
-- (e) ✅ wired: `evals --mode similarity` A/Bs semantic-only vs +sliders, scored P@5/nDCG@5 (runs once the
-  gold JSON exists). Cross-lens (needle vs similarity on the same method) = read both reports side by side.
-
-**Left:** build the actual gold (`python -m similarity_gold` — user-triggered; tune `SELECT_PROMPT` first if
-desired), then run `evals --mode similarity` for the real numbers + the HyDE / combine / slider A/Bs against it.
+**Build order (once direction chosen):** (a) re-headline the needle eval at scene level → (b) build one
+non-circular similarity eval from #1 → (c) optionally expand the corpus + hold out books → (d) A/B the
+fine-tune candidates against it. Then update `CLAUDE.md` + flip ✅.

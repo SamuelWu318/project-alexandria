@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, math
+import json
 from pathlib import Path
 
 # ---- retrieval eval + A/B comparator for the read path ----
@@ -14,8 +14,6 @@ from pathlib import Path
 
 _GOLD_DIR = Path(__file__).resolve().parent / "webtest" / "gold"
 GOLD_PATH = _GOLD_DIR / "test_queries.json"                # needle gold (one target_scene_id per query)
-ROUGH_PATH = _GOLD_DIR / "rough_queries.json"              # Phase 11 rough / similarity queries (+ intuition sliders)
-SIM_GOLD_PATH = _GOLD_DIR / "pool_queries.json"            # Phase 11 frozen top-5 relevance gold (similarity_gold.py)
 DEFAULT_KS = (1, 3, 5, 10)
 
 
@@ -29,23 +27,6 @@ def load_gold(path: Path | str | None = None) -> tuple[list[dict], dict]:
                       "sharpness": e.get("sharpness")}
             for e in queries}
     return queries, gold
-
-
-# Load the rough / similarity query set (loose writer queries + per-query intuition sliders); Phase 11.
-def load_rough(path: Path | str | None = None) -> list[dict]:
-    data = json.loads(Path(path or ROUGH_PATH).read_text(encoding="utf-8"))
-    return data["rough_queries"]
-
-
-# Load the frozen top-5 similarity gold (similarity_gold.py's pool_queries.json) -> {qid: [scene_id, ...]}
-# best-first. The file is queries.json-format (a "pool_queries" list of entries each with a `matches` list);
-# the scorer needs only each match's scene_id.
-def load_similarity_gold(path: Path | str | None = None) -> dict:
-    data = json.loads(Path(path or SIM_GOLD_PATH).read_text(encoding="utf-8"))
-    entries = data.get("pool_queries", data if isinstance(data, list) else [])
-    return {e["id"]: [m.get("scene_id") if isinstance(m, dict) else m
-                      for m in (e.get("matches") or [])]
-            for e in entries}
 
 
 # ---- scoring (operates on OUTPUTS, no search needed) ----
@@ -124,40 +105,6 @@ def by_sharpness(scored: dict, k: int = 5) -> dict:
             "top_book": sum(p["top_book"] for p in ps) / len(ps),
         }
     return out
-
-
-# ---- similarity scoring (P@k / nDCG@k vs the frozen top-5 gold; the Phase-11 product-goal benchmark) ----
-
-# Graded relevance of a scene under a gold RANKING: gold[0] -> len(gold), .., gold[-1] -> 1, absent -> 0.
-# (So ranking the gold's own best scenes first is rewarded, not just hitting the set.)
-def _rel(scene_id: str | None, gold_ids: list[str]) -> float:
-    return float(len(gold_ids) - gold_ids.index(scene_id)) if scene_id in gold_ids else 0.0
-
-
-# nDCG@k of a retrieved id list against a gold ranking: standard log2 discount, graded rel, IDCG from the
-# gold's own order (so a query with 5 gold scenes retrieved perfectly scores 1.0).
-def _ndcg(retrieved: list[str], gold_ids: list[str], k: int) -> float:
-    dcg = sum(_rel(s, gold_ids) / math.log2(i + 2) for i, s in enumerate(retrieved[:k]))
-    ideal = [len(gold_ids) - j for j in range(len(gold_ids))]        # graded rel in the gold's own order
-    idcg = sum(rel / math.log2(i + 2) for i, rel in enumerate(ideal[:k]))
-    return (dcg / idcg) if idcg else 0.0
-
-
-# ** MAIN ** — the similarity A/B grades every Run through here
-# Score a Run against the top-5 similarity gold: P@k (fraction of the top-k that are gold) + nDCG@k (graded,
-# gold-ranked). Averages over the gold's queries only; returns aggregate + per-query.
-def score_similarity(run: dict, sim_gold: dict, k: int = 5) -> dict:
-    per: dict[str, dict] = {}
-    for qid, gold_ids in sim_gold.items():
-        got = [r.get("scene_id") for r in run.get(qid, [])]
-        hits = sum(1 for s in got[:k] if s in gold_ids)
-        per[qid] = {"p_at_k": hits / k, "ndcg_at_k": _ndcg(got, gold_ids, k),
-                    "n_gold": len(gold_ids), "hits": hits}
-    n = len(per) or 1
-    agg = {"n": len(per), "k": k,
-           "p_at_k": sum(p["p_at_k"] for p in per.values()) / n,
-           "ndcg_at_k": sum(p["ndcg_at_k"] for p in per.values()) / n}
-    return {"aggregate": agg, "per_query": per, "k": k}
 
 
 # ---- comparison (A vs B) ----
@@ -262,38 +209,6 @@ def format_comparison(cmp: dict) -> str:
     return "\n".join(L)
 
 
-# Render a similarity A/B (two scored Runs vs the top-5 gold) as a plain-text P@k / nDCG@k report.
-def format_similarity(label_a: str, sa: dict, label_b: str, sb: dict) -> str:
-    aa, ba = sa["aggregate"], sb["aggregate"]
-    k = aa["k"]
-    w = max(len(label_a), len(label_b), 7)
-    L = ["=" * 64,
-         f"SIMILARITY A/B  —  P@{k} / nDCG@{k} on {aa['n']} rough queries vs the top-{k} gold",
-         f"  A = {label_a}", f"  B = {label_b}", "=" * 64,
-         f"  {'metric':<12} {label_a:>{w}}   {label_b:>{w}}   {'B-A':>7}"]
-
-    # one metric row: A value, B value, signed delta.
-    def row(name, va, vb):
-        d = vb - va
-        arrow = "  " if abs(d) < 1e-9 else (" +" if d > 0 else " -")
-        return f"  {name:<12} {va:>{w}.3f}   {vb:>{w}.3f}   {arrow}{abs(d):.3f}"
-
-    L.append("  " + "-" * 60)
-    L.append(row(f"P@{k}", aa["p_at_k"], ba["p_at_k"]))
-    L.append(row(f"nDCG@{k}", aa["ndcg_at_k"], ba["ndcg_at_k"]))
-
-    # per-query breakdown (gold = how many relevant scenes that query has; 0 until the gold is built)
-    L.append("")
-    L.append(f"  {'qid':<16} {'gold':>4}  {'A P@'+str(k):>7} {'B P@'+str(k):>7}  {'A nDCG':>7} {'B nDCG':>7}")
-    for qid in sa["per_query"]:
-        pa = sa["per_query"][qid]
-        pb = sb["per_query"].get(qid, {})
-        L.append(f"  {qid:<16} {pa['n_gold']:>4}  {pa['p_at_k']:>7.2f} {pb.get('p_at_k', 0.0):>7.2f}  "
-                 f"{pa['ndcg_at_k']:>7.2f} {pb.get('ndcg_at_k', 0.0):>7.2f}")
-    L.append("=" * 64)
-    return "\n".join(L)
-
-
 # ---- driver: produce a Run from the unified search() ----
 
 # ** MAIN ** — every A/B mode runs through here
@@ -371,30 +286,6 @@ def _soft_axis(axis: str, value: float = 1.0) -> dict:
     return {}
 
 
-# ** MAIN ** — the Phase-11 similarity A/B drives rough queries through here
-# Drive the read path over the ROUGH queries -> a Run (same shape as run_search). Each query goes through
-# query.run (the app's front door), so `use_sliders` routes that query's OWN intuition tones/prose/dialogue
-# WORDS through query.py's word->coord (off = semantic only) — the "semantic vs + sliders" A/B.
-def run_rough(client, queries: list[dict], *, use_sliders: bool = False,
-              combine: str = "sum", normalize: str | None = "zscore", limit: int = 10) -> dict:
-    import query
-    run: dict[str, list] = {}
-    for e in queries:
-        soft = {f: e[f] for f in ("tones", "prose", "dialogue")
-                if use_sliders and e.get(f) is not None}       # this query's own sliders (words), or none
-        try:
-            pts = query.run(client, e["summary"], limit=limit,   # front door: word->coord + unified search
-                            combine=combine, normalize=normalize, **soft)
-        except Exception as ex:
-            print(f"[evals] {e['id']}: {type(ex).__name__}: {ex}")
-            run[e["id"]] = []
-            continue
-        run[e["id"]] = [{"scene_id": p.payload.get("scene_id"),
-                         "book_id": p.payload.get("book_id"),
-                         "score": p.score} for p in pts]
-    return run
-
-
 # ---- scene-target auto-labeling (fills gold's target_scene_id so rank-1 can be graded at the SCENE level) ----
 
 # Auto-label each query's target scene: rank-1 WITHIN its book under the default blend. Writes target_scene_id/
@@ -460,24 +351,6 @@ def _label_scenes_cli(gold_path: str | None, normalize: str | None) -> None:
               f"{e.get('target_scene_summary')}")
 
 
-# CLI helper for --mode similarity: run the rough queries semantic-only vs + intuition sliders, score both
-# against the frozen top-5 gold (P@5 / nDCG@5), print the A/B. The product-goal benchmark (Phase 11).
-def _similarity_cli(args) -> None:
-    import search
-    rough = load_rough(args.rough)
-    sim_gold = load_similarity_gold(args.sim_gold)
-    nrm = _norm_arg(args.normalize)
-    client = search.open_client()
-    try:
-        run_a = run_rough(client, rough, use_sliders=False, combine=args.combine, normalize=nrm, limit=args.limit)  # semantic only
-        run_b = run_rough(client, rough, use_sliders=True, combine=args.combine, normalize=nrm, limit=args.limit)   # + intuition sliders
-    finally:
-        client.close()
-    sa = score_similarity(run_a, sim_gold, k=5)
-    sb = score_similarity(run_b, sim_gold, k=5)
-    print(format_similarity("semantic_only", sa, "+sliders", sb))
-
-
 # CLI entry: parse args, run the chosen A/B mode, print the report. (Per-field-weight tuning retired, D3.)
 def main():
     import argparse
@@ -485,11 +358,10 @@ def main():
     ap = argparse.ArgumentParser(
         description="A/B two read-path configs on the gold set.")
     ap.add_argument("--mode", default="norm",
-                    choices=("norm", "lift", "flavor", "combine", "soft", "similarity"),
+                    choices=("norm", "lift", "flavor", "combine", "soft"),
                     help="norm: A/B normalize (--a vs --b). lift: summary-only vs summary+frame. "
                          "flavor: what-happens+frame vs + descriptors. combine: max-blend vs sum. "
-                         "soft: semantic fixed, one slider (--axis) off vs on. similarity: rough queries, "
-                         "semantic-only vs + intuition sliders, scored P@5/nDCG@5 vs the top-5 gold.")
+                         "soft: semantic fixed, one slider (--axis) off vs on.")
     ap.add_argument("--axis", default="tones", choices=("prose", "dialogue", "tones"),
                     help="mode=soft: which soft slider to move (the other runs leaves it unset = inert)")
     ap.add_argument("--value", type=float, default=1.0,
@@ -502,15 +374,9 @@ def main():
                     help="vector-blend combine held fixed for lift/flavor (sum=additive DEFAULT holds the 0b gold, max=greatest single channel)")
     ap.add_argument("--limit", type=int, default=10, help="results retrieved per query")
     ap.add_argument("--gold", default=None, help="path to a gold query json (default: webtest gold)")
-    ap.add_argument("--rough", default=None, help="mode=similarity: path to the rough query json (default: webtest gold)")
-    ap.add_argument("--sim-gold", default=None, help="mode=similarity: path to the top-5 similarity gold (default: webtest gold)")
     ap.add_argument("--label-scenes", action="store_true",
                     help="auto-label each gold query's target_scene_id (rank-1 in-book, default blend) and write it back")
     args = ap.parse_args()
-
-    if args.mode == "similarity":                              # rough queries + top-5 gold, its own P@5/nDCG@5 path
-        _similarity_cli(args)
-        return
 
     queries, gold = load_gold(args.gold)                       # gold entries + judgments
 
