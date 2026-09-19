@@ -294,16 +294,24 @@ SOFT_PREFETCH = 200
 
 
 # ** LOCKED **
-# Resample the query tone curve onto m candidate moments: linear-interp each [v,d,i] axis at u = j/(m-1); a 1-point query is flat, a 1-moment candidate samples the curve's midpoint.
+# Resample the query tone curve onto m candidate moments: linear-interp each [v,d,i] axis at u = j/(m-1); a 1-point query is flat, a 1-moment candidate samples the curve's midpoint. An axis left None (a query that specified only some axes, e.g. an intensity-only arc) stays None all the way through.
 def resample(tones, m: int) -> list:
     k = len(tones)
+
+    def keep(x):                                            # an unspecified axis is None; a specified one is a float
+        return None if x is None else float(x)
+
     if k == 1:
-        return [[float(a) for a in tones[0]] for _ in range(m)]
+        return [[keep(a) for a in tones[0]] for _ in range(m)]
 
     def at(u: float) -> list:                               # sample the k-point curve at u in [0,1]
         x = u * (k - 1)
         lo = int(np.floor(x)); hi = min(lo + 1, k - 1); f = x - lo
-        return [float(tones[lo][a]) * (1 - f) + float(tones[hi][a]) * f for a in range(3)]
+        out = []
+        for a in range(3):                                  # interpolate an axis only when BOTH ends are specified
+            la, ha = tones[lo][a], tones[hi][a]
+            out.append(None if (la is None or ha is None) else float(la) * (1 - f) + float(ha) * f)
+        return out
 
     if m == 1:
         return [at(0.5)]                                    # one moment -> the curve's single midpoint summary
@@ -311,15 +319,21 @@ def resample(tones, m: int) -> list:
 
 
 # ** LOCKED **
-# Mean over positions of the per-axis-weighted Euclidean distance between two m×3 curves (each in [0,1]); result in [0,1].
+# Mean over positions of the per-axis-weighted Euclidean distance between two curves; result in [0,1]. A query axis
+# left None (unspecified — e.g. an intensity-only arc gives i but no v/d) is SKIPPED and the weights renormalize over
+# the axes the query did specify, so an unspecified axis neither rewards nor punishes (same rule soft_penalty uses).
 def curve_dist(U: list, S: list) -> float:
     if not U:
         return 0.0
-    wsum = CURVE_WV + CURVE_WD + CURVE_WI
+    W = (CURVE_WV, CURVE_WD, CURVE_WI)
     acc = 0.0
     for u, s in zip(U, S):
-        d2 = CURVE_WV * (u[0] - s[0]) ** 2 + CURVE_WD * (u[1] - s[1]) ** 2 + CURVE_WI * (u[2] - s[2]) ** 2
-        acc += (d2 / wsum) ** 0.5
+        d2 = wsum = 0.0
+        for a in range(3):
+            if u[a] is None:                                # query didn't specify this axis -> ignore it
+                continue
+            d2 += W[a] * (u[a] - s[a]) ** 2; wsum += W[a]
+        acc += (d2 / wsum) ** 0.5 if wsum else 0.0
     return acc / len(U)
 
 

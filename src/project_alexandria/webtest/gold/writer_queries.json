@@ -1,0 +1,2920 @@
+{
+ "_about": "Writer-realistic gold: what a writer actually inputs — summary + descriptors + pov/tense, plus (similar/ambiguous) an intensity ARC classified from the target scene's real vdi_curve. NO facets (subject/verb/object/svos). 3 variants per scene: similar (detailed), ambiguous (general language, same plot), sparse (general language, 1-2 major beats, no arc). 55 scenes x 3 = 165 queries. Target = target_scene_id.",
+ "test_queries": [
+  {
+   "id": "w-103-105-similar",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "To keep the engines burning, a traveler buys the very steamship he sails on and feeds its decks and cabins into the furnaces.",
+   "descriptors": [
+    "audacious",
+    "ruthless",
+    "calculated"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-105",
+   "target_scene_summary": "A determined traveler buys a steamship from its captain, then systematically dismantles and burns the vessel for fuel to maintain speed toward a critical deadline.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-105-ambiguous",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "Out of fuel and out of time, a traveler feeds the very vessel beneath him to the fires to keep moving.",
+   "descriptors": [
+    "audacious",
+    "ruthless",
+    "calculated"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-105",
+   "target_scene_summary": "A determined traveler buys a steamship from its captain, then systematically dismantles and burns the vessel for fuel to maintain speed toward a critical deadline.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-105-sparse",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A man burns his own ship for fuel to reach a deadline.",
+   "descriptors": [
+    "audacious",
+    "ruthless",
+    "calculated"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-105",
+   "target_scene_summary": "A determined traveler buys a steamship from its captain, then systematically dismantles and burns the vessel for fuel to maintain speed toward a critical deadline."
+  },
+  {
+   "id": "w-1342-47-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A proud gentleman proposes marriage while insulting the woman's family, and she indignantly refuses him.",
+   "descriptors": [
+    "proud",
+    "tense",
+    "insulted"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-47",
+   "target_scene_summary": "A spirited young woman repeatedly rejects a pompous suitor who refuses to accept her refusal, insisting she is merely playing coy, until she withdraws in frustrated silence.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-47-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "A proud man confesses his love in terms so insulting that the woman refuses him outright.",
+   "descriptors": [
+    "proud",
+    "tense",
+    "insulted"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-47",
+   "target_scene_summary": "A spirited young woman repeatedly rejects a pompous suitor who refuses to accept her refusal, insisting she is merely playing coy, until she withdraws in frustrated silence.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-47-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A woman rejects an arrogant suitor's proposal.",
+   "descriptors": [
+    "proud",
+    "tense",
+    "insulted"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-47",
+   "target_scene_summary": "A spirited young woman repeatedly rejects a pompous suitor who refuses to accept her refusal, insisting she is merely playing coy, until she withdraws in frustrated silence."
+  },
+  {
+   "id": "w-1661-82-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "Waiting in the dark of a locked bedroom, a detective lashes at a venomous snake creeping down a bell-rope and drives it back to kill its master.",
+   "descriptors": [
+    "horrifying",
+    "climactic",
+    "shocking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-82",
+   "target_scene_summary": "Two investigators endure a tense night vigil, confront a deadly snake, and discover the villain dead by his own weapon.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-82-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "Waiting in the dark, an investigator beats back the silent deadly thing sent to kill and turns it on the one who loosed it.",
+   "descriptors": [
+    "horrifying",
+    "climactic",
+    "shocking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-82",
+   "target_scene_summary": "Two investigators endure a tense night vigil, confront a deadly snake, and discover the villain dead by his own weapon.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-82-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "Two men keep watch at night and a snake kills a schemer.",
+   "descriptors": [
+    "horrifying",
+    "climactic",
+    "shocking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-82",
+   "target_scene_summary": "Two investigators endure a tense night vigil, confront a deadly snake, and discover the villain dead by his own weapon."
+  },
+  {
+   "id": "w-2147-125-similar",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "An obsessive painter finishes a portrait so lifelike that, turning to his young bride, he finds she has died as the picture drained her life.",
+   "descriptors": [
+    "uncanny",
+    "fatal",
+    "haunting"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-125",
+   "target_scene_summary": "A painter obsessed with capturing his young bride's likeness works tirelessly on her portrait in a dark turret chamber, unaware that each brushstroke drains her life until the final touch completes the masterpiece and reveals her death.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-2147-125-ambiguous",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "An artist perfects his portrait only to turn and find the living model has faded into death.",
+   "descriptors": [
+    "uncanny",
+    "fatal",
+    "haunting"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-125",
+   "target_scene_summary": "A painter obsessed with capturing his young bride's likeness works tirelessly on her portrait in a dark turret chamber, unaware that each brushstroke drains her life until the final touch completes the masterpiece and reveals her death.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-2147-125-sparse",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A painter's obsession finishes a portrait as his wife dies.",
+   "descriptors": [
+    "uncanny",
+    "fatal",
+    "haunting"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-125",
+   "target_scene_summary": "A painter obsessed with capturing his young bride's likeness works tirelessly on her portrait in a dark turret chamber, unaware that each brushstroke drains her life until the final touch completes the masterpiece and reveals her death."
+  },
+  {
+   "id": "w-215-16-similar",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A sled dog fights his rival lead dog in a moonlit ring of onlookers and kills him to seize command of the team.",
+   "descriptors": [
+    "primal",
+    "savage",
+    "triumphant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-16",
+   "target_scene_summary": "An exhausted sled dog endures a mad dog's pursuit and a rival's attack, then sparks a covert mutiny that unravels the team's discipline.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-16-ambiguous",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "A creature at last turns on the rival that has long tormented it and destroys him to claim the top place.",
+   "descriptors": [
+    "primal",
+    "savage",
+    "triumphant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-16",
+   "target_scene_summary": "An exhausted sled dog endures a mad dog's pursuit and a rival's attack, then sparks a covert mutiny that unravels the team's discipline.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-16-sparse",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A sled dog defeats its rival for dominance of the pack.",
+   "descriptors": [
+    "primal",
+    "savage",
+    "triumphant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-16",
+   "target_scene_summary": "An exhausted sled dog endures a mad dog's pursuit and a rival's attack, then sparks a covert mutiny that unravels the team's discipline."
+  },
+  {
+   "id": "w-2701-85-similar",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A captain nails a gold coin to the mast and swears his whole crew to hunt down one particular white whale.",
+   "descriptors": [
+    "obsessive",
+    "fervent",
+    "fierce"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-85",
+   "target_scene_summary": "A captain reveals a white whale took his leg, declares a hunt for that whale, overcomes his first mate's objections, and secures the crew's allegiance.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2701-85-ambiguous",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "A captain fixes a coin where all can see and binds his crew by oath to the pursuit that possesses him.",
+   "descriptors": [
+    "obsessive",
+    "fervent",
+    "fierce"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-85",
+   "target_scene_summary": "A captain reveals a white whale took his leg, declares a hunt for that whale, overcomes his first mate's objections, and secures the crew's allegiance.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2701-85-sparse",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A captain rallies his crew to hunt a white whale.",
+   "descriptors": [
+    "obsessive",
+    "fervent",
+    "fierce"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-85",
+   "target_scene_summary": "A captain reveals a white whale took his leg, declares a hunt for that whale, overcomes his first mate's objections, and secures the crew's allegiance."
+  },
+  {
+   "id": "w-4300-167-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "After a snarling nationalist hurls a biscuit tin at a Jewish man leaving a pub, the moment swells into a mock-apocalyptic catastrophe.",
+   "descriptors": [
+    "absurd",
+    "mock-heroic",
+    "chaotic"
+   ],
+   "pov": "third",
+   "tense": "present",
+   "target_scene_id": "4300-167",
+   "target_scene_summary": "In a Dublin pub, a circle of men trades anti-Semitic slurs about an absent Jewish acquaintance, dissects his lineage and dead son, then orders drinks.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-4300-167-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "A furious man hurls a heavy object after a fleeing outsider, and the moment swells into grotesque spectacle.",
+   "descriptors": [
+    "absurd",
+    "mock-heroic",
+    "chaotic"
+   ],
+   "pov": "third",
+   "tense": "present",
+   "target_scene_id": "4300-167",
+   "target_scene_summary": "In a Dublin pub, a circle of men trades anti-Semitic slurs about an absent Jewish acquaintance, dissects his lineage and dead son, then orders drinks.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-4300-167-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "Men in a bar mock an absent acquaintance.",
+   "descriptors": [
+    "absurd",
+    "mock-heroic",
+    "chaotic"
+   ],
+   "pov": "third",
+   "tense": "present",
+   "target_scene_id": "4300-167",
+   "target_scene_summary": "In a Dublin pub, a circle of men trades anti-Semitic slurs about an absent Jewish acquaintance, dissects his lineage and dead son, then orders drinks."
+  },
+  {
+   "id": "w-64317-7-similar",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A man stands alone on his lawn at night and stretches his arms toward a small green light glowing across the water.",
+   "descriptors": [
+    "yearning",
+    "haunting",
+    "solitary"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-7",
+   "target_scene_summary": "A disturbed visitor drives home through the summer night, settles on his lawn to watch the darkness, and glimpses a solitary neighbor stretching toward a distant green light across the water before the figure vanishes into shadow.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-64317-7-ambiguous",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "Alone in the dark, a man reaches out toward a faint, distant glow that holds everything he longs for.",
+   "descriptors": [
+    "yearning",
+    "haunting",
+    "solitary"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-7",
+   "target_scene_summary": "A disturbed visitor drives home through the summer night, settles on his lawn to watch the darkness, and glimpses a solitary neighbor stretching toward a distant green light across the water before the figure vanishes into shadow.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-64317-7-sparse",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A man watches a stranger reach toward a distant light across the water.",
+   "descriptors": [
+    "yearning",
+    "haunting",
+    "solitary"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-7",
+   "target_scene_summary": "A disturbed visitor drives home through the summer night, settles on his lawn to watch the darkness, and glimpses a solitary neighbor stretching toward a distant green light across the water before the figure vanishes into shadow."
+  },
+  {
+   "id": "w-84-23-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A scientist at last animates the creature he has built, then recoils in horror and flees the laboratory.",
+   "descriptors": [
+    "horrified",
+    "nightmarish",
+    "frantic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-23",
+   "target_scene_summary": "A creator brings an artificial being to life, recoils, flees, and suffers a nightmare before confronting the creature at the bedside.",
+   "arc": "high"
+  },
+  {
+   "id": "w-84-23-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "Having finally given life to the thing he built, its maker is seized with horror and flees from it.",
+   "descriptors": [
+    "horrified",
+    "nightmarish",
+    "frantic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-23",
+   "target_scene_summary": "A creator brings an artificial being to life, recoils, flees, and suffers a nightmare before confronting the creature at the bedside.",
+   "arc": "high"
+  },
+  {
+   "id": "w-84-23-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A man gives life to a creature and recoils in horror.",
+   "descriptors": [
+    "horrified",
+    "nightmarish",
+    "frantic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-23",
+   "target_scene_summary": "A creator brings an artificial being to life, recoils, flees, and suffers a nightmare before confronting the creature at the bedside."
+  },
+  {
+   "id": "w-98-196-similar",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 1,
+   "variant": "similar",
+   "summary": "A man secretly changes clothes with a condemned prisoner in his cell so that he can go to the blade in the prisoner's place.",
+   "descriptors": [
+    "sacrificial",
+    "desperate",
+    "ingenious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-196",
+   "target_scene_summary": "A condemned prisoner in a revolutionary prison reconciles himself to death, composes final letters to his wife and father, endures a night of fitful dreams and waking obsession with the execution machine, and steadies his mind as the fatal hour draws near.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-98-196-ambiguous",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 1,
+   "variant": "ambiguous",
+   "summary": "In a cell, one man quietly takes another's place, trading his own life for the condemned man's.",
+   "descriptors": [
+    "sacrificial",
+    "desperate",
+    "ingenious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-196",
+   "target_scene_summary": "A condemned prisoner in a revolutionary prison reconciles himself to death, composes final letters to his wife and father, endures a night of fitful dreams and waking obsession with the execution machine, and steadies his mind as the fatal hour draws near.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-98-196-sparse",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 1,
+   "variant": "sparse",
+   "summary": "A condemned prisoner awaits execution and steadies himself.",
+   "descriptors": [
+    "sacrificial",
+    "desperate",
+    "ingenious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-196",
+   "target_scene_summary": "A condemned prisoner in a revolutionary prison reconciles himself to death, composes final letters to his wife and father, endures a night of fitful dreams and waking obsession with the execution machine, and steadies his mind as the fatal hour draws near."
+  },
+  {
+   "id": "w-103-34-similar",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A servant hides among the flames of a funeral pyre and, posing as the dead husband risen, snatches the drugged widow away.",
+   "descriptors": [
+    "audacious",
+    "clever",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-34",
+   "target_scene_summary": "A disguised rescuer infiltrates a ritual sacrifice, feigns a resurrected husband to seize the intended victim, and flees with her amid the crowd's terror.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-34-ambiguous",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "Amid the flames of a sacrifice, a servant's bold deception carries a doomed woman to safety.",
+   "descriptors": [
+    "audacious",
+    "clever",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-34",
+   "target_scene_summary": "A disguised rescuer infiltrates a ritual sacrifice, feigns a resurrected husband to seize the intended victim, and flees with her amid the crowd's terror.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-34-sparse",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A man rescues a woman from being sacrificed and escapes with her.",
+   "descriptors": [
+    "audacious",
+    "clever",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-34",
+   "target_scene_summary": "A disguised rescuer infiltrates a ritual sacrifice, feigns a resurrected husband to seize the intended victim, and flees with her amid the crowd's terror."
+  },
+  {
+   "id": "w-1342-29-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A pompous clergyman proposes marriage with a solemn list of practical reasons and refuses to believe her refusal.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-29",
+   "target_scene_summary": "The cousin's pompous letter is read in full, detailing his patronage by a noblewoman and proposing a weeklong visit, while the family reacts with mockery, contempt, dismissal, and grudging acceptance.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1342-29-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "A pompous clergyman proposes marriage with a solemn list of practical reasons and refuses to believe her refusal.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-29",
+   "target_scene_summary": "The cousin's pompous letter is read in full, detailing his patronage by a noblewoman and proposing a weeklong visit, while the family reacts with mockery, contempt, dismissal, and grudging acceptance.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1342-29-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A family mocks a pompous cousin's letter.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-29",
+   "target_scene_summary": "The cousin's pompous letter is read in full, detailing his patronage by a noblewoman and proposing a weeklong visit, while the family reacts with mockery, contempt, dismissal, and grudging acceptance."
+  },
+  {
+   "id": "w-1342-44-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A self-important man offers marriage as a list of sensible arrangements and refuses to accept her no.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-44",
+   "target_scene_summary": "A mortified young woman endures her family's public foolishness at a country ball while an unwanted suitor clings to her side and a proud gentleman keeps his distance.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1342-44-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "A self-important man offers marriage as a list of sensible arrangements and refuses to accept her no.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-44",
+   "target_scene_summary": "A mortified young woman endures her family's public foolishness at a country ball while an unwanted suitor clings to her side and a proud gentleman keeps his distance.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1342-44-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A woman is embarrassed by her family at a dance.",
+   "descriptors": [
+    "absurd",
+    "comic",
+    "pompous"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-44",
+   "target_scene_summary": "A mortified young woman endures her family's public foolishness at a country ball while an unwanted suitor clings to her side and a proud gentleman keeps his distance."
+  },
+  {
+   "id": "w-1661-70-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A detective slits open a Christmas goose and produces a great blue jewel that a thief had hidden inside the bird.",
+   "descriptors": [
+    "dramatic",
+    "anticipatory",
+    "revealing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-70",
+   "target_scene_summary": "A cornered thief recounts how he hid a stolen jewel in a goose, lost it in a mix-up, and failed to recover it before the trail went cold.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1661-70-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "An investigator draws a precious stone from the unlikeliest hiding place — inside a bird.",
+   "descriptors": [
+    "dramatic",
+    "anticipatory",
+    "revealing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-70",
+   "target_scene_summary": "A cornered thief recounts how he hid a stolen jewel in a goose, lost it in a mix-up, and failed to recover it before the trail went cold.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1661-70-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A thief admits hiding a stolen gem inside a goose.",
+   "descriptors": [
+    "dramatic",
+    "anticipatory",
+    "revealing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-70",
+   "target_scene_summary": "A cornered thief recounts how he hid a stolen jewel in a goose, lost it in a mix-up, and failed to recover it before the trail went cold."
+  },
+  {
+   "id": "w-2147-82-similar",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A sailor confesses that he watched his escaped ape climb through a window and butcher two women in a locked room.",
+   "descriptors": [
+    "gruesome",
+    "nightmarish",
+    "bloody"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-82",
+   "target_scene_summary": "A mariner's captive ape escapes with a razor, flees through night streets, scales a lightning rod into a bedroom, and savagely kills two women while the owner watches from outside.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2147-82-ambiguous",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "A witness tells how a savage animal climbs in and slaughters two women behind a sealed room.",
+   "descriptors": [
+    "gruesome",
+    "nightmarish",
+    "bloody"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-82",
+   "target_scene_summary": "A mariner's captive ape escapes with a razor, flees through night streets, scales a lightning rod into a bedroom, and savagely kills two women while the owner watches from outside.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2147-82-sparse",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "An escaped ape murders two women.",
+   "descriptors": [
+    "gruesome",
+    "nightmarish",
+    "bloody"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2147-82",
+   "target_scene_summary": "A mariner's captive ape escapes with a razor, flees through night streets, scales a lightning rod into a bedroom, and savagely kills two women while the owner watches from outside."
+  },
+  {
+   "id": "w-215-41-similar",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A devoted dog drags a thousand-pound sled from a frozen standstill to win a wager for the master he loves.",
+   "descriptors": [
+    "triumphant",
+    "loving",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-41",
+   "target_scene_summary": "A devoted master whispers a challenge to his powerful sled dog who then strains against an immense frozen load and hauls it a measured distance to win a wager after which the master refuses a fortune for the animal and embraces him fiercely.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-215-41-ambiguous",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "Straining with all its strength, a devoted animal drags an impossible burden to prove its love.",
+   "descriptors": [
+    "triumphant",
+    "loving",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-41",
+   "target_scene_summary": "A devoted master whispers a challenge to his powerful sled dog who then strains against an immense frozen load and hauls it a measured distance to win a wager after which the master refuses a fortune for the animal and embraces him fiercely.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-215-41-sparse",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A dog hauls an enormous load to win a wager.",
+   "descriptors": [
+    "triumphant",
+    "loving",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-41",
+   "target_scene_summary": "A devoted master whispers a challenge to his powerful sled dog who then strains against an immense frozen load and hauls it a measured distance to win a wager after which the master refuses a fortune for the animal and embraces him fiercely."
+  },
+  {
+   "id": "w-2701-307-similar",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "The great white whale smashes the ship, and the captain, hurling his last harpoon, is caught by the line and dragged under as all hands go down.",
+   "descriptors": [
+    "tragic",
+    "final",
+    "solemn"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-307",
+   "target_scene_summary": "A monomaniacal captain strikes his white whale nemesis, is dragged under by the line, and his ship sinks in a vortex claiming the crew, while a harpooneer nails the flag to the sinking mast as a bird is caught in the fabric, and the sea rolls on.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-2701-307-ambiguous",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "In the final reckoning the hunted turns on the ship, and the captain is dragged down with his prey as all is lost.",
+   "descriptors": [
+    "tragic",
+    "final",
+    "solemn"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-307",
+   "target_scene_summary": "A monomaniacal captain strikes his white whale nemesis, is dragged under by the line, and his ship sinks in a vortex claiming the crew, while a harpooneer nails the flag to the sinking mast as a bird is caught in the fabric, and the sea rolls on.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-2701-307-sparse",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A captain is dragged under and his ship goes down.",
+   "descriptors": [
+    "tragic",
+    "final",
+    "solemn"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-307",
+   "target_scene_summary": "A monomaniacal captain strikes his white whale nemesis, is dragged under by the line, and his ship sinks in a vortex claiming the crew, while a harpooneer nails the flag to the sinking mast as a bird is caught in the fabric, and the sea rolls on."
+  },
+  {
+   "id": "w-4300-0-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "On a seaside tower a mocking medical student lifts his shaving bowl and performs a blasphemous parody of the Mass over his sullen housemate.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-0",
+   "target_scene_summary": "A medical student stages a mock mass on a tower roof, shaves while exchanging sharp banter with a younger companion, accuses him of refusing his dying mother's plea, and presses a false reconciliation as they overlook the bay.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-4300-0-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "On a seaside tower a mocking medical student lifts his shaving bowl and performs a blasphemous parody of the Mass over his sullen housemate.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-0",
+   "target_scene_summary": "A medical student stages a mock mass on a tower roof, shaves while exchanging sharp banter with a younger companion, accuses him of refusing his dying mother's plea, and presses a false reconciliation as they overlook the bay.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-4300-0-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A man stages a mocking ritual and taunts his companion.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-0",
+   "target_scene_summary": "A medical student stages a mock mass on a tower roof, shaves while exchanging sharp banter with a younger companion, accuses him of refusing his dying mother's plea, and presses a false reconciliation as they overlook the bay."
+  },
+  {
+   "id": "w-4300-91-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "High on a tower a mocking young man turns his morning shave into an irreverent parody of sacred ritual.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-91",
+   "target_scene_summary": "A flippant young man disrupts a library gathering with blasphemous parody, then joins scholars debating literary theories before reading a telegram aloud and warning a rival poet of a murder threat.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-4300-91-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "High on a tower a mocking young man turns his morning shave into an irreverent parody of sacred ritual.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-91",
+   "target_scene_summary": "A flippant young man disrupts a library gathering with blasphemous parody, then joins scholars debating literary theories before reading a telegram aloud and warning a rival poet of a murder threat.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-4300-91-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A flippant young man disrupts scholars debating literature.",
+   "descriptors": [
+    "irreverent",
+    "blasphemous",
+    "theatrical"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-91",
+   "target_scene_summary": "A flippant young man disrupts a library gathering with blasphemous parody, then joins scholars debating literary theories before reading a telegram aloud and warning a rival poet of a murder threat."
+  },
+  {
+   "id": "w-64317-32-similar",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A newly rich man tosses piles of beautiful imported shirts before a former lover until she breaks down weeping into them.",
+   "descriptors": [
+    "overwhelming",
+    "bittersweet",
+    "tender"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-32",
+   "target_scene_summary": "A wealthy man guides a narrator and a woman through his opulent mansion, culminating in a display of fine shirts that overwhelms the woman with emotion.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-32-ambiguous",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "Amid the beautiful things his wealth has gathered, a man watches a woman he once lost dissolve into tears.",
+   "descriptors": [
+    "overwhelming",
+    "bittersweet",
+    "tender"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-32",
+   "target_scene_summary": "A wealthy man guides a narrator and a woman through his opulent mansion, culminating in a display of fine shirts that overwhelms the woman with emotion.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-32-sparse",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A rich man's display of fine shirts overwhelms a woman.",
+   "descriptors": [
+    "overwhelming",
+    "bittersweet",
+    "tender"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-32",
+   "target_scene_summary": "A wealthy man guides a narrator and a woman through his opulent mansion, culminating in a display of fine shirts that overwhelms the woman with emotion."
+  },
+  {
+   "id": "w-84-98-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A husband finds his bride strangled on their wedding night, the killer having struck while he searched the house.",
+   "descriptors": [
+    "devastating",
+    "shattering",
+    "agonizing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-98",
+   "target_scene_summary": "Newlyweds embark on a lake voyage shadowed by the bride's dark presentiment, but night brings a storm, the groom's armed vigil, the bride's murder by his monstrous foe, and the monster's escape into the waters.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-84-98-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "On the night meant to be happiest, a man finds his new wife dead at an enemy's hand.",
+   "descriptors": [
+    "devastating",
+    "shattering",
+    "agonizing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-98",
+   "target_scene_summary": "Newlyweds embark on a lake voyage shadowed by the bride's dark presentiment, but night brings a storm, the groom's armed vigil, the bride's murder by his monstrous foe, and the monster's escape into the waters.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-84-98-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "A monster murders a bride on her wedding night.",
+   "descriptors": [
+    "devastating",
+    "shattering",
+    "agonizing"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-98",
+   "target_scene_summary": "Newlyweds embark on a lake voyage shadowed by the bride's dark presentiment, but night brings a storm, the groom's armed vigil, the bride's murder by his monstrous foe, and the monster's escape into the waters."
+  },
+  {
+   "id": "w-98-57-similar",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 2,
+   "variant": "similar",
+   "summary": "A nobleman's speeding carriage runs down a child in the street, and he coldly tosses a gold coin to the grieving father as payment.",
+   "descriptors": [
+    "callous",
+    "brutal",
+    "aristocratic"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-57",
+   "target_scene_summary": "A wine vendor consoles the bereaved father with fatalistic philosophy; the aristocrat throws another coin, but a coin flies back into his carriage, prompting threats of extermination, while a knitting woman meets his gaze unflinchingly as the procession passes.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-98-57-ambiguous",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 2,
+   "variant": "ambiguous",
+   "summary": "A great man's speeding carriage strikes down a poor child, and he answers the death with only a coin.",
+   "descriptors": [
+    "callous",
+    "brutal",
+    "aristocratic"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-57",
+   "target_scene_summary": "A wine vendor consoles the bereaved father with fatalistic philosophy; the aristocrat throws another coin, but a coin flies back into his carriage, prompting threats of extermination, while a knitting woman meets his gaze unflinchingly as the procession passes.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-98-57-sparse",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 2,
+   "variant": "sparse",
+   "summary": "An aristocrat tosses a coin after his carriage kills a child.",
+   "descriptors": [
+    "callous",
+    "brutal",
+    "aristocratic"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-57",
+   "target_scene_summary": "A wine vendor consoles the bereaved father with fatalistic philosophy; the aristocrat throws another coin, but a coin flies back into his carriage, prompting threats of extermination, while a knitting woman meets his gaze unflinchingly as the procession passes."
+  },
+  {
+   "id": "w-103-93-similar",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "As attackers overrun a speeding train, a servant crawls beneath the cars and uncouples the locomotive to save the passengers.",
+   "descriptors": [
+    "heroic",
+    "chaotic",
+    "daring"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-93",
+   "target_scene_summary": "Before the duel can begin, Sioux warriors attack the moving train, prompting a desperate battle until a servant detaches the engine and brings the cars to safety near a fort.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-103-93-ambiguous",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "Under sudden attack, one man risks himself beneath the racing cars to save all aboard.",
+   "descriptors": [
+    "heroic",
+    "chaotic",
+    "daring"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-93",
+   "target_scene_summary": "Before the duel can begin, Sioux warriors attack the moving train, prompting a desperate battle until a servant detaches the engine and brings the cars to safety near a fort.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-103-93-sparse",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "Attackers raid a moving train and a servant saves the cars.",
+   "descriptors": [
+    "heroic",
+    "chaotic",
+    "daring"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-93",
+   "target_scene_summary": "Before the duel can begin, Sioux warriors attack the moving train, prompting a desperate battle until a servant detaches the engine and brings the cars to safety near a fort."
+  },
+  {
+   "id": "w-1342-152-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "A young woman reads a letter revealing that the proud gentleman she rejected secretly paid to rescue her disgraced sister.",
+   "descriptors": [
+    "grateful",
+    "humbled",
+    "moved"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-152",
+   "target_scene_summary": "A young woman reads a letter revealing a proud gentleman secretly arranged a scandalous marriage for her sister, and she reflects on her past behavior toward him.",
+   "arc": "high"
+  },
+  {
+   "id": "w-1342-152-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "A letter reveals that the man she scorned had quietly undone her family's disgrace.",
+   "descriptors": [
+    "grateful",
+    "humbled",
+    "moved"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-152",
+   "target_scene_summary": "A young woman reads a letter revealing a proud gentleman secretly arranged a scandalous marriage for her sister, and she reflects on her past behavior toward him.",
+   "arc": "high"
+  },
+  {
+   "id": "w-1342-152-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A woman reads a letter revealing a proud man secretly saved her family.",
+   "descriptors": [
+    "grateful",
+    "humbled",
+    "moved"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-152",
+   "target_scene_summary": "A young woman reads a letter revealing a proud gentleman secretly arranged a scandalous marriage for her sister, and she reflects on her past behavior toward him."
+  },
+  {
+   "id": "w-1661-60-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "In a police cell a detective scrubs the paint from a filthy beggar's face, revealing the respectable gentleman reported missing.",
+   "descriptors": [
+    "shocking",
+    "revelatory",
+    "astonishing"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-60",
+   "target_scene_summary": "A detective party enters a prison cell, washes a sleeping prisoner's face, and reveals a missing gentleman beneath a beggar's disguise.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-60-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "In a cell an investigator wipes away a disguise, revealing that a wretch is really a respectable missing man.",
+   "descriptors": [
+    "shocking",
+    "revelatory",
+    "astonishing"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-60",
+   "target_scene_summary": "A detective party enters a prison cell, washes a sleeping prisoner's face, and reveals a missing gentleman beneath a beggar's disguise.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-60-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A missing gentleman is found beneath a beggar's disguise.",
+   "descriptors": [
+    "shocking",
+    "revelatory",
+    "astonishing"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-60",
+   "target_scene_summary": "A detective party enters a prison cell, washes a sleeping prisoner's face, and reveals a missing gentleman beneath a beggar's disguise."
+  },
+  {
+   "id": "w-2147-50-similar",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "Digging by the directions of a solved cipher, treasure hunters pry open a buried chest brimming with gold and jewels.",
+   "descriptors": [
+    "exhilarating",
+    "dazzling",
+    "triumphant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-50",
+   "target_scene_summary": "The party relocates the excavation site based on a corrected measurement, digs with growing anticipation, uncovers human remains and coins, then unearths a massive iron-bound chest filled with gold and jewels.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-2147-50-ambiguous",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "Following a decoded riddle, searchers break open a buried hoard of gold and jewels.",
+   "descriptors": [
+    "exhilarating",
+    "dazzling",
+    "triumphant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-50",
+   "target_scene_summary": "The party relocates the excavation site based on a corrected measurement, digs with growing anticipation, uncovers human remains and coins, then unearths a massive iron-bound chest filled with gold and jewels.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-2147-50-sparse",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "Treasure hunters dig up a chest of gold.",
+   "descriptors": [
+    "exhilarating",
+    "dazzling",
+    "triumphant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-50",
+   "target_scene_summary": "The party relocates the excavation site based on a corrected measurement, digs with growing anticipation, uncovers human remains and coins, then unearths a massive iron-bound chest filled with gold and jewels."
+  },
+  {
+   "id": "w-215-47-similar",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "A dog gone wild stalks and pulls down a great bull moose after days of relentless pursuit through the wilderness.",
+   "descriptors": [
+    "relentless",
+    "primordial",
+    "savage"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-47",
+   "target_scene_summary": "A relentless predator isolates a wounded bull moose from its herd and harries it without rest until the great beast collapses from exhaustion.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-47-ambiguous",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "After days of patient pursuit, a wild creature finally brings down the great beast it hunts.",
+   "descriptors": [
+    "relentless",
+    "primordial",
+    "savage"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-47",
+   "target_scene_summary": "A relentless predator isolates a wounded bull moose from its herd and harries it without rest until the great beast collapses from exhaustion.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-47-sparse",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A relentless dog runs down a moose over days until it collapses.",
+   "descriptors": [
+    "relentless",
+    "primordial",
+    "savage"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-47",
+   "target_scene_summary": "A relentless predator isolates a wounded bull moose from its herd and harries it without rest until the great beast collapses from exhaustion."
+  },
+  {
+   "id": "w-2701-45-similar",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "A sailor wakes at dawn in a shared inn bed to find the tattooed arm of a harpooneer stranger thrown over him like a quilt.",
+   "descriptors": [
+    "intimate",
+    "tender",
+    "wonder"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-45",
+   "target_scene_summary": "A sailor wakes at dawn to find his harpooneer companion ending a religious fast and argues against the practice as unhealthy nonsense, but the harpooneer counters with a tale of cannibal feasting and remains unconvinced, regarding the sailor with condescending compassion.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-2701-45-ambiguous",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "A traveler wakes to find a stranger's arm thrown over him in the shared bed, closer than he expected.",
+   "descriptors": [
+    "intimate",
+    "tender",
+    "wonder"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-45",
+   "target_scene_summary": "A sailor wakes at dawn to find his harpooneer companion ending a religious fast and argues against the practice as unhealthy nonsense, but the harpooneer counters with a tale of cannibal feasting and remains unconvinced, regarding the sailor with condescending compassion.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-2701-45-sparse",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A man argues with his companion over a religious fast.",
+   "descriptors": [
+    "intimate",
+    "tender",
+    "wonder"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-45",
+   "target_scene_summary": "A sailor wakes at dawn to find his harpooneer companion ending a religious fast and argues against the practice as unhealthy nonsense, but the harpooneer counters with a tale of cannibal feasting and remains unconvinced, regarding the sailor with condescending compassion."
+  },
+  {
+   "id": "w-4300-179-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "On the darkening beach a young woman leans back and displays herself for a watching stranger as fireworks burst overhead.",
+   "descriptors": [
+    "voyeuristic",
+    "dreamy",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-179",
+   "target_scene_summary": "During a beachside benediction a young woman becomes aware of a man's intense gaze on her body, maneuvers to display herself, feels her menstruation begin, and recognizes his worshipful desire fixed upon her.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-179-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "On a darkening shore a young woman offers herself to a stranger's gaze as lights burst overhead.",
+   "descriptors": [
+    "voyeuristic",
+    "dreamy",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-179",
+   "target_scene_summary": "During a beachside benediction a young woman becomes aware of a man's intense gaze on her body, maneuvers to display herself, feels her menstruation begin, and recognizes his worshipful desire fixed upon her.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-179-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A man watches a woman on a beach as fireworks burst.",
+   "descriptors": [
+    "voyeuristic",
+    "dreamy",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "4300-179",
+   "target_scene_summary": "During a beachside benediction a young woman becomes aware of a man's intense gaze on her body, maneuvers to display herself, feels her menstruation begin, and recognizes his worshipful desire fixed upon her."
+  },
+  {
+   "id": "w-64317-50-similar",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "In a stifling hotel room a jealous husband forces the confrontation, and his wife admits she loved both men.",
+   "descriptors": [
+    "devastating",
+    "tense",
+    "heartbreaking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-50",
+   "target_scene_summary": "Tom weaponizes intimate memories to prove Daisy's enduring attachment, shattering Gatsby's demand for total renunciation and prompting Daisy to admit she loved them both.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-50-ambiguous",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "Forced to choose between two men, a woman admits at last that her heart was never wholly one man's.",
+   "descriptors": [
+    "devastating",
+    "tense",
+    "heartbreaking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-50",
+   "target_scene_summary": "Tom weaponizes intimate memories to prove Daisy's enduring attachment, shattering Gatsby's demand for total renunciation and prompting Daisy to admit she loved them both.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-50-sparse",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "Two rivals force a woman to choose between them.",
+   "descriptors": [
+    "devastating",
+    "tense",
+    "heartbreaking"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-50",
+   "target_scene_summary": "Tom weaponizes intimate memories to prove Daisy's enduring attachment, shattering Gatsby's demand for total renunciation and prompting Daisy to admit she loved them both."
+  },
+  {
+   "id": "w-84-83-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "A maker tears apart the half-finished female creation while the creature it was meant for watches through the window.",
+   "descriptors": [
+    "violent",
+    "desperate",
+    "malignant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-83",
+   "target_scene_summary": "A creator destroys his unfinished second creature while his first creation watches, provoking the monster's vengeful despair.",
+   "arc": "high"
+  },
+  {
+   "id": "w-84-83-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "Unable to keep his terrible promise, a maker destroys his second creation as the first looks on.",
+   "descriptors": [
+    "violent",
+    "desperate",
+    "malignant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-83",
+   "target_scene_summary": "A creator destroys his unfinished second creature while his first creation watches, provoking the monster's vengeful despair.",
+   "arc": "high"
+  },
+  {
+   "id": "w-84-83-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "A creator destroys his second creature as the first looks on.",
+   "descriptors": [
+    "violent",
+    "desperate",
+    "malignant"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-83",
+   "target_scene_summary": "A creator destroys his unfinished second creature while his first creation watches, provoking the monster's vengeful despair."
+  },
+  {
+   "id": "w-98-21-similar",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 3,
+   "variant": "similar",
+   "summary": "In a gloomy garret a long-imprisoned man sits making shoes, white-haired and broken, barely knowing the daughter who has come for him.",
+   "descriptors": [
+    "haunting",
+    "pitiable",
+    "somber"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-21",
+   "target_scene_summary": "A wine-shop keeper and a visitor enter a dark garret where a white-haired former prisoner makes shoes, his mind shattered by long solitary confinement, and question him until he identifies himself only by his prison cell number.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-98-21-ambiguous",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 3,
+   "variant": "ambiguous",
+   "summary": "In a dim upper room a long-lost prisoner works mechanically at an old craft, scarcely knowing those come to reclaim him.",
+   "descriptors": [
+    "haunting",
+    "pitiable",
+    "somber"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-21",
+   "target_scene_summary": "A wine-shop keeper and a visitor enter a dark garret where a white-haired former prisoner makes shoes, his mind shattered by long solitary confinement, and question him until he identifies himself only by his prison cell number.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-98-21-sparse",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 3,
+   "variant": "sparse",
+   "summary": "Visitors find a broken old prisoner making shoes in a garret.",
+   "descriptors": [
+    "haunting",
+    "pitiable",
+    "somber"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-21",
+   "target_scene_summary": "A wine-shop keeper and a visitor enter a dark garret where a white-haired former prisoner makes shoes, his mind shattered by long solitary confinement, and question him until he identifies himself only by his prison cell number."
+  },
+  {
+   "id": "w-103-6-similar",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A precise gentleman calmly stakes a fortune on a wager to circle the whole globe within eighty days and departs that very night.",
+   "descriptors": [
+    "resolute",
+    "stoic",
+    "decisive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-6",
+   "target_scene_summary": "A composed gentleman claims the world can be circled in eighty days, details the route, dismisses every objection, and wagers his fortune on departing immediately to prove it.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-6-ambiguous",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A coolly precise man stakes a fortune on a seemingly impossible undertaking and departs at once.",
+   "descriptors": [
+    "resolute",
+    "stoic",
+    "decisive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-6",
+   "target_scene_summary": "A composed gentleman claims the world can be circled in eighty days, details the route, dismisses every objection, and wagers his fortune on departing immediately to prove it.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-103-6-sparse",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A man wagers he can travel around the world in eighty days.",
+   "descriptors": [
+    "resolute",
+    "stoic",
+    "decisive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-6",
+   "target_scene_summary": "A composed gentleman claims the world can be circled in eighty days, details the route, dismisses every objection, and wagers his fortune on departing immediately to prove it."
+  },
+  {
+   "id": "w-1342-39-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "At a country ball a haughty gentleman refuses to dance and dismisses a young woman as merely tolerable.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-39",
+   "target_scene_summary": "A gentleman and his sisters invite a family to a ball, favoring the eldest daughter, while a clergyman secures the heroine's first dances and rain traps the younger sisters indoors.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-39-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "At a country ball a haughty gentleman refuses to dance and dismisses a young woman as merely tolerable.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-39",
+   "target_scene_summary": "A gentleman and his sisters invite a family to a ball, favoring the eldest daughter, while a clergyman secures the heroine's first dances and rain traps the younger sisters indoors.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-39-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "Men at a ball debate whom to dance with.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-39",
+   "target_scene_summary": "A gentleman and his sisters invite a family to a ball, favoring the eldest daughter, while a clergyman secures the heroine's first dances and rain traps the younger sisters indoors."
+  },
+  {
+   "id": "w-1342-41-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "At a crowded dance a proud stranger coolly declines to partner a young woman, dismissing her worth.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-41",
+   "target_scene_summary": "A young woman accepts a dance with a proud gentleman, engages in a tense, silent, then verbally sparring partnership that turns to pointed references about a mutual acquaintance, ending in mutual dissatisfaction though the gentleman harbors a growing attraction.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-41-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "At a crowded dance a proud stranger coolly declines to partner a young woman, dismissing her worth.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-41",
+   "target_scene_summary": "A young woman accepts a dance with a proud gentleman, engages in a tense, silent, then verbally sparring partnership that turns to pointed references about a mutual acquaintance, ending in mutual dissatisfaction though the gentleman harbors a growing attraction.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-1342-41-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A woman trades barbs with a proud man while dancing.",
+   "descriptors": [
+    "haughty",
+    "cold",
+    "dismissive"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-41",
+   "target_scene_summary": "A young woman accepts a dance with a proud gentleman, engages in a tense, silent, then verbally sparring partnership that turns to pointed references about a mutual acquaintance, ending in mutual dissatisfaction though the gentleman harbors a growing attraction."
+  },
+  {
+   "id": "w-1661-12-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A red-haired pawnbroker is inspected for the exact colour of his hair and hired to copy out books for absurdly high pay.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-12",
+   "target_scene_summary": "A pawnbroker recounts to a consulting detective how his assistant led him to answer a newspaper advertisement for a league of red-headed men, joining a vast crowd of applicants at a city office.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-12-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A red-haired pawnbroker is inspected for the exact colour of his hair and hired to copy out books for absurdly high pay.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-12",
+   "target_scene_summary": "A pawnbroker recounts to a consulting detective how his assistant led him to answer a newspaper advertisement for a league of red-headed men, joining a vast crowd of applicants at a city office.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1661-12-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A pawnbroker answers a strange advertisement for red-headed men.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1661-12",
+   "target_scene_summary": "A pawnbroker recounts to a consulting detective how his assistant led him to answer a newspaper advertisement for a league of red-headed men, joining a vast crowd of applicants at a city office."
+  },
+  {
+   "id": "w-1661-13-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A man is taken on, purely for a quirk of his appearance, to do pointless work at generous pay.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-13",
+   "target_scene_summary": "A red-haired applicant joins a crowd of rivals, passes a bizarre physical inspection, accepts oddly restrictive copying work, and labors for weeks before the position vanishes without warning.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1661-13-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A man is taken on, purely for a quirk of his appearance, to do pointless work at generous pay.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-13",
+   "target_scene_summary": "A red-haired applicant joins a crowd of rivals, passes a bizarre physical inspection, accepts oddly restrictive copying work, and labors for weeks before the position vanishes without warning.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-1661-13-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A man is hired for pointless copying work that abruptly stops.",
+   "descriptors": [
+    "surprising",
+    "lucky",
+    "gratifying"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-13",
+   "target_scene_summary": "A red-haired applicant joins a crowd of rivals, passes a bizarre physical inspection, accepts oddly restrictive copying work, and labors for weeks before the position vanishes without warning."
+  },
+  {
+   "id": "w-2147-36-similar",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A balloonist plummets out of the sky and crashes his craft among a city of small, silent, grinning moon-dwellers.",
+   "descriptors": [
+    "surreal",
+    "frantic",
+    "vertiginous"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-36",
+   "target_scene_summary": "A balloonist plummets toward the moon, discovers a breathable atmosphere too thin to slow his fall, jettisons all cargo and cuts loose his car before crashing into a city of silent, staring beings.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-2147-36-ambiguous",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A traveler of the skies plunges from a great height and comes to rest among a strange silent people.",
+   "descriptors": [
+    "surreal",
+    "frantic",
+    "vertiginous"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-36",
+   "target_scene_summary": "A balloonist plummets toward the moon, discovers a breathable atmosphere too thin to slow his fall, jettisons all cargo and cuts loose his car before crashing into a city of silent, staring beings.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-2147-36-sparse",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A balloonist falls and crashes among strange moon beings.",
+   "descriptors": [
+    "surreal",
+    "frantic",
+    "vertiginous"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-36",
+   "target_scene_summary": "A balloonist plummets toward the moon, discovers a breathable atmosphere too thin to slow his fall, jettisons all cargo and cuts loose his car before crashing into a city of silent, staring beings."
+  },
+  {
+   "id": "w-215-6-similar",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A friendly newcomer is swarmed and torn apart by the pack the instant it falls, teaching the brutal law of the wild.",
+   "descriptors": [
+    "brutal",
+    "merciless",
+    "shocking"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-6",
+   "target_scene_summary": "A newly arrived sled dog witnesses a friendly companion torn apart by a savage pack and learns the brutal law of survival in the wild.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-6-ambiguous",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A gentle newcomer's first friendly moment ends in sudden death beneath the whole group.",
+   "descriptors": [
+    "brutal",
+    "merciless",
+    "shocking"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-6",
+   "target_scene_summary": "A newly arrived sled dog witnesses a friendly companion torn apart by a savage pack and learns the brutal law of survival in the wild.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-215-6-sparse",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A newcomer dog is torn apart by a savage pack.",
+   "descriptors": [
+    "brutal",
+    "merciless",
+    "shocking"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-6",
+   "target_scene_summary": "A newly arrived sled dog witnesses a friendly companion torn apart by a savage pack and learns the brutal law of survival in the wild."
+  },
+  {
+   "id": "w-2701-22-similar",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "An old former harpooneer climbs into a high pulpit shaped like a ship's prow and draws the ladder up behind him to preach.",
+   "descriptors": [
+    "reverent",
+    "dignified",
+    "weathered"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-22",
+   "target_scene_summary": "A venerable chaplain enters the storm-lashed chapel, sheds his soaked maritime garments, climbs a ship-like ladder to the pulpit, and retracts the ladder to isolate himself above the congregation.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2701-22-ambiguous",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "An old seaman turned preacher climbs to a lofty pulpit and draws the way up behind him.",
+   "descriptors": [
+    "reverent",
+    "dignified",
+    "weathered"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-22",
+   "target_scene_summary": "A venerable chaplain enters the storm-lashed chapel, sheds his soaked maritime garments, climbs a ship-like ladder to the pulpit, and retracts the ladder to isolate himself above the congregation.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2701-22-sparse",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A chaplain climbs to his pulpit and withdraws the ladder.",
+   "descriptors": [
+    "reverent",
+    "dignified",
+    "weathered"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2701-22",
+   "target_scene_summary": "A venerable chaplain enters the storm-lashed chapel, sheds his soaked maritime garments, climbs a ship-like ladder to the pulpit, and retracts the ladder to isolate himself above the congregation."
+  },
+  {
+   "id": "w-4300-30-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A middle-aged man moves quietly about his kitchen in the morning, feeding the cat and cooking breakfast while his wife sleeps upstairs.",
+   "descriptors": [
+    "domestic",
+    "gentle",
+    "warm"
+   ],
+   "pov": "third",
+   "tense": "mixed",
+   "target_scene_id": "4300-30",
+   "target_scene_summary": "A man lets his cat out into the garden, tends to his bowels in the outhouse while reading a magazine, and hears church bells tolling for a funeral.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-30-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "In the quiet of early morning a man tends his cat and his breakfast while the house still sleeps.",
+   "descriptors": [
+    "domestic",
+    "gentle",
+    "warm"
+   ],
+   "pov": "third",
+   "tense": "mixed",
+   "target_scene_id": "4300-30",
+   "target_scene_summary": "A man lets his cat out into the garden, tends to his bowels in the outhouse while reading a magazine, and hears church bells tolling for a funeral.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-30-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A man tends his cat and visits the outhouse one morning.",
+   "descriptors": [
+    "domestic",
+    "gentle",
+    "warm"
+   ],
+   "pov": "third",
+   "tense": "mixed",
+   "target_scene_id": "4300-30",
+   "target_scene_summary": "A man lets his cat out into the garden, tends to his bowels in the outhouse while reading a magazine, and hears church bells tolling for a funeral."
+  },
+  {
+   "id": "w-64317-64-similar",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A lonely dreamer floats on a mattress in his pool waiting for a call that never comes and is shot dead.",
+   "descriptors": [
+    "tragic",
+    "hollow",
+    "final"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-64",
+   "target_scene_summary": "A man waits by his pool for a promised call that never arrives, drifts on a mattress, and is shot dead, his body found by his sole companion beside the murderer's corpse.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-64-ambiguous",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "A man waits in vain for word that never comes, and death finds him alone in the water.",
+   "descriptors": [
+    "tragic",
+    "hollow",
+    "final"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-64",
+   "target_scene_summary": "A man waits by his pool for a promised call that never arrives, drifts on a mattress, and is shot dead, his body found by his sole companion beside the murderer's corpse.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-64-sparse",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A man is shot dead floating in his pool.",
+   "descriptors": [
+    "tragic",
+    "hollow",
+    "final"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-64",
+   "target_scene_summary": "A man waits by his pool for a promised call that never arrives, drifts on a mattress, and is shot dead, his body found by his sole companion beside the murderer's corpse."
+  },
+  {
+   "id": "w-84-62-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A lonely outcast begs a blind old man for friendship, hoping to be judged by his words before he can be seen.",
+   "descriptors": [
+    "tender",
+    "hopeful",
+    "sincere"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-62",
+   "target_scene_summary": "A hideous outcast approaches a blind old man alone in a cottage, reveals his loneliness and pleads for help winning the acceptance of the family he has secretly aided.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-84-62-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "An outcast no one can bear to look upon begs for kindness from the one person who cannot see him.",
+   "descriptors": [
+    "tender",
+    "hopeful",
+    "sincere"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-62",
+   "target_scene_summary": "A hideous outcast approaches a blind old man alone in a cottage, reveals his loneliness and pleads for help winning the acceptance of the family he has secretly aided.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-84-62-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A lonely outcast begs a blind man for acceptance.",
+   "descriptors": [
+    "tender",
+    "hopeful",
+    "sincere"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-62",
+   "target_scene_summary": "A hideous outcast approaches a blind old man alone in a cottage, reveals his loneliness and pleads for help winning the acceptance of the family he has secretly aided."
+  },
+  {
+   "id": "w-98-15-similar",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 4,
+   "variant": "similar",
+   "summary": "A cask of wine breaks in a poor quarter and a starving crowd rushes to scoop and drink it straight from the gutter.",
+   "descriptors": [
+    "desperate",
+    "communal",
+    "foreboding"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-15",
+   "target_scene_summary": "A broken wine cask spills into a Paris street, drawing a desperate crowd to drink from the mud, ending with a man writing blood on a wall as a grim omen.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-98-15-ambiguous",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 4,
+   "variant": "ambiguous",
+   "summary": "When drink spills across the street of a starving quarter, the desperate crowd falls upon it.",
+   "descriptors": [
+    "desperate",
+    "communal",
+    "foreboding"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-15",
+   "target_scene_summary": "A broken wine cask spills into a Paris street, drawing a desperate crowd to drink from the mud, ending with a man writing blood on a wall as a grim omen.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-98-15-sparse",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 4,
+   "variant": "sparse",
+   "summary": "A crowd scrambles to drink wine spilled in the street.",
+   "descriptors": [
+    "desperate",
+    "communal",
+    "foreboding"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-15",
+   "target_scene_summary": "A broken wine cask spills into a Paris street, drawing a desperate crowd to drink from the mud, ending with a man writing blood on a wall as a grim omen."
+  },
+  {
+   "id": "w-103-107-similar",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A traveler appears in the doorway at the last possible second, winning a wager everyone believed he had lost.",
+   "descriptors": [
+    "climactic",
+    "triumphant",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-107",
+   "target_scene_summary": "A released traveler races toward London by special train but arrives five minutes past the deadline, losing the wager despite circling the globe.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-103-107-ambiguous",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "Given up for lost, a man appears at the very last instant to claim his victory.",
+   "descriptors": [
+    "climactic",
+    "triumphant",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-107",
+   "target_scene_summary": "A released traveler races toward London by special train but arrives five minutes past the deadline, losing the wager despite circling the globe.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-103-107-sparse",
+   "book_id": "103",
+   "book_title": "Around the World in Eighty Days",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A traveler arrives minutes too late and loses his bet.",
+   "descriptors": [
+    "climactic",
+    "triumphant",
+    "tense"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "103-107",
+   "target_scene_summary": "A released traveler races toward London by special train but arrives five minutes past the deadline, losing the wager despite circling the globe."
+  },
+  {
+   "id": "w-1342-52-similar",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "Walking together at last, a once-proud man proposes a second time and the woman who once refused him now accepts.",
+   "descriptors": [
+    "joyful",
+    "tender",
+    "hopeful"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-52",
+   "target_scene_summary": "A calculating young woman maneuvers a pompous suitor into proposing to her, her family celebrates the advantageous match, and the betrothed couple navigate secrecy and social expectations before the suitor departs.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1342-52-ambiguous",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "The two who once parted in anger meet again, and this time an offer of love is accepted.",
+   "descriptors": [
+    "joyful",
+    "tender",
+    "hopeful"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-52",
+   "target_scene_summary": "A calculating young woman maneuvers a pompous suitor into proposing to her, her family celebrates the advantageous match, and the betrothed couple navigate secrecy and social expectations before the suitor departs.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-1342-52-sparse",
+   "book_id": "1342",
+   "book_title": "Pride and Prejudice",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A woman finally accepts a proud man's proposal.",
+   "descriptors": [
+    "joyful",
+    "tender",
+    "hopeful"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "1342-52",
+   "target_scene_summary": "A calculating young woman maneuvers a pompous suitor into proposing to her, her family celebrates the advantageous match, and the betrothed couple navigate secrecy and social expectations before the suitor departs."
+  },
+  {
+   "id": "w-1661-1-similar",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A detective astonishes his companion by reconstructing his recent life from a few small physical details.",
+   "descriptors": [
+    "clever",
+    "observant",
+    "intellectual"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-1",
+   "target_scene_summary": "A reunited companion visits a brilliant detective at his lodgings, witnesses a display of deductive reasoning, and observes the arrival of a mysterious masked client bearing an anonymous note.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-1661-1-ambiguous",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "From a few trifling details a sharp mind reconstructs a whole life, astonishing his companion.",
+   "descriptors": [
+    "clever",
+    "observant",
+    "intellectual"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-1",
+   "target_scene_summary": "A reunited companion visits a brilliant detective at his lodgings, witnesses a display of deductive reasoning, and observes the arrival of a mysterious masked client bearing an anonymous note.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-1661-1-sparse",
+   "book_id": "1661",
+   "book_title": "The Adventures of Sherlock Holmes",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A detective dazzles a visitor with deductions as a masked client arrives.",
+   "descriptors": [
+    "clever",
+    "observant",
+    "intellectual"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "1661-1",
+   "target_scene_summary": "A reunited companion visits a brilliant detective at his lodgings, witnesses a display of deductive reasoning, and observes the arrival of a mysterious masked client bearing an anonymous note."
+  },
+  {
+   "id": "w-2147-120-similar",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A lone survivor is flung from a rising wave onto the deck of a towering ghostly ship crewed by ancient men.",
+   "descriptors": [
+    "supernatural",
+    "uncanny",
+    "sublime"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-120",
+   "target_scene_summary": "A shipwrecked narrator watches a colossal phantom vessel descend upon his foundering craft, is flung aboard the stranger, and hides in its hold while an ancient, muttering crewman passes near his concealment.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2147-120-ambiguous",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "A lone castaway is swept up onto a vast, unearthly ship manned by the ancient and the dead.",
+   "descriptors": [
+    "supernatural",
+    "uncanny",
+    "sublime"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-120",
+   "target_scene_summary": "A shipwrecked narrator watches a colossal phantom vessel descend upon his foundering craft, is flung aboard the stranger, and hides in its hold while an ancient, muttering crewman passes near his concealment.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-2147-120-sparse",
+   "book_id": "2147",
+   "book_title": "The Works of Edgar Allan Poe — Volume 1",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A castaway is flung aboard a phantom ship and hides.",
+   "descriptors": [
+    "supernatural",
+    "uncanny",
+    "sublime"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "2147-120",
+   "target_scene_summary": "A shipwrecked narrator watches a colossal phantom vessel descend upon his foundering craft, is flung aboard the stranger, and hides in its hold while an ancient, muttering crewman passes near his concealment."
+  },
+  {
+   "id": "w-215-48-similar",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A grieving animal finds the man it loved lying dead and turns to slaughter those who killed him.",
+   "descriptors": [
+    "vengeful",
+    "grieving",
+    "furious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-48",
+   "target_scene_summary": "A victorious hunter returns to his camp only to discover his human companions slaughtered, unleashing a frenzied vengeance upon the attackers before finding his beloved master dead in a pool.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-215-48-ambiguous",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "Coming back to find the one it loved lying lifeless, a creature gives itself over to grief and revenge.",
+   "descriptors": [
+    "vengeful",
+    "grieving",
+    "furious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-48",
+   "target_scene_summary": "A victorious hunter returns to his camp only to discover his human companions slaughtered, unleashing a frenzied vengeance upon the attackers before finding his beloved master dead in a pool.",
+   "arc": "valley"
+  },
+  {
+   "id": "w-215-48-sparse",
+   "book_id": "215",
+   "book_title": "The Call of the Wild",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A dog returns to avenge his murdered master.",
+   "descriptors": [
+    "vengeful",
+    "grieving",
+    "furious"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "215-48",
+   "target_scene_summary": "A victorious hunter returns to his camp only to discover his human companions slaughtered, unleashing a frenzied vengeance upon the attackers before finding his beloved master dead in a pool."
+  },
+  {
+   "id": "w-2701-224-similar",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "Left behind in the open sea when his boat rows on, a terrified cabin boy is driven mad by the vast solitude.",
+   "descriptors": [
+    "mystical",
+    "terrifying",
+    "solitary"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-224",
+   "target_scene_summary": "The same cabin boy jumps from a whaleboat again but this time is left behind in the vast open ocean as the ship sails on, abandoned to a terrifying solitude while the narrator reflects on the cruelty of the crew's calculation.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-2701-224-ambiguous",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "Abandoned in the immense sea when the others leave him behind, a boy's mind slips into madness.",
+   "descriptors": [
+    "mystical",
+    "terrifying",
+    "solitary"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-224",
+   "target_scene_summary": "The same cabin boy jumps from a whaleboat again but this time is left behind in the vast open ocean as the ship sails on, abandoned to a terrifying solitude while the narrator reflects on the cruelty of the crew's calculation.",
+   "arc": "falling"
+  },
+  {
+   "id": "w-2701-224-sparse",
+   "book_id": "2701",
+   "book_title": "Moby Dick",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A boy is abandoned alone in the open sea.",
+   "descriptors": [
+    "mystical",
+    "terrifying",
+    "solitary"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "2701-224",
+   "target_scene_summary": "The same cabin boy jumps from a whaleboat again but this time is left behind in the vast open ocean as the ship sails on, abandoned to a terrifying solitude while the narrator reflects on the cruelty of the crew's calculation."
+  },
+  {
+   "id": "w-4300-333-similar",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A wife lies awake in bed at night as memories of desire and old lovers flood through her wandering thoughts.",
+   "descriptors": [
+    "sensual",
+    "nostalgic",
+    "earthy"
+   ],
+   "pov": "first",
+   "tense": "present",
+   "target_scene_id": "4300-333",
+   "target_scene_summary": "A woman lies in bed before dawn, her mind roaming across a distant marriage, sexual longing, a dead child, a young visitor, and a remembered proposal on a hill.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-333-ambiguous",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "Sleepless in the dark, a woman drifts through a rising tide of memory, desire, and old loves.",
+   "descriptors": [
+    "sensual",
+    "nostalgic",
+    "earthy"
+   ],
+   "pov": "first",
+   "tense": "present",
+   "target_scene_id": "4300-333",
+   "target_scene_summary": "A woman lies in bed before dawn, her mind roaming across a distant marriage, sexual longing, a dead child, a young visitor, and a remembered proposal on a hill.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-4300-333-sparse",
+   "book_id": "4300",
+   "book_title": "Ulysses",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A woman lies awake before dawn drifting through desire and memory.",
+   "descriptors": [
+    "sensual",
+    "nostalgic",
+    "earthy"
+   ],
+   "pov": "first",
+   "tense": "present",
+   "target_scene_id": "4300-333",
+   "target_scene_summary": "A woman lies in bed before dawn, her mind roaming across a distant marriage, sexual longing, a dead child, a young visitor, and a remembered proposal on a hill."
+  },
+  {
+   "id": "w-64317-70-similar",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "Almost no one comes to the rainy funeral of a man whose parties once drew hundreds.",
+   "descriptors": [
+    "lonely",
+    "bleak",
+    "ironic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-70",
+   "target_scene_summary": "A sparse funeral procession moves through rain to a graveside where only a handful of mourners gather, including a stranger who knew the deceased only through his books.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-70-ambiguous",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "Almost no one comes to mourn a man who was once surrounded by crowds.",
+   "descriptors": [
+    "lonely",
+    "bleak",
+    "ironic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-70",
+   "target_scene_summary": "A sparse funeral procession moves through rain to a graveside where only a handful of mourners gather, including a stranger who knew the deceased only through his books.",
+   "arc": "rising"
+  },
+  {
+   "id": "w-64317-70-sparse",
+   "book_id": "64317",
+   "book_title": "The Great Gatsby",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A handful of mourners stand at a grave in the rain.",
+   "descriptors": [
+    "lonely",
+    "bleak",
+    "ironic"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "64317-70",
+   "target_scene_summary": "A sparse funeral procession moves through rain to a graveside where only a handful of mourners gather, including a stranger who knew the deceased only through his books."
+  },
+  {
+   "id": "w-84-110-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A newcomer stumbles on a dreadful being grieving over the body of the man who made it.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-110",
+   "target_scene_summary": "An explorer discovers a gigantic creature mourning over a dead friend's coffin, hears the creature's confession of murder and misery, condemns him as a hypocrite, and listens as the creature recounts his rejection by humanity before declaring his intention to commit suicide in the frozen wilderness.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-84-110-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "A newcomer stumbles on a dreadful being grieving over the body of the man who made it.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-110",
+   "target_scene_summary": "An explorer discovers a gigantic creature mourning over a dead friend's coffin, hears the creature's confession of murder and misery, condemns him as a hypocrite, and listens as the creature recounts his rejection by humanity before declaring his intention to commit suicide in the frozen wilderness.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-84-110-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A man finds a creature grieving over its dead creator.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-110",
+   "target_scene_summary": "An explorer discovers a gigantic creature mourning over a dead friend's coffin, hears the creature's confession of murder and misery, condemns him as a hypocrite, and listens as the creature recounts his rejection by humanity before declaring his intention to commit suicide in the frozen wilderness."
+  },
+  {
+   "id": "w-84-6-similar",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A ship's captain discovers a monstrous figure weeping over the body of the dead man who made it.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-6",
+   "target_scene_summary": "A ship's captain grows deeply attached to a rescued stranger whose profound grief moves him, and the stranger reacts with horror when the captain declares his willingness to sacrifice everything for scientific glory.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-84-6-ambiguous",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "A ship's captain discovers a monstrous figure weeping over the body of the dead man who made it.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-6",
+   "target_scene_summary": "A ship's captain grows deeply attached to a rescued stranger whose profound grief moves him, and the stranger reacts with horror when the captain declares his willingness to sacrifice everything for scientific glory.",
+   "arc": "hill"
+  },
+  {
+   "id": "w-84-6-sparse",
+   "book_id": "84",
+   "book_title": "Frankenstein",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A captain befriends a grief-stricken rescued man.",
+   "descriptors": [
+    "grief-stricken",
+    "raw",
+    "haunting"
+   ],
+   "pov": "first",
+   "tense": "past",
+   "target_scene_id": "84-6",
+   "target_scene_summary": "A ship's captain grows deeply attached to a rescued stranger whose profound grief moves him, and the stranger reacts with horror when the captain declares his willingness to sacrifice everything for scientific glory."
+  },
+  {
+   "id": "w-98-119-similar",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 5,
+   "variant": "similar",
+   "summary": "A furious mob overruns a great prison fortress and seizes its keepers, howling to be shown the cells and the prisoners.",
+   "descriptors": [
+    "chaotic",
+    "vengeful",
+    "exultant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-119",
+   "target_scene_summary": "A revolutionary mob arms itself in the streets, surges toward the Bastille, and after hours of fierce fighting breaches the fortress gates.",
+   "arc": "high"
+  },
+  {
+   "id": "w-98-119-ambiguous",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 5,
+   "variant": "ambiguous",
+   "summary": "An enraged multitude overwhelms a hated stronghold and seizes its keepers.",
+   "descriptors": [
+    "chaotic",
+    "vengeful",
+    "exultant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-119",
+   "target_scene_summary": "A revolutionary mob arms itself in the streets, surges toward the Bastille, and after hours of fierce fighting breaches the fortress gates.",
+   "arc": "high"
+  },
+  {
+   "id": "w-98-119-sparse",
+   "book_id": "98",
+   "book_title": "A Tale of Two Cities",
+   "sharpness": 5,
+   "variant": "sparse",
+   "summary": "A mob storms and breaches a prison fortress.",
+   "descriptors": [
+    "chaotic",
+    "vengeful",
+    "exultant"
+   ],
+   "pov": "third",
+   "tense": "past",
+   "target_scene_id": "98-119",
+   "target_scene_summary": "A revolutionary mob arms itself in the streets, surges toward the Bastille, and after hours of fierce fighting breaches the fortress gates."
+  }
+ ]
+}

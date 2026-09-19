@@ -5,8 +5,11 @@ invariants + memory `project-restructure-plan`; this file no longer re-describes
 essentially done** (§2: 10.1 rebuild ✅, 10.2 verify ✅, 10.3 β=0.2 ✅, 10.4 HyDE v0 built + measured → **no
 lift on the needle gold → parked**). The live driver is now **Phase 11 (§6): eval realignment** — the
 product goal is a **top-5 of content-similar scenes**, NOT "retrieve the one iconic scene." The first
-attempt (a pooled, LLM-selected top-5 gold) was **abandoned as circular** (§6); the kept direction is a
-**scene-level** needle floor plus a **non-circular** scene-similarity eval, still to be designed.
+attempt (a pooled, LLM-selected top-5 gold) was **abandoned as circular** (§6). Since built: a **non-circular
+writer-realistic gold** (`webtest/gold/writer_queries.json`, scored scene-level via `query.run`), the gate
+proof that **facets carry the moments-channel win** (summary .42 → +facets .91), the **blob-svos removal**, and
+the intensity **arc/vd** query input. **NEXT: Bridge 2** — a learned summary→facet map to close the writer-real
+.31 → oracle .91 gap.
 
 > ## ▶ START HERE (new session)
 > 1. **House style = `CLAUDE.md` → "Code principles"** (readability; comment framework; arrows-down;
@@ -176,11 +179,37 @@ distinct vocab/style) and says nothing about scene similarity, so headline **sce
 Hit@5** and demote book-match to a diagnostic. (`evals.score_run` still reports a book+scene composite as its
 headline `top1` — the scene-level re-headline is a small, **unbuilt** code change.)
 
-**OPEN — resolve before any fine-tune (under discussion; nothing built):**
+**BUILT (this session, 2026-09-19) — the writer-realistic gold, the gate proof, and the blob-svos fix.**
+OPEN #1's *held-out paraphrase recall* is now built: `webtest/gold/writer_queries.json` (from
+`webtest/gold/build_writer_gold.py`) = 55 source scenes × 3 loose variants — **similar** (detailed) /
+**ambiguous** (general language, same plot) / **sparse** (general language, 1-2 beats) — carrying ONLY writer
+inputs (summary, descriptors, pov, tense, and an intensity **arc** on similar/ambiguous). NON-CIRCULAR: target
+= the source `scene_id`, fixed before retrieval. Consumed via **`query.run`** (the real front door), scored
+scene-level by `evals.score_run`.
+- **Gate proof — the moments channel is worth synthesizing.** 3-way ablation on the OLD facet-populated gold
+  (scene@1, descriptors off): summary-only **.42** → +svos **.50** → +svos+facets **.91**. The FACETS carry the
+  win (+.41); svos adds almost nothing (+.08). So Bridge 2 targets subject/verb/object/setting, NOT svos.
+- **blob-svos REMOVED.** The front door used to fire the whole summary as one svos "blob" beat; it scored
+  *below* summary-only (writer-gold scene@1 .31 vs .38; old-gold .36 vs .42) — one blob matches no single
+  indexed per-beat clause. Deleted from `query.py`; the query now fires summary-only semantic (no `moments`).
+- **Writer-realistic baseline** (post-blob-removal, arc off, scene@1): sparse **.545** / similar **.382** /
+  ambiguous **.309**. NOT monotonic by length — **vagueness, not brevity, is the hard axis**; `ambiguous`
+  (general words + full plot → diffuse embedding) is the loose-query stress tier. This **.31–.55** sits far
+  below the facet ORACLE **.91** = the Bridge 2 prize. (Arc's scene@1 effect here is ±1 query = noise — it is
+  a soft-rerank tilt, not a top-1 lever.)
+- **Intensity-only arc + VD query input** (`query.py` + `search.py`): the writer picks 1 of 6 `INTENSITY_ARCS`
+  (the i-axis) + an OPTIONAL ordered VD tone-word list (len 1/2/3); `arc_curve(arc, vd)` builds a fixed 3-point
+  curve leaving unspecified axes `None`, and `curve_dist`/`resample` skip `None` axes. `query.run(..., arc=, vd=)`.
+
+**NEXT — Bridge 2 (approved; Bridges 1 sentence-split + 3 PRF were rejected: too primitive / drift).** Learn an
+offline linear map (ridge, cross-channel, from the 1647 aligned scenes) summary → subject/verb/object/setting
+query vectors; feed via the `channel_vectors` seam; A/B against the writer gold's `ambiguous` tier (goal: close
+the .31→.91 gap). Skip svos synthesis.
+
+**OPEN — resolve before any fine-tune:**
 1. **A non-circular scene-similarity eval** — the target must be fixed *before* retrieval (so it can reward
-   finding scenes the current retriever misses). Candidates:
-   - *Held-out paraphrase recall* — LLM-generate several loose queries per source scene at varying sharpness;
-     target = that scene; report recall@5 / MRR. The natural extension of the needle idea to loose queries.
+   finding scenes the current retriever misses). ✅ *Held-out paraphrase recall* is BUILT (the writer gold
+   above). Still-open alternatives to layer on:
    - *Synthetic "twin" recall* — LLM rewrites a scene (new setting/names, same action + beats + feel); query
      with the twin, target = the original. Measures action/feel similarity invariant to surface words.
    - *Eval-time LLM graded relevance* — judge each (query, retrieved-scene) pair **fresh** at eval time (0–3),
@@ -194,6 +223,7 @@ headline `top1` — the scene-level re-headline is a small, **unbuilt** code cha
    HELP top-5 similarity — but only a non-circular similarity eval can tell. Re-open it (and `combine` / slider
    variants, an embedding fine-tune, or a re-ranker over the top-20) only once #1 exists.
 
-**Build order (once direction chosen):** (a) re-headline the needle eval at scene level → (b) build one
-non-circular similarity eval from #1 → (c) optionally expand the corpus + hold out books → (d) A/B the
-fine-tune candidates against it. Then update `CLAUDE.md` + flip ✅.
+**Build order:** (a) ✅ scene-level scoring on a non-circular gold — via `evals.score_run` on the writer gold →
+(b) ✅ one non-circular similarity eval — the writer gold (held-out paraphrase recall) → (c) **NEXT: build
+Bridge 2** (summary→facet map) + A/B it against the writer gold's `ambiguous` tier → (d) optionally expand the
+corpus + hold out books, then A/B other fine-tune candidates. Update `CLAUDE.md` + flip ✅ as each lands.
