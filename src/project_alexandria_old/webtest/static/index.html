@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alexandria · Retrieval Tester</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#111111; --dim:#666666; --dim2:#999999;
+    --edge:#e2e2e2; --edge2:#111111; --soft:#f6f6f6; --soft2:#efefef;
+    --bad:#c0392b; --ok:#1a7f37;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+       display:flex;height:100vh;overflow:hidden}
+
+  /* ---- left tab nav ---- */
+  nav{flex:0 0 210px;border-right:1px solid var(--edge);display:flex;flex-direction:column;padding:18px 0}
+  nav .brand{padding:0 20px 18px;font-size:15px;font-weight:700;letter-spacing:.3px;line-height:1.3}
+  nav .brand small{display:block;font-weight:400;color:var(--dim2);font-size:11px;margin-top:4px;letter-spacing:0}
+  nav .tab{padding:12px 20px;cursor:pointer;color:var(--dim);border-left:3px solid transparent;
+           font-size:13.5px;user-select:none}
+  nav .tab:hover{background:var(--soft);color:var(--ink)}
+  nav .tab.on{color:var(--ink);font-weight:600;border-left-color:var(--ink);background:var(--soft)}
+  nav .foot{margin-top:auto;padding:14px 20px 0;color:var(--dim2);font-size:11px;line-height:1.5}
+
+  /* ---- content ---- */
+  main{flex:1 1 auto;display:flex;flex-direction:column;overflow:hidden}
+  .view{display:none;flex-direction:column;overflow:hidden;height:100%}
+  .view.on{display:flex}
+  .bar{padding:16px 22px;border-bottom:1px solid var(--edge);display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+  h2.vt{margin:0 14px 0 0;font-size:15px;font-weight:700}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px}
+  select,input,textarea{background:#fff;color:var(--ink);border:1px solid var(--edge);
+       padding:7px 9px;font-family:var(--sans);font-size:13px;border-radius:0}
+  select:focus,input:focus,textarea:focus{outline:none;border-color:var(--edge2)}
+  textarea{resize:vertical;font-family:var(--sans)}
+  input.n{width:70px;font-family:var(--mono)}
+
+  button{font-family:var(--sans);border-radius:0;cursor:pointer}
+  button.go{background:var(--ink);color:#fff;border:1px solid var(--ink);padding:9px 20px;font-weight:600;font-size:13px}
+  button.go:hover{background:#000}
+  button.go:disabled{background:var(--dim2);border-color:var(--dim2);cursor:not-allowed}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--edge2);padding:8px 14px;font-size:12px}
+  button.ghost:hover{background:var(--soft)}
+  .hint{color:var(--dim2);font-size:11px;max-width:560px;line-height:1.45}
+  .status{padding:8px 22px;font-size:12px;color:var(--dim);border-bottom:1px solid var(--edge);min-height:15px}
+
+  /* ---- testing: columns ---- */
+  #test-board{flex:1 1 auto;display:flex;gap:14px;overflow-x:auto;overflow-y:hidden;padding:16px 22px}
+  .column{flex:0 0 320px;display:flex;flex-direction:column;border:1px solid var(--edge);max-height:100%}
+  .col-head{padding:10px 12px;border-bottom:1px solid var(--edge);background:var(--soft)}
+  .col-head .lbl{font-weight:700;font-size:12.5px}
+  .col-head .q{color:var(--dim);font-size:11px;margin-top:4px;line-height:1.4;max-height:4.3em;overflow:hidden}
+  .col-head .stat{font-size:11px;margin-top:6px;color:var(--dim);font-family:var(--mono)}
+  .col-head .stat b{color:var(--ink)}
+  .cards{overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:9px}
+
+  /* ---- result card ---- */
+  .card{border:1px solid var(--edge);padding:10px 11px;cursor:pointer;background:#fff}
+  .card:hover{border-color:var(--edge2)}
+  .card.hit{border-left:3px solid var(--ink)}
+  .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .card .rank{font-family:var(--mono);font-size:11px;color:var(--dim2)}
+  .card .score{font-family:var(--mono);font-size:11px;color:var(--ink);flex:0 0 auto}
+  .card .st{font-weight:600;font-size:12.5px;margin-top:3px;line-height:1.3}
+  .card .su{color:var(--dim);font-size:11.5px;margin-top:5px;line-height:1.4;max-height:4.3em;overflow:hidden}
+  .card .pv{color:var(--dim2);font-size:11px;margin-top:6px;line-height:1.45;max-height:4.4em;overflow:hidden;font-style:italic}
+  .chips{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+  .chip{font-size:10px;font-family:var(--mono);padding:2px 6px;border:1px solid var(--edge);color:var(--dim)}
+  .chip.b{border-color:var(--ink);color:var(--ink)}
+  .col-err{color:var(--bad);font-size:11.5px;padding:10px}
+
+  /* ---- user query ---- */
+  #uq-wrap{flex:1 1 auto;display:flex;overflow:hidden}
+  #uq-form{flex:0 0 480px;overflow-y:auto;padding:20px 22px;border-right:1px solid var(--edge);display:flex;flex-direction:column;gap:18px}
+  #uq-results{flex:1 1 auto;overflow-y:auto;padding:16px 22px;display:flex;flex-direction:column;gap:10px}
+  .fld{display:flex;flex-direction:column;gap:6px}
+  .fld > .lab{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+  .fld > .sub{font-size:11px;color:var(--dim2);line-height:1.4}
+  .row2{display:flex;gap:14px;flex-wrap:wrap}
+  .row2 label.f{flex:1 1 180px}
+  #uq-summary{width:100%;min-height:78px}
+
+  /* descriptor tag input */
+  .tagbox{border:1px solid var(--edge);padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:40px}
+  .tagbox.focus{border-color:var(--edge2)}
+  .tag{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;font-size:12px;padding:3px 6px 3px 9px}
+  .tag .x{cursor:pointer;font-weight:700;opacity:.7}
+  .tag .x:hover{opacity:1}
+  .tagbox input{border:none;padding:4px;flex:1 1 120px;min-width:120px;font-size:13px}
+  .tagbox input:focus{outline:none}
+  .sugg{position:relative}
+  .sugg-list{position:absolute;left:0;right:0;top:2px;background:#fff;border:1px solid var(--edge2);z-index:20;max-height:220px;overflow-y:auto;display:none}
+  .sugg-list.on{display:block}
+  .sugg-list .s{padding:7px 10px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;gap:10px}
+  .sugg-list .s:hover,.sugg-list .s.hl{background:var(--soft)}
+  .sugg-list .s .c{color:var(--dim2);font-family:var(--mono);font-size:11px}
+
+  /* valence-dominance emotion chart */
+  .chart-wrap{display:flex;flex-direction:column;gap:8px}
+  .chart{position:relative;width:100%;max-width:440px;aspect-ratio:1/1;border:1px solid var(--edge2);background:
+     linear-gradient(to right,transparent 49.7%,var(--soft2) 49.7%,var(--soft2) 50.3%,transparent 50.3%),
+     linear-gradient(to bottom,transparent 49.7%,var(--soft2) 49.7%,var(--soft2) 50.3%,transparent 50.3%);
+     margin:0 auto}
+  .axl{position:absolute;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.4px;pointer-events:none}
+  .axl.x0{left:6px;bottom:4px} .axl.x1{right:6px;bottom:4px}
+  .axl.y0{left:4px;bottom:6px;transform-origin:left bottom;transform:rotate(-90deg)}
+  .axl.y1{left:4px;top:38px;transform-origin:left top;transform:rotate(-90deg)}
+  .dot{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:3px;cursor:pointer;
+       font-size:9.5px;color:var(--dim);white-space:nowrap;line-height:1}
+  .dot .pt{width:8px;height:8px;border:1px solid var(--dim2);background:#fff;border-radius:50%;flex:0 0 auto}
+  .dot:hover{z-index:30;color:var(--ink)}
+  .dot:hover .pt{border-color:var(--ink)}
+  .dot.sel{z-index:25;color:var(--ink);font-weight:700}
+  .dot.sel .pt{width:14px;height:14px;border:none;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+  .picks{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-height:26px}
+  .pick{display:inline-flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--edge);padding:3px 8px}
+  .pick .b{width:16px;height:16px;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border-radius:50%}
+  .picks .empty{color:var(--dim2);font-size:11.5px}
+
+  /* user-query result list */
+  .uq-card{border:1px solid var(--edge);padding:12px 14px;cursor:pointer;background:#fff;display:flex;gap:12px}
+  .uq-card:hover{border-color:var(--edge2)}
+  .uq-card .n{font-family:var(--mono);font-size:16px;color:var(--dim2);flex:0 0 34px;text-align:right}
+  .uq-card .body{flex:1 1 auto;min-width:0}
+  .uq-card .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .uq-card .bk{font-weight:700;font-size:13px}
+  .uq-card .score{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .uq-card .su{color:var(--ink);font-size:12.5px;margin-top:4px;line-height:1.45}
+  .uq-card .pv{color:var(--dim);font-size:11.5px;margin-top:6px;line-height:1.5;font-style:italic;max-height:4.6em;overflow:hidden}
+
+  /* ---- tweaking ---- */
+  #tweak{overflow-y:auto;padding:22px}
+  .tgroup{border:1px solid var(--edge);padding:16px 18px;margin-bottom:16px;max-width:760px}
+  .tgroup h3{margin:0 0 4px;font-size:13px;font-weight:700}
+  .tgroup .gd{color:var(--dim2);font-size:11.5px;line-height:1.45;margin-bottom:14px;max-width:560px}
+  .trow{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+  .weights-in{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .total{font-family:var(--mono);font-size:12px;padding:6px 10px;border:1px solid var(--edge)}
+  .total.ok{border-color:var(--ok);color:var(--ok)}
+  .total.bad{border-color:var(--bad);color:var(--bad)}
+  .tgroup .acts{display:flex;gap:8px;margin-top:4px}
+  #tweak .foot{max-width:760px;color:var(--dim2);font-size:11.5px;line-height:1.5;margin-top:6px}
+
+  /* ---- reader modal ---- */
+  #reader{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:50}
+  #reader.on{display:flex}
+  .rd{margin:auto;width:min(880px,94vw);height:90vh;background:#fff;border:1px solid var(--edge2);display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .rd-top{padding:16px 22px;border-bottom:1px solid var(--edge);display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+  .rd-top h3{margin:0;font-size:15px;line-height:1.35}
+  .rd-top .m{color:var(--dim);font-size:11.5px;margin-top:5px;font-family:var(--mono);line-height:1.5}
+  .rd-x{cursor:pointer;font-size:22px;line-height:1;color:var(--dim);padding:0 4px}
+  .rd-x:hover{color:var(--ink)}
+  .rd-body{overflow-y:auto;padding:22px 30px;line-height:1.75;font-size:15px}
+  .rd-body p{margin:0 0 1em}
+  .rd-nav{display:flex;gap:8px;padding:12px 22px;border-top:1px solid var(--edge);align-items:center}
+  .rd-nav .pos{margin-left:auto;color:var(--dim2);font-size:11px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">Alexandria<small id="brand-sub">retrieval tester · loading…</small></div>
+  <div class="tab on" data-view="test">Testing</div>
+  <div class="tab" data-view="uq">User Query</div>
+  <div class="tab" data-view="tweak">Tweaking</div>
+  <div class="foot">Reads the live Qdrant store.<br>No LLM in the loop.</div>
+</nav>
+
+<main>
+  <!-- ============ TESTING ============ -->
+  <section class="view on" id="v-test">
+    <div class="bar">
+      <h2 class="vt">Testing</h2>
+      <label class="f">Gold set<select id="t-book"></select></label>
+      <label class="f">Limit<input class="n" id="t-limit" type="number" value="8" min="1" max="30"></label>
+      <button class="go" id="t-run">Run</button>
+      <span class="hint">Replays the frozen gold queries over the whole corpus. Each column is one query; a card with a black left edge is on-target (same book as the query's target). Uses the live tweaking weights.</span>
+    </div>
+    <div class="status" id="t-status"></div>
+    <div id="test-board"></div>
+  </section>
+
+  <!-- ============ USER QUERY ============ -->
+  <section class="view" id="v-uq">
+    <div id="uq-wrap">
+      <div id="uq-form">
+        <h2 class="vt" style="margin:0">User Query</h2>
+
+        <div class="fld">
+          <span class="lab">Summary</span>
+          <span class="sub">What happens, in a sentence or several.</span>
+          <textarea id="uq-summary" placeholder="A mentor sacrifices himself on a narrow bridge to hold back a monstrous foe so his companions can escape."></textarea>
+        </div>
+
+        <div class="fld">
+          <span class="lab">Descriptors</span>
+          <span class="sub">Flavor words — type to autofill from descriptors already in the corpus. Enter to add.</span>
+          <div class="sugg">
+            <div class="tagbox" id="uq-desc-box">
+              <input id="uq-desc-input" placeholder="heroic, tragic, ominous…" autocomplete="off">
+            </div>
+            <div class="sugg-list" id="uq-desc-sugg"></div>
+          </div>
+        </div>
+
+        <div class="row2">
+          <label class="f">POV / Tense<select id="uq-povtense"></select></label>
+          <label class="f">Intensity arc<select id="uq-arc"></select></label>
+        </div>
+
+        <div class="fld">
+          <span class="lab">Emotion curve — valence × dominance</span>
+          <span class="sub">Click up to 3 emotions in order (1→3). Click a picked one to remove it. Sets the tone the scene should move through.</span>
+          <div class="chart-wrap">
+            <div class="chart" id="uq-chart">
+              <span class="axl x0">unpleasant</span><span class="axl x1">pleasant</span>
+              <span class="axl y0">weak</span><span class="axl y1">strong</span>
+            </div>
+            <div class="picks" id="uq-picks"></div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="go" id="uq-run">Search — top 20</button>
+          <button class="ghost" id="uq-clear">Clear</button>
+        </div>
+      </div>
+      <div id="uq-results"><div class="hint">Results appear here, best first.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ TWEAKING ============ -->
+  <section class="view" id="v-tweak">
+    <div class="bar">
+      <h2 class="vt">Tweaking</h2>
+      <span class="hint">The tuned retrieval weights, editable. Applied live to Testing and User Query. Each weight group must add up to 1.00 before a search will run.</span>
+      <button class="ghost" id="tw-reset">Reset to tuned defaults</button>
+    </div>
+    <div class="status" id="tw-status"></div>
+    <div id="tweak"></div>
+  </section>
+</main>
+
+<!-- reader modal -->
+<div id="reader">
+  <div class="rd">
+    <div class="rd-top">
+      <div><h3 id="rd-title">—</h3><div class="m" id="rd-meta"></div></div>
+      <span class="rd-x" id="rd-close">✕</span>
+    </div>
+    <div class="rd-body" id="rd-body"></div>
+    <div class="rd-nav">
+      <button class="ghost" id="rd-prev">↑ Prev</button>
+      <button class="ghost" id="rd-next">Next ↓</button>
+      <span class="pos" id="rd-pos"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (p,o) => (await fetch(p,o)).json();
+const post = (p,b) => api(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+const esc = s => (s==null?"":Array.isArray(s)?s.join(", "):String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const fmt = x => (x!=null && !isNaN(x)) ? Number(x).toFixed(2) : "—";
+let CFG = null;
+
+// ---------- boot ----------
+(async function(){
+  CFG = await api("/api/config");
+  $("#brand-sub").textContent = `${CFG.books.length} books · ${CFG.test_queries.length} gold queries`;
+  buildTestBar(); buildUserForm(); buildTweak();
+})();
+
+// ---------- tab nav ----------
+document.querySelectorAll("nav .tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll("nav .tab").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".view").forEach(x=>x.classList.remove("on"));
+  t.classList.add("on"); $("#v-"+t.dataset.view).classList.add("on");
+});
+
+// =================================================================== TESTING
+function buildTestBar(){
+  const bopts = CFG.books.map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join("");
+  $("#t-book").innerHTML = `<option value="">— all books —</option>`+bopts;
+}
+const short = s => { s=s||""; return s.length>22 ? s.slice(0,21)+"…" : s; };
+
+$("#t-run").onclick = async ()=>{
+  const gate = requireValidTuning("#t-status"); if(!gate) return;
+  const book = $("#t-book").value, limit=+$("#t-limit").value;
+  const titleOf = Object.fromEntries(CFG.books.map(b=>[b.book_id,b.title]));
+  const src = (book ? CFG.test_queries.filter(q=>q.book_id===book) : CFG.test_queries.slice())
+    .sort((a,b)=> a.book_id.localeCompare(b.book_id,undefined,{numeric:true}) || (a.sharpness||0)-(b.sharpness||0));
+  const qs = src.map(q=>({
+    summary:q.summary, descriptors:q.descriptors,
+    label: book ? `sharpness ${q.sharpness}` : `${short(titleOf[q.book_id])} · s${q.sharpness}`,
+    target_book_id:q.book_id, meta:{summary:q.summary}
+  }));
+  $("#t-status").textContent = `running ${qs.length} quer${qs.length>1?"ies":"y"}…`;
+  const t0=performance.now();
+  const {columns} = await post("/api/search_batch", {queries:qs, limit, tuning:TUNING});
+  renderColumns(columns);
+  $("#t-status").textContent = `${qs.length} queries · ${((performance.now()-t0)/1000).toFixed(1)}s`;
+};
+
+function renderColumns(cols){
+  const board=$("#test-board"); board.innerHTML="";
+  for(const col of cols){
+    const el=document.createElement("div"); el.className="column";
+    const tgt=col.target_book_id;
+    const onT = tgt ? col.results.filter(r=>String(r.book_id)===String(tgt)).length : null;
+    let head=`<div class="col-head">
+      <div class="lbl">${esc(col.label)}</div>
+      ${col.meta?.summary?`<div class="q">${esc(col.meta.summary)}</div>`:""}
+      ${onT!==null?`<div class="stat">on-target <b>${onT}/${col.results.length}</b> · book ${esc(tgt)}</div>`:""}
+    </div>`;
+    let body="";
+    if(col.error) body=`<div class="col-err">⚠ ${esc(col.error)}</div>`;
+    else if(!col.results.length) body=`<div class="col-err">no hits</div>`;
+    else body=`<div class="cards">`+col.results.map((r,i)=>cardHTML(r,i,tgt)).join("")+`</div>`;
+    el.innerHTML=head+body;
+    board.appendChild(el);
+  }
+  board.querySelectorAll(".card").forEach(c=>c.onclick=()=>openReader(c.dataset.sid));
+}
+function cardHTML(r,i,tgt){
+  const hit = tgt && String(r.book_id)===String(tgt);
+  const chips=[];
+  const pt=[r.pov,r.tense].filter(Boolean).join(" · "); if(pt) chips.push(`<span class="chip">${esc(pt)}</span>`);
+  if(r.arc) chips.push(`<span class="chip">${esc(r.arc)}</span>`);
+  chips.push(`<span class="chip b">${esc(r.book_title||("book "+r.book_id))}</span>`);
+  return `<div class="card${hit?" hit":""}" data-sid="${esc(r.scene_id)}">
+    <div class="top"><span class="rank">#${i+1} · ${esc(r.scene_id)}</span>${r.score!=null?`<span class="score">${r.score.toFixed(3)}</span>`:""}</div>
+    <div class="st">${esc(r.summary||r.scene_id)}</div>
+    <div class="pv">${esc(r.preview||"")}</div>
+    <div class="chips">${chips.join("")}</div>
+  </div>`;
+}
+
+// =================================================================== USER QUERY
+let descPicks = [], emoPicks = [];
+const EMO_COLORS = ["#e5484d","#2e9e4f","#2f6feb"];   // 1 red · 2 green · 3 blue
+
+function buildUserForm(){
+  // pov/tense combined dropdown
+  const pt = [`<option value="">— any —</option>`]
+    .concat(CFG.pov_tense.map((o,i)=>`<option value="${i}">${esc(o.label)}</option>`)).join("");
+  $("#uq-povtense").innerHTML = pt;
+  // 6 intensity arcs
+  $("#uq-arc").innerHTML = `<option value="">— any —</option>`+CFG.arcs.map(a=>`<option value="${a}">${esc(a)}</option>`).join("");
+  buildChart(); renderPicks();
+  wireDescriptors();
+}
+
+// --- descriptor tag input with autofill ---
+function wireDescriptors(){
+  const box=$("#uq-desc-box"), inp=$("#uq-desc-input"), sug=$("#uq-desc-sugg");
+  let hl=-1, matches=[];
+  const render=()=>{
+    box.querySelectorAll(".tag").forEach(t=>t.remove());
+    descPicks.forEach(w=>{
+      const t=document.createElement("span"); t.className="tag";
+      t.innerHTML=`${esc(w)}<span class="x">✕</span>`;
+      t.querySelector(".x").onclick=()=>{ descPicks=descPicks.filter(x=>x!==w); render(); };
+      box.insertBefore(t,inp);
+    });
+  };
+  const closeSug=()=>{ sug.classList.remove("on"); sug.innerHTML=""; hl=-1; matches=[]; };
+  const add=w=>{ w=(w||"").trim().toLowerCase(); if(w && !descPicks.includes(w)) descPicks.push(w); inp.value=""; render(); closeSug(); inp.focus(); };
+  const showSug=()=>{
+    const v=inp.value.trim().toLowerCase();
+    if(!v){ closeSug(); return; }
+    const pre=[], sub=[];
+    for(const d of CFG.descriptors){ if(descPicks.includes(d)) continue;
+      if(d.startsWith(v)) pre.push(d); else if(d.includes(v)) sub.push(d);
+      if(pre.length>=10) break; }
+    matches=pre.concat(sub).slice(0,10); hl=-1;
+    if(!matches.length){ closeSug(); return; }
+    sug.innerHTML=matches.map((d,i)=>`<div class="s" data-i="${i}"><span>${esc(d)}</span></div>`).join("");
+    sug.classList.add("on");
+    sug.querySelectorAll(".s").forEach(s=>s.onclick=()=>add(matches[+s.dataset.i]));
+  };
+  inp.oninput=showSug;
+  inp.onfocus=()=>box.classList.add("focus");
+  inp.onblur=()=>{ box.classList.remove("focus"); setTimeout(closeSug,150); };
+  inp.onkeydown=e=>{
+    if(e.key==="Enter"){ e.preventDefault(); add(hl>=0?matches[hl]:inp.value); }
+    else if(e.key==="ArrowDown"&&matches.length){ e.preventDefault(); hl=(hl+1)%matches.length; paintHl(); }
+    else if(e.key==="ArrowUp"&&matches.length){ e.preventDefault(); hl=(hl-1+matches.length)%matches.length; paintHl(); }
+    else if(e.key==="Backspace"&&!inp.value&&descPicks.length){ descPicks.pop(); render(); }
+    else if(e.key==="Escape"){ closeSug(); }
+  };
+  const paintHl=()=>sug.querySelectorAll(".s").forEach((s,i)=>s.classList.toggle("hl",i===hl));
+  box.onclick=e=>{ if(e.target===box) inp.focus(); };
+}
+
+// --- valence × dominance emotion chart ---
+function buildChart(){
+  const chart=$("#uq-chart");
+  chart.querySelectorAll(".dot").forEach(d=>d.remove());
+  for(const e of CFG.emotions){
+    const dot=document.createElement("div"); dot.className="dot"; dot.dataset.word=e.word;
+    dot.style.left=(e.v*100)+"%"; dot.style.top=((1-e.d)*100)+"%";
+    dot.title=`${e.word}  ·  valence ${e.v.toFixed(2)} · dominance ${e.d.toFixed(2)}`;
+    dot.innerHTML=`<span class="pt"></span><span class="lb">${esc(e.word)}</span>`;
+    dot.onclick=()=>toggleEmo(e.word);
+    chart.appendChild(dot);
+  }
+  paintChart();
+}
+function toggleEmo(w){
+  const i=emoPicks.indexOf(w);
+  if(i>=0) emoPicks.splice(i,1);            // remove; the rest shift down
+  else if(emoPicks.length<3) emoPicks.push(w);
+  paintChart(); renderPicks();
+}
+function paintChart(){
+  $("#uq-chart").querySelectorAll(".dot").forEach(dot=>{
+    const idx=emoPicks.indexOf(dot.dataset.word), sel=idx>=0;
+    dot.classList.toggle("sel",sel);
+    const pt=dot.querySelector(".pt");
+    if(sel){ pt.style.background=EMO_COLORS[idx]; pt.textContent=idx+1; }
+    else { pt.style.background="#fff"; pt.textContent=""; }
+  });
+}
+function renderPicks(){
+  const el=$("#uq-picks");
+  if(!emoPicks.length){ el.innerHTML=`<span class="empty">no emotions selected</span>`; return; }
+  el.innerHTML=emoPicks.map((w,i)=>
+    `<span class="pick"><span class="b" style="background:${EMO_COLORS[i]}">${i+1}</span>${esc(w)}</span>`).join("");
+}
+
+$("#uq-clear").onclick=()=>{
+  $("#uq-summary").value=""; descPicks=[]; emoPicks=[];
+  $("#uq-povtense").value=""; $("#uq-arc").value="";
+  $("#uq-desc-box").querySelectorAll(".tag").forEach(t=>t.remove());
+  paintChart(); renderPicks();
+  $("#uq-results").innerHTML=`<div class="hint">Results appear here, best first.</div>`;
+};
+
+$("#uq-run").onclick = async ()=>{
+  if(!requireValidTuning(null,"#uq-results")) return;
+  const ptSel=$("#uq-povtense").value, pt = ptSel!=="" ? CFG.pov_tense[+ptSel] : null;
+  const payload = {
+    summary: $("#uq-summary").value,
+    descriptors: descPicks,
+    pov: pt?pt.pov:null, tense: pt?pt.tense:null,
+    arc: $("#uq-arc").value || null,
+    emotions: emoPicks,
+    limit: 20, tuning: TUNING,
+  };
+  $("#uq-results").innerHTML=`<div class="hint">searching…</div>`;
+  const res = await post("/api/user_query", payload);
+  if(res.error){ $("#uq-results").innerHTML=`<div class="col-err">⚠ ${esc(res.error)}</div>`; return; }
+  if(!res.results.length){ $("#uq-results").innerHTML=`<div class="hint">no hits</div>`; return; }
+  $("#uq-results").innerHTML = res.results.map((r,i)=>uqCardHTML(r,i)).join("");
+  $("#uq-results").querySelectorAll(".uq-card").forEach(c=>c.onclick=()=>openReader(c.dataset.sid));
+};
+function uqCardHTML(r,i){
+  const chips=[];
+  const pt=[r.pov,r.tense].filter(Boolean).join(" · "); if(pt) chips.push(`<span class="chip">${esc(pt)}</span>`);
+  if(r.arc) chips.push(`<span class="chip">${esc(r.arc)}</span>`);
+  if(r.prose_register!=null) chips.push(`<span class="chip">prose ${fmt(r.prose_register)}</span>`);
+  if(r.dialogue_ratio!=null) chips.push(`<span class="chip">dia ${fmt(r.dialogue_ratio)}</span>`);
+  return `<div class="uq-card" data-sid="${esc(r.scene_id)}">
+    <div class="n">${i+1}</div>
+    <div class="body">
+      <div class="top"><span class="bk">${esc(r.book_title||("book "+r.book_id))}</span>
+        <span class="score">${esc(r.scene_id)}${r.score!=null?" · "+r.score.toFixed(3):""}</span></div>
+      <div class="su">${esc(r.summary||"")}</div>
+      <div class="pv">${esc(r.preview||"")}</div>
+      <div class="chips">${chips.join("")}</div>
+    </div></div>`;
+}
+
+// =================================================================== TWEAKING
+let TUNING = null;
+
+// weight-group inputs, each summing to 1.00: key -> [{k,label}...]
+const WGROUPS = {
+  method_weights: [{k:"scenes",label:"scenes"},{k:"flavor",label:"flavor"}],
+  soft_mix:       [{k:"tone",label:"tone"},{k:"prose",label:"prose"},{k:"dialogue",label:"dialogue"}],
+  affect_mix:     [{k:"v",label:"valence"},{k:"d",label:"dominance"},{k:"i",label:"intensity"}],
+};
+
+function buildTweak(){
+  TUNING = JSON.parse(JSON.stringify(CFG.tuning));
+  $("#tweak").innerHTML = `
+    <div class="tgroup">
+      <h3>Blend</h3>
+      <div class="gd">How the what-happens (scenes) and flavor (descriptors) rankings fuse, and how the vector channels combine. The scenes / flavor split must add up to 1.00.</div>
+      <div class="trow">
+        ${numGroup("method_weights")}
+        <div class="total" id="tot-method_weights"></div>
+        <button class="ghost" data-norm="method_weights">normalize</button>
+      </div>
+      <div class="trow">
+        <label class="f">combine<select id="tw-combine"><option value="sum">sum (blend)</option><option value="max">max (single)</option></select></label>
+        <label class="f">normalize<select id="tw-normalize"><option value="zscore">zscore</option><option value="minmax">minmax</option><option value="none">none</option></select></label>
+        <label class="f">rrf_k<input class="n" id="tw-rrf_k" type="number" min="1" step="1"></label>
+      </div>
+    </div>
+    <div class="tgroup">
+      <h3>Soft re-rank</h3>
+      <div class="gd">The tilt applied by prose / dialogue / tone-curve. λ is the overall soft strength; the soft-axis mix weighs the three soft signals; the affect-axis mix weighs valence / dominance / intensity inside a tone-curve distance. Each mix must add up to 1.00.</div>
+      <div class="trow">
+        <label class="f">λ strength<input class="n" id="tw-lambda" type="number" min="0" step="0.05"></label>
+      </div>
+      <div class="trow">
+        <div class="weights-in"><b style="font-size:11px;color:var(--dim);align-self:center">soft-axis</b>${numGroup("soft_mix")}</div>
+        <div class="total" id="tot-soft_mix"></div>
+        <button class="ghost" data-norm="soft_mix">normalize</button>
+      </div>
+      <div class="trow">
+        <div class="weights-in"><b style="font-size:11px;color:var(--dim);align-self:center">affect-axis</b>${numGroup("affect_mix")}</div>
+        <div class="total" id="tot-affect_mix"></div>
+        <button class="ghost" data-norm="affect_mix">normalize</button>
+      </div>
+    </div>
+    <div class="foot">These weights are read live on every Testing and User Query search. A search is blocked until each group above reads OK (sums to 1.00).</div>`;
+  // wire inputs
+  document.querySelectorAll("#tweak .wnum").forEach(inp=>inp.oninput=()=>{ readTweak(); paintTotals(); });
+  $("#tw-combine").onchange=$("#tw-normalize").onchange=$("#tw-rrf_k").oninput=$("#tw-lambda").oninput=readTweak;
+  document.querySelectorAll("#tweak [data-norm]").forEach(b=>b.onclick=()=>normalizeGroup(b.dataset.norm));
+  fillTweak();
+}
+function numGroup(g){
+  return WGROUPS[g].map(f=>`<label class="f">${f.label}<input class="n wnum" data-g="${g}" data-k="${f.k}" type="number" min="0" step="0.05"></label>`).join("");
+}
+function fillTweak(){
+  for(const g in WGROUPS) for(const f of WGROUPS[g])
+    document.querySelector(`.wnum[data-g="${g}"][data-k="${f.k}"]`).value = TUNING[g][f.k];
+  $("#tw-combine").value=TUNING.combine; $("#tw-normalize").value=TUNING.normalize;
+  $("#tw-rrf_k").value=TUNING.rrf_k; $("#tw-lambda").value=TUNING.lambda;
+  paintTotals();
+}
+function readTweak(){
+  for(const g in WGROUPS) for(const f of WGROUPS[g])
+    TUNING[g][f.k] = parseFloat(document.querySelector(`.wnum[data-g="${g}"][data-k="${f.k}"]`).value)||0;
+  TUNING.combine=$("#tw-combine").value; TUNING.normalize=$("#tw-normalize").value;
+  TUNING.rrf_k=parseInt($("#tw-rrf_k").value)||60; TUNING.lambda=parseFloat($("#tw-lambda").value)||0;
+}
+const groupSum = g => WGROUPS[g].reduce((s,f)=>s+(TUNING[g][f.k]||0),0);
+const groupOK = g => Math.abs(groupSum(g)-1) < 0.005;
+function paintTotals(){
+  let allOK=true;
+  for(const g in WGROUPS){
+    const ok=groupOK(g); allOK=allOK&&ok;
+    const el=$("#tot-"+g);
+    el.textContent = `Σ ${groupSum(g).toFixed(2)} ${ok?"OK":"≠ 1.00"}`;
+    el.className = "total "+(ok?"ok":"bad");
+  }
+  $("#tw-status").textContent = allOK ? "all weight groups add up — searches enabled"
+                                      : "fix the highlighted group(s) so each adds up to 1.00";
+  return allOK;
+}
+function normalizeGroup(g){
+  const s=groupSum(g); if(s<=0) return;
+  for(const f of WGROUPS[g]){
+    const v=+( (TUNING[g][f.k]/s).toFixed(3) );
+    TUNING[g][f.k]=v; document.querySelector(`.wnum[data-g="${g}"][data-k="${f.k}"]`).value=v;
+  }
+  paintTotals();
+}
+$("#tw-reset").onclick=()=>{ TUNING=JSON.parse(JSON.stringify(CFG.tuning)); fillTweak(); };
+
+// Gate a search on valid tuning; on failure jump to the tweaking tab (or show msg in a results box).
+function requireValidTuning(statusSel, boxSel){
+  readTweak();
+  if(paintTotals()) return true;
+  const msg="Fix the weights in Tweaking — each group must add up to 1.00.";
+  if(statusSel) $(statusSel).textContent="⚠ "+msg;
+  if(boxSel) $(boxSel).innerHTML=`<div class="col-err">⚠ ${msg}</div>`;
+  document.querySelector('nav .tab[data-view="tweak"]').click();
+  return false;
+}
+
+// =================================================================== READER
+let RD_SID=null;
+async function openReader(sid){
+  RD_SID=sid;
+  const s=await api("/api/scene?id="+encodeURIComponent(sid));
+  if(s.error){ return; }
+  $("#rd-title").textContent = s.summary || s.scene_id;
+  $("#rd-meta").innerHTML = [
+    esc(s.book_title||("book "+s.book_id)),
+    [s.pov,s.tense].filter(Boolean).join(" · "),
+    s.arc?("arc "+esc(s.arc)):"",
+    `prose ${fmt(s.prose_register)} · dia ${fmt(s.dialogue_ratio)}`,
+    `${esc(s.scene_id)} · ${s.word_count||"?"} words`,
+  ].filter(Boolean).join("&nbsp; │ &nbsp;");
+  $("#rd-body").innerHTML = s.text_html || "<p>(no text)</p>";
+  $("#rd-body").scrollTop=0;
+  $("#rd-pos").textContent = s.pos!=null ? ("scene #"+s.pos) : "";
+  $("#rd-prev").disabled=!s.prev_scene_id; $("#rd-next").disabled=!s.next_scene_id;
+  $("#rd-prev").onclick=()=>s.prev_scene_id&&openReader(s.prev_scene_id);
+  $("#rd-next").onclick=()=>s.next_scene_id&&openReader(s.next_scene_id);
+  $("#reader").classList.add("on");
+}
+$("#rd-close").onclick=()=>$("#reader").classList.remove("on");
+$("#reader").onclick=e=>{ if(e.target.id==="reader") $("#reader").classList.remove("on"); };
+document.addEventListener("keydown",e=>{
+  if(!$("#reader").classList.contains("on")) return;
+  if(e.key==="Escape") $("#reader").classList.remove("on");
+});
+</script>
+</body>
+</html>

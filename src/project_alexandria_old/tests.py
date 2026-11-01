@@ -6,7 +6,7 @@ from data import build_library, ensure_book
 from segment import segment_book
 from enrich import enrich_file
 from derive import derive_file
-from index import index_records
+from index import index_records, index_scenes
 import index
 import search
 import query
@@ -421,10 +421,11 @@ def manual_search(summary: str = "", moments=None, descriptors=None,
 # download -> segment (LLM) -> enrich (LLM) + derive + index (Qdrant + SQLite + subject trie). Each of
 # step_two/step_three already wraps itself in stay_awake() for the long lid-closed run.
 def main():
-    step_one_retrieval(FILE_IDS)         # download each book's -h.zip (skips a zip already present)
-    step_two_processing(FILE_IDS)        # segment: parallel per-book LLM labelling -> scenes json
-    step_three_embedding(FILE_IDS)       # enrich (LLM) + derive + index -> vectors + SQLite + subject trie
-    #subject_sql_test()                  # optional: subject-tree smoke
+    #step_one_retrieval(FILE_IDS)         # download each book's -h.zip (skips a zip already present)
+    #step_two_processing(FILE_IDS)        # segment: parallel per-book LLM labelling -> scenes json
+    #step_three_embedding(FILE_IDS)       # enrich (LLM) + derive + index -> vectors + SQLite + subject trie
+    subject_sql_test()                  # optional: subject-tree smoke
+    index_scenes(FILE_IDS)
     #search_test()                       # optional: read-path smoke once the stores are built
 
 
