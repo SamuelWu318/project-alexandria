@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from utils.core import ProjectPaths as proj
 
 @dataclass(frozen=True)
 class BookGates:
