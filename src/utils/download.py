@@ -18,7 +18,7 @@ def run(ids: int | list[int], force: bool = False, rebuild: bool = True, attempt
         if file.is_file() and not force: log.skip("book %d already exists", id); continue
         if file.is_file(): log.debug("book %d unlinked for replacement", id); file.unlink()
 
-        log.step("Book ID: %d | BEGIN DOWNLOADING", id)
+        log.step("Book ID: %d | begin downloading", id)
         cmd = [
             "wget", "-nd", "-q", "--no-check-certificate",
             f"https://aleph.gutenberg.org/cache/epub/{id}/pg{id}-h.zip"
@@ -30,8 +30,8 @@ def run(ids: int | list[int], force: bool = False, rebuild: bool = True, attempt
 
     for id, subp in subprocesses.items():
         code = subp.wait()
-        if code == 0: log.success("Book ID: %d | DOWNLOAD COMPLETE", id)
-        else: log.error("Book ID: %d | DOWNLOAD ERROR (exit %d)", id, code)
+        if code == 0: log.success("Book ID: %d | download complete", id)
+        else: log.error("Book ID: %d | download error (exit %d)", id, code)
 
     for id, file in id_files.items():
         ensured = ensure_zip(file, id, rebuild) # always log zip validation
@@ -55,14 +55,14 @@ def id_and_files(ids: list[int]) -> dict[int, Path]:
 def ensure_zip(file: Path, id: int, rebuild: bool) -> bool:
     # check if missing entirely
     if not zipfile.is_zipfile(file):
-        log.warning("Book ID: %d | MISSING ZIP, REBUILD? %s", id, rebuild)
+        log.warning("Book ID: %d | missing zip, rebuild? %s", id, rebuild)
         return False
 
     # check if zip corrupted
     with zipfile.ZipFile(file) as zfile:
         if zfile.testzip() is None: 
-            log.success("Book ID: %d | DOWNLOAD ENSURED", id)
+            log.success("Book ID: %d | download ensured", id)
             return True
         else:
-            log.warning("Book ID: %d | DOWNLOAD CORRUPTED, REBUILD? %s", id, rebuild) 
+            log.warning("Book ID: %d | download corrupted, rebuild? %s", id, rebuild) 
             return False
