@@ -8,8 +8,9 @@ CATALOG = {} # {id: {...}}
 with proj.CATALOG.open(newline="", encoding="utf-8") as f:
     for row in csv.DictReader(f): CATALOG[row["Text#"]] = row
 
+# --- get metadata pieces --- #
 
-def authors(id: int):
+def contributors(id: int) -> dict[str, list[str]]:
     log.step("Book ID: %d | authors requested", id)
     ret = defaultdict(list)
 
@@ -34,10 +35,10 @@ def authors(id: int):
 
         ret[role].append(" ".join(name).strip())
 
-    return log_return(id, "authors", dict(ret))
+    return log_return(id, "contributors", dict(ret))
 
 
-def title(id: int):
+def title(id: int) -> str:
     log.step("Book ID: %d | title requested", id)
     return log_return(id, "title", CATALOG[str(id)]["Title"])
 
@@ -55,3 +56,4 @@ def language(id: int):
 
 def raw_html(id: int):
     log.step("Book ID: %d | raw html requested", id)
+    

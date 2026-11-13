@@ -1,4 +1,4 @@
-import os, subprocess, sys, time, math
+import os, subprocess, sys, time, math, io
 from datetime import datetime
 import zipfile, json, csv, logging, re
 from pathlib import Path, PosixPath, PurePath, PurePosixPath
@@ -20,6 +20,7 @@ class ProjectPaths:
     DATA_DIR: Path = PUBLIC_DIR / "data"
     PROCESSED_DIR: Path = DATA_DIR / "processed"
     ZIPFILES_DIR: Path = DATA_DIR / "zipfiles"
+    HTML_DIR: Path = DATA_DIR / "html"
 
     DEBUG: Path = LOGS_DIR / "debug.log"
     CATALOG: Path = PUBLIC_DIR / "pg_catalog.csv"

@@ -1,8 +1,24 @@
 from utils.core import Path, ProjectPaths as proj
-from utils.core import subprocess, time, zipfile
+from utils.core import subprocess, time, zipfile, io
 from utils import log
 
-def run(ids: int | list[int], force: bool = False, rebuild: bool = True, attempts: int = 3):
+def _ensure_zip(file: Path, id: int, rebuild: bool) -> bool:
+    # check if missing entirely
+    if not zipfile.is_zipfile(file):
+        log.warning("Book ID: %d | missing zip, rebuild? %s", id, rebuild)
+        return False
+
+    # check if zip corrupted
+    with zipfile.ZipFile(file) as zfile:
+        if zfile.testzip() is None: 
+            log.success("Book ID: %d | download ensured", id)
+            return True
+        else:
+            log.warning("Book ID: %d | download corrupted, rebuild? %s", id, rebuild) 
+            return False
+
+
+def zip(ids: int | list[int], force: bool = False, rebuild: bool = True, attempts: int = 3):
     # ensure list type, ensure items in list
     if isinstance(ids, int): ids = [ids]
     if not ids: log.skip("no book ids were provided"); return
@@ -34,12 +50,12 @@ def run(ids: int | list[int], force: bool = False, rebuild: bool = True, attempt
         else: log.error("Book ID: %d | download error (exit %d)", id, code)
 
     for id, file in id_files.items():
-        ensured = ensure_zip(file, id, rebuild) # always log zip validation
+        ensured = _ensure_zip(file, id, rebuild) # always log zip validation
         if rebuild and not ensured: rebuild_ids.append(id)
         
     if rebuild and rebuild_ids and attempts > 1:
         log.debug("rebuilding %d ids", len(rebuild_ids))
-        run(rebuild_ids, True, rebuild, attempts=attempts-1)
+        zip(rebuild_ids, True, rebuild, attempts=attempts-1)
 
 
 def id_and_files(ids: list[int]) -> dict[int, Path]:
@@ -51,18 +67,37 @@ def id_and_files(ids: list[int]) -> dict[int, Path]:
 
     return ret
 
+def _html(zip_files: list[Path], force: bool = False):
+    if not zip_files: log.skip("no zipfile paths provided"); return
+    bad_zip = []
+    for zip_file in zip_files:
+        if not zip_file.exists(): 
+            log.skip("no path %s exists", zip_file);
+            bad_zip.append(zip_file); continue
+        if not zip_file.is_file(): 
+            log.skip("%s is a directory, not a file", zip_file);
+            bad_zip.append(zip_file); continue
 
-def ensure_zip(file: Path, id: int, rebuild: bool) -> bool:
-    # check if missing entirely
-    if not zipfile.is_zipfile(file):
-        log.warning("Book ID: %d | missing zip, rebuild? %s", id, rebuild)
-        return False
+        dest_name = f"{zip_file.name[:-6]}.html"
+        dest_path = proj.HTML_DIR / dest_name
+        if dest_path.exists() and not force: continue
 
-    # check if zip corrupted
-    with zipfile.ZipFile(file) as zfile:
-        if zfile.testzip() is None: 
-            log.success("Book ID: %d | download ensured", id)
-            return True
-        else:
-            log.warning("Book ID: %d | download corrupted, rebuild? %s", id, rebuild) 
-            return False
+        with zipfile.ZipFile(zip_file, "r") as zf:
+            for file in zf.filelist:
+                if file.filename.endswith("/"): continue
+                if file.filename.endswith(".html"):
+                    file.filename = dest_name
+                    zf.extract(file, proj.HTML_DIR); break
+    
+def html(ids: int | list[int], force: bool = False):
+    if isinstance(ids, int): ids = [ids]
+    if not ids: log.skip("no book ids were provided"); return
+
+    clean_ids = []
+    for id in ids:
+        if not id: log.skip("a given book id was empty"); continue
+        if not isinstance(id, int): log.skip("a given book id was not an int"); continue
+        clean_ids.append(id)
+
+    zip_files_list = [proj.ZIPFILES_DIR / f"pg{id}-h.zip" for id in clean_ids]
+    _html(zip_files_list, force)

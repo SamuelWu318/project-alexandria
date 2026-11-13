@@ -17,7 +17,7 @@ def build(id: int):
     log.info("Book ID: %d | building metadata", id)
     book_id = id
     book_link = "https://www.gutenberg.org/ebooks/" + str(id)
-    contributors = data.get.authors(id)
+    contributors = data.get.contributors(id)
     title = data.get.title(id)
     subjects = data.get.subjects(id)
     language = data.get.language(id)
