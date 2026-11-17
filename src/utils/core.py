@@ -7,16 +7,16 @@ class ProjectPaths:
     ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent
 
     SRC_DIR: Path = ROOT_DIR / "src"
-    PUBLIC_DIR: Path = ROOT_DIR / "public"
-    LOGS_DIR: Path = PUBLIC_DIR / "logs"
+    TESTING_DIR: Path = ROOT_DIR / "testing"
+    LOGS_DIR: Path = ROOT_DIR / "logs"
 
-    DATA_DIR: Path = PUBLIC_DIR / "data"
+    DATA_DIR: Path = TESTING_DIR / "data"
     PROCESSED_DIR: Path = DATA_DIR / "processed"
     ZIPFILES_DIR: Path = DATA_DIR / "zipfiles"
     HTML_DIR: Path = DATA_DIR / "html"
 
     DEBUG: Path = LOGS_DIR / "debug.log"
-    CATALOG: Path = PUBLIC_DIR / "pg_catalog.csv"
+    CATALOG: Path = TESTING_DIR / "pg_catalog.csv"
 
 def log_return(id: int, msg: str, obj): # return wrapper
     if obj:
