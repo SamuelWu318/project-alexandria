@@ -1,5 +1,8 @@
-from utils.core import Path, ProjectPaths as proj
-from utils.core import subprocess, time, zipfile, io
+import subprocess, time
+import zipfile
+
+from pathlib import Path
+from utils.core import ProjectPaths as proj
 from utils import log
 
 def _ensure_zip(file: Path, id: int, rebuild: bool) -> bool:
@@ -67,9 +70,10 @@ def id_and_files(ids: list[int]) -> dict[int, Path]:
 
     return ret
 
-def _html(zip_files: list[Path], force: bool = False):
+def _html(zip_files: list[Path], force: bool = False) -> list[Path]:
     if not zip_files: log.skip("no zipfile paths provided"); return
     bad_zip = []
+    ret_paths = []
     for zip_file in zip_files:
         if not zip_file.exists(): 
             log.skip("no path %s exists", zip_file);
@@ -82,14 +86,19 @@ def _html(zip_files: list[Path], force: bool = False):
         dest_path = proj.HTML_DIR / dest_name
         if dest_path.exists() and not force: continue
 
-        with zipfile.ZipFile(zip_file, "r") as zf:
-            for file in zf.filelist:
-                if file.filename.endswith("/"): continue
-                if file.filename.endswith(".html"):
-                    file.filename = dest_name
-                    zf.extract(file, proj.HTML_DIR); break
+        zf = zipfile.ZipFile(zip_file, "r")
+        for file in zf.filelist:
+            if file.filename.endswith("/"): continue
+            if file.filename.endswith(".html"):
+                file.filename = dest_name
+                zf.extract(file, proj.HTML_DIR)
+                ret_paths = dest_path; break
+        zf.close()
+
+    if bad_zip: log.warning("%s: these zips caused issues", bad_zip)
+    return ret_paths
     
-def html(ids: int | list[int], force: bool = False):
+def html(ids: int | list[int], force: bool = False) -> list[Path]:
     if isinstance(ids, int): ids = [ids]
     if not ids: log.skip("no book ids were provided"); return
 
@@ -100,4 +109,4 @@ def html(ids: int | list[int], force: bool = False):
         clean_ids.append(id)
 
     zip_files_list = [proj.ZIPFILES_DIR / f"pg{id}-h.zip" for id in clean_ids]
-    _html(zip_files_list, force)
+    return _html(zip_files_list, force)

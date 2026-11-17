@@ -1,7 +1,9 @@
-from utils.core import ProjectPaths as proj
-from utils.core import csv, re, defaultdict
-from utils.core import log_return
-from utils import log
+import csv, re
+
+from pathlib import Path
+from collections import defaultdict
+from utils.core import ProjectPaths as proj, log_return
+from utils import log, download
 
 
 CATALOG = {} # {id: {...}}
@@ -54,6 +56,15 @@ def language(id: int):
     return log_return(id, "language", CATALOG[str(id)]["Language"])
 
 
-def raw_html(id: int):
+def raw_html(id: int) -> str:
     log.step("Book ID: %d | raw html requested", id)
-    
+    html_path: Path = download.html(id)[0]
+    if not html_path: log.warning("Book ID: %d | html path is missing", id); return
+    if not html_path.exists(): log.warning("Book ID: %d | html path does not exist", id); return
+    if not html_path.is_file(): log.warning("Book ID: %d | html path is not a file", id); return
+
+    hf = open(html_path, "r", encoding="utf-8")
+    ret_string = hf.read()
+    hf.close()
+
+    return log_return(id, "html", ret_string)

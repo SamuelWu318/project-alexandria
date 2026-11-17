@@ -1,4 +1,6 @@
-from utils.core import logging, RotatingFileHandler, re
+import logging, re
+from logging.handlers import RotatingFileHandler
+
 from utils.core import ProjectPaths as proj
 
 """

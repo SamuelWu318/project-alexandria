@@ -1,13 +1,6 @@
-import os, subprocess, sys, time, math, io
-from datetime import datetime
-import zipfile, json, csv, logging, re
-from pathlib import Path, PosixPath, PurePath, PurePosixPath
-from dataclasses import dataclass, field
-from logging.handlers import RotatingFileHandler
-from typing import Protocol, Any
-from collections import defaultdict
-import types, inspect
-from utils import log
+from pathlib import Path
+from dataclasses import dataclass
+import log
 
 @dataclass(frozen=True)
 class ProjectPaths:
@@ -26,6 +19,9 @@ class ProjectPaths:
     CATALOG: Path = PUBLIC_DIR / "pg_catalog.csv"
 
 def log_return(id: int, msg: str, obj): # return wrapper
-    if obj: log.success("Book ID: %d | %s returned | %s", id, msg, obj)
-    else: log.warning("Book ID: %d | %s empty", id, msg)
+    if obj:
+        str_obj = str(obj)[:100] + "..." if len(str(obj)) > 102 else str(obj)
+        log.success("Book ID: %d | %s returned | %s", id, msg, str_obj)
+    else: 
+        log.warning("Book ID: %d | %s empty", id, msg)
     return obj
